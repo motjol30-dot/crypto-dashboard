@@ -9,6 +9,7 @@
   :root {
     --bg: #0d1117;
     --surface: #161b22;
+    --surface2: #1c2229;
     --border: #21262d;
     --text: #e6edf3;
     --muted: #7d8590;
@@ -16,163 +17,175 @@
     --green: #3fb950;
     --red: #f85149;
     --yellow: #e3b341;
-    --buy-bg: rgba(63,185,80,0.12);
-    --sell-bg: rgba(248,81,73,0.12);
-    --wait-bg: rgba(227,179,65,0.12);
+    --buy-bg: rgba(63,185,80,0.16);
+    --sell-bg: rgba(248,81,73,0.16);
+    --wait-bg: rgba(227,179,65,0.14);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
     color: var(--text);
     font-family: 'Segoe UI', 'Cairo', Tahoma, Arial, sans-serif;
-    height: 100vh;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
   }
 
-  /* ── Header ── */
+  /* ══ Top bar: يمين=بيتكوين لايف / وسط=اختيار عملة / يسار=فريم ══ */
   header {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 10px 20px;
+    padding: 8px 10px;
     display: flex;
     align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
+    gap: 8px;
     flex-shrink: 0;
+    position: relative;
+    z-index: 30;
   }
-  header h1 { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
-  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  select {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    cursor: pointer;
-    outline: none;
-  }
-  select:focus { border-color: var(--accent); }
-  .tf-btns { display: flex; gap: 6px; }
-  .tf-btn {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .tf-btn:hover { border-color: var(--accent); color: var(--text); }
-  .tf-btn.active { background: var(--accent); border-color: var(--accent); color: #0d1117; font-weight: 700; }
-  #conn-status {
-    font-size: 0.8rem; padding: 4px 10px; border-radius: 20px; font-weight: 600;
-  }
-  #conn-status.connected    { background: rgba(63,185,80,0.15); color: var(--green); }
-  #conn-status.disconnected { background: rgba(248,81,73,0.15); color: var(--red); }
-  #conn-status.connecting   { background: rgba(227,179,65,0.15); color: var(--yellow); }
 
-  /* ── Main layout ── */
-  main { flex: 1; display: flex; overflow: hidden; }
+  /* عنصر أول بالـ DOM = يمين الصفحة (RTL) */
+  #btc-ticker {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; flex-shrink: 0;
+  }
+  #btc-ticker .label { font-size: 0.65rem; color: var(--muted); font-weight: 700; }
+  #btc-ticker .price  { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; }
+  #btc-arrow { font-size: 1rem; font-weight: 900; transition: color .25s; }
+  #btc-arrow.up   { color: var(--green); }
+  #btc-arrow.down { color: var(--red); }
+  #btc-arrow.flat { color: var(--muted); }
 
-  /* ── Chart area ── */
-  #chart-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  /* عنصر ثاني = وسط الصفحة: اختيار/كتابة العملة */
+  #symbol-wrap { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #symbol-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 8px;
+    font-size: 0.9rem; text-align: center; outline: none;
+  }
+  #symbol-input:focus { border-color: var(--accent); }
+  #symbol-live-price {
+    font-size: 0.72rem; font-weight: 800; font-family: 'Courier New', monospace;
+    color: var(--muted); transition: color .3s;
+  }
+  #symbol-live-price .updated-at { font-size: 0.6rem; color: var(--muted); font-weight: 400; margin-right: 4px; }
+
+  /* عنصر ثالث = يسار الصفحة: قائمة الفريم المنسدلة */
+  #tf-wrap { position: relative; flex-shrink: 0; }
+  #tf-toggle {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 700;
+    cursor: pointer; white-space: nowrap;
+  }
+  #tf-menu {
+    display: none; position: absolute; top: 110%; left: 0;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; min-width: 100px; box-shadow: 0 6px 18px rgba(0,0,0,.4);
+  }
+  #tf-menu.open { display: block; }
+  #tf-menu button {
+    display: block; width: 100%; text-align: right; background: none; border: none;
+    color: var(--text); padding: 9px 12px; font-size: 0.82rem; cursor: pointer;
+  }
+  #tf-menu button:hover { background: var(--bg); }
+  #tf-menu button.active { color: var(--accent); font-weight: 800; }
+
+  #conn-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--red); flex-shrink: 0;
+    transition: background .3s;
+  }
+  #conn-dot.connected { background: var(--green); }
+  #conn-dot.connecting { background: var(--yellow); }
+
+  /* ══ Chart ══ */
   #chart-header {
-    padding: 8px 16px;
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    padding: 6px 12px; display: flex; align-items: baseline; gap: 10px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
   }
-  #chart-symbol { font-size: 1.3rem; font-weight: 700; }
-  #chart-price  { font-size: 1.5rem; font-weight: 700; font-family: 'Courier New', monospace; transition: color 0.3s; }
-  #chart-change { font-size: 0.9rem; font-weight: 600; }
-  #chart-container { flex: 1; position: relative; }
+  #chart-symbol { font-size: 1rem; font-weight: 700; }
+  #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
+  #chart-change { font-size: 0.8rem; font-weight: 700; }
+  #chart-container { position: relative; height: 46vh; min-height: 260px; }
 
-  /* ── Side panel ── */
-  #panel {
-    width: 310px;
-    flex-shrink: 0;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  /* ── Trend badge ── */
-  #trend-badge {
-    text-align: center; padding: 16px; border-radius: 12px;
-    font-size: 2rem; font-weight: 900; letter-spacing: 2px; transition: all 0.4s;
-  }
-  #trend-badge.up      { background: var(--buy-bg);  color: var(--green);  border: 1px solid rgba(63,185,80,0.3); }
-  #trend-badge.down    { background: var(--sell-bg);  color: var(--red);    border: 1px solid rgba(248,81,73,0.3); }
-  #trend-badge.neutral { background: var(--wait-bg); color: var(--yellow); border: 1px solid rgba(227,179,65,0.3); }
-
-  /* ── Action badge ── */
-  #action-badge {
-    text-align: center; padding: 10px; border-radius: 8px;
-    font-size: 1rem; font-weight: 700; letter-spacing: 1px; transition: all 0.3s;
-  }
-  #action-badge.buy  { background: var(--buy-bg);  color: var(--green); }
-  #action-badge.sell { background: var(--sell-bg);  color: var(--red); }
-  #action-badge.wait { background: var(--wait-bg); color: var(--yellow); }
-
-  /* ── Confidence ── */
-  .section-title {
-    font-size: 0.75rem; font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
-  }
-  .conf-row { display: flex; align-items: center; gap: 8px; }
-  .conf-bar-wrap { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
-  #conf-bar { height: 100%; border-radius: 4px; transition: width 0.5s ease, background 0.3s; }
-  #conf-value { font-size: 0.9rem; font-weight: 700; min-width: 36px; text-align: left; }
-
-  /* ── Indicators grid ── */
-  .indicators-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .ind-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-  .ind-label { font-size: 0.7rem; color: var(--muted); font-weight: 600; text-transform: uppercase; }
-  .ind-value { font-size: 1rem; font-weight: 700; margin-top: 2px; font-family: 'Courier New', monospace; }
-  .ind-sub   { font-size: 0.7rem; color: var(--muted); margin-top: 1px; }
-
-  /* ── Zones ── */
-  .zones-row { display: flex; gap: 8px; }
-  .zone-card { flex: 1; border-radius: 8px; padding: 10px; text-align: center; }
-  .zone-card.buy-zone  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.3); }
-  .zone-card.sell-zone { background: var(--sell-bg);  border: 1px solid rgba(248,81,73,0.3); }
-  .zone-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-  .zone-card.buy-zone  .zone-label { color: var(--green); }
-  .zone-card.sell-zone .zone-label { color: var(--red); }
-  .zone-range { font-size: 0.72rem; color: var(--muted); margin-top: 4px; font-family: 'Courier New', monospace; line-height: 1.5; }
-
-  /* ── Notes ── */
-  #notes-list { list-style: none; display: flex; flex-direction: column; gap: 5px; }
-  #notes-list li {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    padding: 7px 10px; font-size: 0.78rem; line-height: 1.5;
-  }
-  #notes-list li::before { content: '◈ '; color: var(--accent); }
-
-  /* ── Loading ── */
   #loading {
     position: absolute; inset: 0; background: rgba(13,17,23,0.85);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 12px; z-index: 10;
+    gap: 10px; z-index: 10;
   }
   #loading.hidden { display: none; }
   .spinner {
-    width: 36px; height: 36px; border: 3px solid var(--border);
+    width: 30px; height: 30px; border: 3px solid var(--border);
     border-top-color: var(--accent); border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #loading p { color: var(--muted); font-size: 0.9rem; }
+  #loading p { color: var(--muted); font-size: 0.85rem; }
+
+  /* ══ Status pills row (الاتجاه / التوصية / الثقة / التحليل) ══ */
+  #status-row {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .pill {
+    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 8px; text-align: center;
+  }
+  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
+  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
+  .pill-value.up, .pill-value.pos   { color: var(--green); }
+  .pill-value.down, .pill-value.neg { color: var(--red); }
+  .pill-value.neutral { color: var(--yellow); }
+
+  /* ══ Zones ══ */
+  #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
+  .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
+  .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
+  .zone-box.sell { background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.35); }
+  .zone-box .zt { font-size: 0.68rem; font-weight: 800; }
+  .zone-box.buy .zt  { color: var(--green); }
+  .zone-box.sell .zt { color: var(--red); }
+  .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
+
+  /* ══ Indicators accordion ══ */
+  #indicators-list { padding: 4px 10px 10px; }
+  .acc-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+  .acc-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; cursor: pointer; user-select: none;
+  }
+  .acc-head-left { display: flex; align-items: center; gap: 8px; }
+  .acc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .acc-dot.bull { background: var(--green); }
+  .acc-dot.bear { background: var(--red); }
+  .acc-dot.neutral { background: var(--yellow); }
+  .acc-name { font-size: 0.82rem; font-weight: 700; }
+  .acc-verdict { font-size: 0.72rem; font-weight: 700; }
+  .acc-verdict.bull { color: var(--green); }
+  .acc-verdict.bear { color: var(--red); }
+  .acc-verdict.neutral { color: var(--yellow); }
+  .acc-arrow { font-size: 0.7rem; color: var(--muted); transition: transform .2s; }
+  .acc-item.open .acc-arrow { transform: rotate(180deg); }
+  .acc-body { display: none; padding: 0 12px 10px; font-size: 0.78rem; color: var(--muted); line-height: 1.7; }
+  .acc-item.open .acc-body { display: block; }
+  .acc-body b { color: var(--text); font-family: 'Courier New', monospace; }
+
+  /* ══ Notes (compact + toggle) ══ */
+  #notes-toggle {
+    width: calc(100% - 20px); margin: 0 10px 10px; background: var(--surface);
+    border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
+    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  }
+  #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
+  #notes-list.open { display: flex; }
+  #notes-list li {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start;
+  }
+  #notes-list li .dot { flex-shrink:0; margin-top:4px; width:6px;height:6px;border-radius:50%; }
+  #notes-list li .dot.bull { background: var(--green); }
+  #notes-list li .dot.bear { background: var(--red); }
+  #notes-list li .dot.neutral { background: var(--yellow); }
 
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
@@ -182,134 +195,165 @@
 <body>
 
 <header>
-  <h1>📊 تحليل العملات الرقمية</h1>
-  <div class="controls">
-    <select id="symbol-select">
-      <option value="BTCUSDT">بيتكوين / BTCUSDT</option>
-      <option value="ETHUSDT">إيثريوم / ETHUSDT</option>
-      <option value="BNBUSDT">بينانس / BNBUSDT</option>
-      <option value="SOLUSDT">سولانا / SOLUSDT</option>
-      <option value="XRPUSDT">ريبل / XRPUSDT</option>
-      <option value="DOGEUSDT">دوج / DOGEUSDT</option>
-      <option value="ADAUSDT">كاردانو / ADAUSDT</option>
-      <option value="AVAXUSDT">أفالانش / AVAXUSDT</option>
-    </select>
-    <div class="tf-btns">
-      <button class="tf-btn active" data-interval="5m">5 دقائق</button>
-      <button class="tf-btn" data-interval="15m">15 دقيقة</button>
-      <button class="tf-btn" data-interval="30m">نص ساعة</button>
+  <!-- يمين: بيتكوين لايف -->
+  <div id="btc-ticker">
+    <span class="label">BTC</span>
+    <span class="price" id="btc-price">—</span>
+    <span id="btc-arrow" class="flat">▬</span>
+  </div>
+
+  <!-- وسط: كتابة/اختيار العملة -->
+  <div id="symbol-wrap">
+    <input id="symbol-input" list="symbol-suggestions" placeholder="اكتب رمز العملة… BTCUSDT" value="BTCUSDT" autocomplete="off" />
+    <span id="symbol-live-price">— <span class="updated-at" id="symbol-live-time"></span></span>
+    <datalist id="symbol-suggestions">
+      <option value="BTCUSDT">
+      <option value="ETHUSDT">
+      <option value="BNBUSDT">
+      <option value="SOLUSDT">
+      <option value="XRPUSDT">
+      <option value="DOGEUSDT">
+      <option value="ADAUSDT">
+      <option value="AVAXUSDT">
+    </datalist>
+  </div>
+
+  <!-- يسار: قائمة الفريم المنسدلة -->
+  <div id="tf-wrap">
+    <button id="tf-toggle">5 د ▾</button>
+    <div id="tf-menu">
+      <button data-interval="5m" data-label="5 د" class="active">5 دقائق</button>
+      <button data-interval="15m" data-label="15 د">15 دقيقة</button>
+      <button data-interval="30m" data-label="30 د">نص ساعة</button>
     </div>
   </div>
-  <div id="conn-status" class="connecting">جاري الاتصال...</div>
+
+  <div id="conn-dot"></div>
 </header>
 
-<main>
-  <!-- Side panel (right in RTL) -->
-  <div id="panel">
-    <div>
-      <div class="section-title">الاتجاه</div>
-      <div id="trend-badge" class="neutral">—</div>
-    </div>
-    <div>
-      <div class="section-title">التوصية</div>
-      <div id="action-badge" class="wait">انتظر</div>
-    </div>
-    <div>
-      <div class="section-title">مستوى الثقة</div>
-      <div class="conf-row">
-        <div class="conf-bar-wrap"><div id="conf-bar" style="width:0%"></div></div>
-        <div id="conf-value">0%</div>
+<div id="chart-header">
+  <span id="chart-symbol">BTCUSDT</span>
+  <span id="chart-price">—</span>
+  <span id="chart-change"></span>
+</div>
+<div id="chart-container">
+  <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
+</div>
+
+<!-- حالة مختصرة: الاتجاه / التوصية / الثقة / التحليل الإجمالي -->
+<div id="status-row">
+  <div class="pill">
+    <div class="pill-label">الاتجاه</div>
+    <div class="pill-value neutral" id="p-trend">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">التوصية</div>
+    <div class="pill-value neutral" id="p-action">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">الثقة</div>
+    <div class="pill-value neutral" id="p-conf">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">التحليل</div>
+    <div class="pill-value neutral" id="p-overall">—</div>
+  </div>
+</div>
+
+<!-- مناطق الشراء والبيع -->
+<div id="zones-row">
+  <div class="zone-box buy">
+    <div class="zt">🟢 منطقة شراء</div>
+    <div class="zr" id="buy-zone-range">—</div>
+  </div>
+  <div class="zone-box sell">
+    <div class="zt">🔴 منطقة بيع</div>
+    <div class="zr" id="sell-zone-range">—</div>
+  </div>
+</div>
+
+<!-- المؤشرات: أكورديون -->
+<div id="indicators-list">
+  <div class="acc-item" data-key="rsi">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI (14)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-rsi">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div>
-      <div class="section-title">المؤشرات الفنية</div>
-      <div class="indicators-grid">
-        <div class="ind-card">
-          <div class="ind-label">RSI (14)</div>
-          <div class="ind-value" id="ind-rsi">—</div>
-        </div>
-        <div class="ind-card">
-          <div class="ind-label">MACD</div>
-          <div class="ind-value" id="ind-macd">—</div>
-          <div class="ind-sub"  id="ind-macd-sig">إشارة: —</div>
-        </div>
-        <div class="ind-card">
-          <div class="ind-label">EMA 50</div>
-          <div class="ind-value" id="ind-ema50">—</div>
-        </div>
-        <div class="ind-card">
-          <div class="ind-label">EMA 200</div>
-          <div class="ind-value" id="ind-ema200">—</div>
-        </div>
-        <div class="ind-card" style="grid-column:span 2">
-          <div class="ind-label">بولينجر باندز</div>
-          <div style="display:flex;gap:8px;margin-top:4px">
-            <div><div class="ind-sub">أعلى</div><div class="ind-value" id="ind-bb-upper" style="font-size:.85rem">—</div></div>
-            <div><div class="ind-sub">وسط</div> <div class="ind-value" id="ind-bb-mid"   style="font-size:.85rem">—</div></div>
-            <div><div class="ind-sub">أدنى</div> <div class="ind-value" id="ind-bb-lower" style="font-size:.85rem">—</div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div>
-      <div class="section-title">مناطق الشراء والبيع</div>
-      <div class="zones-row">
-        <div class="zone-card buy-zone">
-          <div class="zone-label">🟢 شراء</div>
-          <div class="zone-range" id="buy-zone-range">—</div>
-        </div>
-        <div class="zone-card sell-zone">
-          <div class="zone-label">🔴 بيع</div>
-          <div class="zone-range" id="sell-zone-range">—</div>
-        </div>
-      </div>
-    </div>
-    <div>
-      <div class="section-title">ملاحظات التحليل</div>
-      <ul id="notes-list"></ul>
-    </div>
+    <div class="acc-body" id="b-rsi">—</div>
   </div>
 
-  <!-- Chart area -->
-  <div id="chart-area">
-    <div id="chart-header">
-      <span id="chart-symbol">BTCUSDT</span>
-      <span id="chart-price" style="color:var(--text)">—</span>
-      <span id="chart-change"></span>
-    </div>
-    <div id="chart-container">
-      <div id="loading">
-        <div class="spinner"></div>
-        <p>جاري تحميل البيانات...</p>
+  <div class="acc-item" data-key="macd">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
+    <div class="acc-body" id="b-macd">—</div>
   </div>
-</main>
+
+  <div class="acc-item" data-key="ema50">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 50</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-ema50">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-ema50">—</div>
+  </div>
+
+  <div class="acc-item" data-key="ema200">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 200</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-ema200">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-ema200">—</div>
+  </div>
+
+  <div class="acc-item" data-key="bb">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بولينجر باندز</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-bb">—</div>
+  </div>
+</div>
+
+<button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
+<ul id="notes-list"></ul>
 
 <script>
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
   let ws = null;
+  let btcWs = null;
   let chart = null;
   let candleSeries = null;
   let lastPrice = null;
 
-  // ── Chart ──────────────────────────────────────────────────────────────────
+  // ── مرجع سهم البيتكوين اللايف (هستيريسيس) ──
+  let btcRefPrice = null;
+  let btcArrowState = 'flat';
+  const BTC_UP_THRESHOLD = 90;    // دولار
+  const BTC_DOWN_THRESHOLD = 75;  // دولار
+
+  // ══ الشارت ══
   function initChart() {
     const container = document.getElementById('chart-container');
     if (chart) chart.remove();
     chart = LightweightCharts.createChart(container, {
       layout: { background: { color: '#0d1117' }, textColor: '#7d8590' },
       grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
-      crosshair: {
-        mode: LightweightCharts.CrosshairMode.Normal,
-        vertLine: { color: '#58a6ff', labelBackgroundColor: '#1f6feb' },
-        horzLine: { color: '#58a6ff', labelBackgroundColor: '#1f6feb' },
-      },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       rightPriceScale: { visible: false },
       leftPriceScale:  { visible: true, borderColor: '#21262d' },
       timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false },
-      watermark: { visible: false },
     });
     candleSeries = chart.addCandlestickSeries({
       upColor: '#3fb950', downColor: '#f85149',
@@ -323,21 +367,20 @@
     }).observe(container);
   }
 
-  // ── WebSocket ──────────────────────────────────────────────────────────────
+  // ══ اتصال البيانات الرئيسي (العملة المختارة) ══
   function connect() {
     if (ws) { ws.close(); ws = null; }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}`);
-    setStatus('connecting');
-    ws.onopen    = () => { setStatus('connected'); subscribe(); };
+    setDot('connecting');
+    ws.onopen    = () => { setDot('connected'); subscribe(); };
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'update') handleUpdate(msg);
     };
-    ws.onclose   = () => { setStatus('disconnected'); setTimeout(connect, 3000); };
-    ws.onerror   = () => ws.close();
+    ws.onclose = () => { setDot('disconnected'); setTimeout(connect, 3000); };
+    ws.onerror = () => ws.close();
   }
-
   function subscribe() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       showLoading(true);
@@ -345,17 +388,48 @@
     }
   }
 
-  // ── Update ─────────────────────────────────────────────────────────────────
+  // ══ اتصال مستقل لسعر البيتكوين اللايف (يبقى شغال دايمًا بغض النظر عن العملة المختارة) ══
+  function connectBtcTicker() {
+    if (btcWs) { btcWs.close(); btcWs = null; }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    btcWs = new WebSocket(`${proto}://${location.host}`);
+    btcWs.onopen = () => {
+      btcWs.send(JSON.stringify({ type: 'subscribe', symbol: 'BTCUSDT', interval: '5m' }));
+    };
+    btcWs.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'update' && msg.symbol === 'BTCUSDT') updateBtcTicker(msg);
+    };
+    btcWs.onclose = () => setTimeout(connectBtcTicker, 3000);
+    btcWs.onerror = () => btcWs.close();
+  }
+
+  function updateBtcTicker(msg) {
+    const latest = msg.candles[msg.candles.length - 1];
+    if (!latest) return;
+    const price = latest.close;
+    document.getElementById('btc-price').textContent = fmt(price);
+
+    if (btcRefPrice === null) { btcRefPrice = price; return; }
+    const diff = price - btcRefPrice;
+    const arrowEl = document.getElementById('btc-arrow');
+
+    if (diff >= BTC_UP_THRESHOLD) {
+      btcArrowState = 'up'; btcRefPrice = price;
+    } else if (diff <= -BTC_DOWN_THRESHOLD) {
+      btcArrowState = 'down'; btcRefPrice = price;
+    }
+    arrowEl.className = btcArrowState;
+    arrowEl.textContent = btcArrowState === 'up' ? '▲' : btcArrowState === 'down' ? '▼' : '▬';
+  }
+
+  // ══ تحديث الشاشة عند وصول بيانات العملة المختارة ══
   function handleUpdate(msg) {
     if (msg.symbol !== currentSymbol || msg.interval !== currentInterval) return;
     showLoading(false);
 
-    // Chart data
-    candleSeries.setData(msg.candles.map(c => ({
-      time: c.time, open: c.open, high: c.high, low: c.low, close: c.close,
-    })));
+    candleSeries.setData(msg.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
 
-    // Price header
     const latest = msg.candles[msg.candles.length - 1];
     if (latest) {
       const priceEl = document.getElementById('chart-price');
@@ -369,71 +443,110 @@
         chEl.style.color = up ? 'var(--green)' : 'var(--red)';
       }
       lastPrice = latest.close;
+
+      // سعر العملة الحقيقي تحت خانة الكتابة + وقت آخر تحديث (لمقارنة فرق التوقيت)
+      const liveEl = document.getElementById('symbol-live-price');
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      liveEl.innerHTML = `${fmt(latest.close)} <span class="updated-at">آخر تحديث ${hh}:${mm}:${ss}</span>`;
+      liveEl.style.color = 'var(--text)';
     }
     document.getElementById('chart-symbol').textContent = msg.symbol;
 
-    // Indicators
-    const ind = msg.indicators;
-    if (ind) {
-      const rsiEl = document.getElementById('ind-rsi');
-      if (ind.rsi != null) {
-        rsiEl.textContent = ind.rsi.toFixed(1);
-        rsiEl.style.color = ind.rsi < 30 ? 'var(--green)' : ind.rsi > 70 ? 'var(--red)' : 'var(--text)';
-      }
-      if (ind.macd) {
-        const macdEl = document.getElementById('ind-macd');
-        macdEl.textContent = ind.macd.value != null ? ind.macd.value.toFixed(4) : '—';
-        macdEl.style.color = (ind.macd.value != null && ind.macd.signal != null)
-          ? ind.macd.value > ind.macd.signal ? 'var(--green)' : 'var(--red)'
-          : 'var(--text)';
-        document.getElementById('ind-macd-sig').textContent =
-          `إشارة: ${ind.macd.signal != null ? ind.macd.signal.toFixed(4) : '—'}`;
-      }
-      if (ind.ema50 != null) {
-        const el = document.getElementById('ind-ema50');
-        el.textContent = fmt(ind.ema50);
-        el.style.color = ind.currentPrice > ind.ema50 ? 'var(--green)' : 'var(--red)';
-      }
-      const ema200El = document.getElementById('ind-ema200');
-      if (ind.ema200 != null) {
-        ema200El.textContent = fmt(ind.ema200);
-        ema200El.style.color = ind.currentPrice > ind.ema200 ? 'var(--green)' : 'var(--red)';
-      } else {
-        ema200El.textContent = 'يتحمّل...';
-        ema200El.style.color = 'var(--muted)';
-      }
-      if (ind.bb) {
-        document.getElementById('ind-bb-upper').textContent = fmt(ind.bb.upper);
-        document.getElementById('ind-bb-mid').textContent   = fmt(ind.bb.middle);
-        document.getElementById('ind-bb-lower').textContent = fmt(ind.bb.lower);
-      }
+    renderIndicators(msg.indicators);
+    renderDecision(msg.decision);
+  }
+
+  // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
+  function renderIndicators(ind) {
+    if (!ind) return;
+
+    // RSI
+    if (ind.rsi != null) {
+      const verdict = ind.rsi < 30 ? 'bull' : ind.rsi > 70 ? 'bear' : 'neutral';
+      const label = ind.rsi < 30 ? 'شراء (تشبع بيعي)' : ind.rsi > 70 ? 'بيع (تشبع شرائي)' : 'محايد';
+      setAcc('rsi', verdict, label, `القيمة الحالية: <b>${ind.rsi.toFixed(1)}</b><br>أقل من 30 = تشبع بيعي (فرصة شراء) — أكثر من 70 = تشبع شرائي (احتمال تصحيح)`);
     }
-
-    // Decision
-    const d = msg.decision;
-    if (d) {
-      const trendEl = document.getElementById('trend-badge');
-      trendEl.textContent = d.trend;
-      trendEl.className = d.trend === 'صعود' ? 'up' : d.trend === 'هبوط' ? 'down' : 'neutral';
-
-      const actEl = document.getElementById('action-badge');
-      const actMap = { 'buy zone': 'منطقة شراء', 'sell zone': 'منطقة بيع', 'wait': 'انتظر' };
-      actEl.textContent = actMap[d.action] || d.action;
-      actEl.className = d.action === 'buy zone' ? 'buy' : d.action === 'sell zone' ? 'sell' : 'wait';
-
-      const conf = Math.min(100, Math.max(0, d.confidence));
-      document.getElementById('conf-bar').style.width = conf + '%';
-      document.getElementById('conf-bar').style.background =
-        d.trend === 'صعود' ? 'var(--green)' : d.trend === 'هبوط' ? 'var(--red)' : 'var(--yellow)';
-      document.getElementById('conf-value').textContent = conf + '%';
-
-      if (d.buyZone) document.getElementById('buy-zone-range').innerHTML  = `${d.buyZone.from}<br>– ${d.buyZone.to}`;
-      if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from}<br>– ${d.sellZone.to}`;
-
-      const list = document.getElementById('notes-list');
-      list.innerHTML = '';
-      (d.notes || []).forEach(n => { const li = document.createElement('li'); li.textContent = n; list.appendChild(li); });
+    // MACD
+    if (ind.macd && ind.macd.value != null && ind.macd.signal != null) {
+      const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'شراء' : 'بيع';
+      setAcc('macd', verdict, label, `القيمة: <b>${ind.macd.value.toFixed(4)}</b> / الإشارة: <b>${ind.macd.signal.toFixed(4)}</b><br>الهيستوغرام: <b>${(ind.macd.histogram ?? 0).toFixed(4)}</b>`);
     }
+    // EMA50
+    if (ind.ema50 != null) {
+      const verdict = ind.currentPrice > ind.ema50 ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'دعم (فوق المتوسط)' : 'مقاومة (تحت المتوسط)';
+      setAcc('ema50', verdict, label, `القيمة: <b>${fmt(ind.ema50)}</b><br>السعر الحالي ${verdict === 'bull' ? 'أعلى' : 'أدنى'} من EMA50`);
+    }
+    // EMA200
+    if (ind.ema200 != null) {
+      const verdict = ind.currentPrice > ind.ema200 ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'اتجاه عام صاعد' : 'اتجاه عام هابط';
+      setAcc('ema200', verdict, label, `القيمة: <b>${fmt(ind.ema200)}</b><br>الاتجاه العام على المدى الطويل`);
+    } else {
+      setAcc('ema200', 'neutral', 'يتحمّل...', 'يحتاج 200 شمعة على الأقل ليظهر');
+    }
+    // Bollinger
+    if (ind.bb) {
+      let verdict = 'neutral', label = 'محايد';
+      if (ind.currentPrice < ind.bb.lower) { verdict = 'bull'; label = 'منطقة شراء قوية'; }
+      else if (ind.currentPrice > ind.bb.upper) { verdict = 'bear'; label = 'منطقة بيع قوية'; }
+      setAcc('bb', verdict, label, `أعلى: <b>${fmt(ind.bb.upper)}</b> — وسط: <b>${fmt(ind.bb.middle)}</b> — أدنى: <b>${fmt(ind.bb.lower)}</b>`);
+    }
+  }
+
+  function setAcc(key, verdict, label, bodyHtml) {
+    const item = document.querySelector(`.acc-item[data-key="${key}"]`);
+    if (!item) return;
+    item.querySelector('.acc-dot').className = `acc-dot ${verdict}`;
+    const v = document.getElementById(`v-${key}`);
+    v.textContent = label; v.className = `acc-verdict ${verdict}`;
+    document.getElementById(`b-${key}`).innerHTML = bodyHtml;
+  }
+
+  // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
+  function renderDecision(d) {
+    if (!d) return;
+
+    const trendMap = { 'صعود': ['up', 'صعود'], 'هبوط': ['down', 'هبوط'], 'تذبذب': ['neutral', 'تذبذب'] };
+    const [tc, tl] = trendMap[d.trend] || ['neutral', d.trend];
+    setPill('p-trend', tc, tl);
+
+    const actionMap = { 'buy zone': ['up', 'شراء'], 'sell zone': ['down', 'بيع'], 'wait': ['neutral', 'انتظر'] };
+    const [ac, al] = actionMap[d.action] || ['neutral', d.action];
+    setPill('p-action', ac, al);
+
+    const conf = Math.min(100, Math.max(0, d.confidence));
+    setPill('p-conf', conf >= 50 ? 'up' : 'down', `${conf}%`);
+
+    // التحليل الإجمالي = إجماع كل الملاحظات في كلمة واحدة (مبني على نفس اتجاه القرار)
+    const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
+    const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
+    setPill('p-overall', oc, ol);
+
+    if (d.buyZone)  document.getElementById('buy-zone-range').innerHTML  = `${d.buyZone.from} – ${d.buyZone.to}`;
+    if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
+
+    // ملاحظات مع نقطة لونية (شراء أخضر / بيع أحمر / محايد أصفر) بناءً على كلمات دالة بسيطة
+    const list = document.getElementById('notes-list');
+    list.innerHTML = '';
+    (d.notes || []).forEach(n => {
+      const bull = /شراء|صعود|صعودي|دعم|قوي/.test(n) && !/بيع|هبوط|هبوطي|مقاومة/.test(n);
+      const bear = /بيع|هبوط|هبوطي|مقاومة|تصحيح/.test(n);
+      const cls = bull ? 'bull' : bear ? 'bear' : 'neutral';
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="dot ${cls}"></span><span>${n}</span>`;
+      list.appendChild(li);
+    });
+  }
+
+  function setPill(id, cls, text) {
+    const el = document.getElementById(id);
+    el.className = `pill-value ${cls}`;
+    el.textContent = text;
   }
 
   function fmt(v) {
@@ -443,26 +556,55 @@
     return v.toFixed(6);
   }
   function showLoading(s) { document.getElementById('loading').classList.toggle('hidden', !s); }
-  function setStatus(s) {
-    const el = document.getElementById('conn-status');
-    el.className = s;
-    el.textContent = { connected: '● متصل', disconnected: '● منقطع', connecting: '● جاري الاتصال...' }[s] || s;
+  function setDot(s) {
+    const el = document.getElementById('conn-dot');
+    el.className = s === 'connected' ? 'connected' : s === 'connecting' ? 'connecting' : '';
   }
 
-  // ── Controls ───────────────────────────────────────────────────────────────
-  document.getElementById('symbol-select').addEventListener('change', e => {
-    currentSymbol = e.target.value; lastPrice = null; showLoading(true); subscribe();
+  // ══ التحكم: كتابة/اختيار العملة ══
+  function applySymbolInput() {
+    let v = document.getElementById('symbol-input').value.trim().toUpperCase().replace(/\s+/g, '');
+    if (!v) return;
+    if (!v.endsWith('USDT')) v += 'USDT';
+    currentSymbol = v; lastPrice = null; showLoading(true);
+    document.getElementById('symbol-live-price').innerHTML = '— <span class="updated-at"></span>';
+    subscribe();
+  }
+  document.getElementById('symbol-input').addEventListener('change', applySymbolInput);
+  document.getElementById('symbol-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); applySymbolInput(); } });
+
+  // ══ التحكم: قائمة الفريم المنسدلة ══
+  const tfToggle = document.getElementById('tf-toggle');
+  const tfMenu = document.getElementById('tf-menu');
+  tfToggle.addEventListener('click', () => tfMenu.classList.toggle('open'));
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('tf-wrap').contains(e.target)) tfMenu.classList.remove('open');
   });
-  document.querySelectorAll('.tf-btn').forEach(btn => {
+  tfMenu.querySelectorAll('button').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+      tfMenu.querySelectorAll('button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      tfToggle.textContent = `${btn.dataset.label} ▾`;
+      tfMenu.classList.remove('open');
       currentInterval = btn.dataset.interval; lastPrice = null; showLoading(true); subscribe();
     });
   });
 
+  // ══ التحكم: طي/فتح كل مؤشر ══
+  document.querySelectorAll('.acc-head').forEach(head => {
+    head.addEventListener('click', () => head.closest('.acc-item').classList.toggle('open'));
+  });
+
+  // ══ التحكم: إظهار/إخفاء كل الملاحظات ══
+  document.getElementById('notes-toggle').addEventListener('click', () => {
+    const list = document.getElementById('notes-list');
+    const open = list.classList.toggle('open');
+    document.getElementById('notes-toggle').textContent = open ? 'إخفاء ملاحظات التحليل ▴' : 'عرض كل ملاحظات التحليل ▾';
+  });
+
   initChart();
   connect();
+  connectBtcTicker();
 </script>
 </body>
 </html>
