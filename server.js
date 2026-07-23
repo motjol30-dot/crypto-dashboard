@@ -42,7 +42,8 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'subscribe') {
       const { symbol, interval } = msg;
-      if (!SYMBOLS.includes(symbol) || !INTERVALS.includes(interval)) {
+      const validSymbol = typeof symbol === 'string' && /^[A-Z0-9]{2,20}USDT$/.test(symbol);
+      if (!validSymbol || !INTERVALS.includes(interval)) {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز أو فترة زمنية غير صحيحة' }));
         return;
       }
