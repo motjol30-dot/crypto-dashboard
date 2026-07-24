@@ -31,6 +31,67 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 
+/* ============================================================
+ * نظرة عامة على السوق: 5 مؤشرات مجانية، مع تخزين مؤقت (Cache)
+ * لتجنب استهلاك حدود الطلبات المجانية لكل مصدر
+ * ============================================================ */
+let marketCache = { data: null, ts: 0 };
+const MARKET_CACHE_MS = 60 * 1000; // تحديث كل دقيقة
+
+app.get('/api/market-overview', async (_req, res) => {
+  const now = Date.now();
+  if (marketCache.data && now - marketCache.ts < MARKET_CACHE_MS) {
+    return res.json(marketCache.data);
+  }
+
+  const result = {
+    fearGreed: null,
+    btcDominance: null,
+    totalMarketCap: null,
+    marketCapChange24h: null,
+    totalVolume24h: null,
+    fundingRate: null,
+    openInterest: null,
+    updatedAt: new Date().toISOString(),
+    errors: [],
+  };
+
+  // 1) مؤشر الخوف والطمع (مجاني بالكامل، بدون مفتاح)
+  try {
+    const r = await axios.get('https://api.alternative.me/fng/?limit=1', { timeout: 8000 });
+    const d = r.data?.data?.[0];
+    if (d) result.fearGreed = { value: Number(d.value), label: d.value_classification };
+  } catch (e) { result.errors.push('fearGreed'); }
+
+  // 2) هيمنة البيتكوين + القيمة السوقية الإجمالية + الحجم (CoinGecko مجاني)
+  try {
+    const r = await axios.get('https://api.coingecko.com/api/v3/global', { timeout: 8000 });
+    const d = r.data?.data;
+    if (d) {
+      result.btcDominance = d.market_cap_percentage?.btc ?? null;
+      result.totalMarketCap = d.total_market_cap?.usd ?? null;
+      result.totalVolume24h = d.total_volume?.usd ?? null;
+      result.marketCapChange24h = d.market_cap_change_percentage_24h_usd ?? null;
+    }
+  } catch (e) { result.errors.push('coingecko'); }
+
+  // 3) معدل التمويل + الفائدة المفتوحة لعقود البيتكوين الآجلة (نفس منصة MEXC)
+  try {
+    const r = await axios.get('https://contract.mexc.com/api/v1/contract/funding_rate/BTC_USDT', { timeout: 8000 });
+    const fr = r.data?.data?.fundingRate;
+    if (fr != null) result.fundingRate = Number(fr) * 100; // نسبة مئوية
+  } catch (e) { result.errors.push('fundingRate'); }
+
+  try {
+    const r = await axios.get('https://contract.mexc.com/api/v1/contract/open_interest/BTC_USDT', { timeout: 8000 });
+    const oi = r.data?.data?.holdVol ?? r.data?.data?.amount;
+    if (oi != null) result.openInterest = Number(oi);
+  } catch (e) { result.errors.push('openInterest'); }
+
+  marketCache = { data: result, ts: now };
+  res.json(result);
+});
+
 // ── Frontend WebSocket server ─────────────────────────────────────────────────
 
 const wss = new WebSocket.Server({ server });

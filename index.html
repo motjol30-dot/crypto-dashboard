@@ -103,6 +103,25 @@
     padding: 6px 12px; display: flex; align-items: baseline; gap: 10px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
+
+  /* ══ نظرة عامة على السوق: 5 بطاقات ══ */
+  #market-overview {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+    padding: 8px 10px; background: var(--surface); border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .mo-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 4px; text-align: center; min-width: 62px;
+  }
+  .mo-card .mo-label { font-size: 0.56rem; color: var(--muted); font-weight: 700; white-space: nowrap; }
+  .mo-card .mo-value  { font-size: 0.78rem; font-weight: 800; margin-top: 3px; font-family: 'Courier New', monospace; }
+  .mo-value.pos { color: var(--green); }
+  .mo-value.neg { color: var(--red); }
+  .mo-value.neutral { color: var(--yellow); }
+  @media (max-width: 380px) {
+    #market-overview { grid-template-columns: repeat(3, 1fr); }
+  }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
   #chart-change { font-size: 0.8rem; font-weight: 700; }
@@ -230,6 +249,29 @@
 
   <div id="conn-dot"></div>
 </header>
+
+<div id="market-overview">
+  <div class="mo-card">
+    <div class="mo-label">الخوف والطمع</div>
+    <div class="mo-value neutral" id="mo-fng">—</div>
+  </div>
+  <div class="mo-card">
+    <div class="mo-label">هيمنة BTC</div>
+    <div class="mo-value neutral" id="mo-dom">—</div>
+  </div>
+  <div class="mo-card">
+    <div class="mo-label">القيمة السوقية</div>
+    <div class="mo-value neutral" id="mo-mcap">—</div>
+  </div>
+  <div class="mo-card">
+    <div class="mo-label">تمويل BTC</div>
+    <div class="mo-value neutral" id="mo-funding">—</div>
+  </div>
+  <div class="mo-card">
+    <div class="mo-label">فائدة مفتوحة</div>
+    <div class="mo-value neutral" id="mo-oi">—</div>
+  </div>
+</div>
 
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
@@ -389,26 +431,49 @@
   }
 
   // ══ اتصال مستقل لسعر البيتكوين اللايف (يبقى شغال دايمًا بغض النظر عن العملة المختارة) ══
+  let btcLastMsgTime = 0;
+  let btcWatchdog = null;
+
   function connectBtcTicker() {
-    if (btcWs) { btcWs.close(); btcWs = null; }
+    if (btcWs) { try { btcWs.close(); } catch (e) {} btcWs = null; }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     btcWs = new WebSocket(`${proto}://${location.host}`);
     btcWs.onopen = () => {
       btcWs.send(JSON.stringify({ type: 'subscribe', symbol: 'BTCUSDT', interval: '5m' }));
+      btcLastMsgTime = Date.now();
     };
     btcWs.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.type === 'update' && msg.symbol === 'BTCUSDT') updateBtcTicker(msg);
+      if (msg.type === 'update' && msg.symbol === 'BTCUSDT') { btcLastMsgTime = Date.now(); updateBtcTicker(msg); }
     };
     btcWs.onclose = () => setTimeout(connectBtcTicker, 3000);
     btcWs.onerror = () => btcWs.close();
+
+    // حارس: لو ما وصل أي تحديث خلال 20 ثانية (اتصال معلّق بصمت)، أجبر إعادة الاتصال
+    if (btcWatchdog) clearInterval(btcWatchdog);
+    btcWatchdog = setInterval(() => {
+      if (Date.now() - btcLastMsgTime > 20000) {
+        try { btcWs.close(); } catch (e) {}
+      }
+    }, 5000);
   }
+
+  let btcLastTickPrice = null;
 
   function updateBtcTicker(msg) {
     const latest = msg.candles[msg.candles.length - 1];
     if (!latest) return;
     const price = latest.close;
-    document.getElementById('btc-price').textContent = fmt(price);
+    const priceEl = document.getElementById('btc-price');
+    priceEl.textContent = fmt(price);
+
+    // لون السعر نفسه يتحرك مع كل تحديث لحظي (تيك بتيك): أخضر لو صعد، أحمر لو نزل
+    if (btcLastTickPrice !== null) {
+      priceEl.style.color = price > btcLastTickPrice ? 'var(--green)'
+                            : price < btcLastTickPrice ? 'var(--red)'
+                            : priceEl.style.color;
+    }
+    btcLastTickPrice = price;
 
     if (btcRefPrice === null) { btcRefPrice = price; return; }
     const diff = price - btcRefPrice;
@@ -421,6 +486,16 @@
     }
     arrowEl.className = btcArrowState;
     arrowEl.textContent = btcArrowState === 'up' ? '▲' : btcArrowState === 'down' ? '▼' : '▬';
+
+    // بطة تنبيه صغيرة تلمع بنفس لون السهم عند تغيّر الحالة (تأكيد بصري إضافي)
+    let badge = document.getElementById('btc-flash-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.id = 'btc-flash-badge';
+      badge.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;transition:background .3s;';
+      arrowEl.parentElement.insertBefore(badge, arrowEl);
+    }
+    badge.style.background = btcArrowState === 'up' ? 'var(--green)' : btcArrowState === 'down' ? 'var(--red)' : 'var(--muted)';
   }
 
   // ══ تحديث الشاشة عند وصول بيانات العملة المختارة ══
@@ -602,9 +677,51 @@
     document.getElementById('notes-toggle').textContent = open ? 'إخفاء ملاحظات التحليل ▴' : 'عرض كل ملاحظات التحليل ▾';
   });
 
+  // ══ نظرة عامة على السوق (5 مؤشرات) — تتحدث كل دقيقة ══
+  async function loadMarketOverview() {
+    try {
+      const r = await fetch('/api/market-overview');
+      const d = await r.json();
+
+      if (d.fearGreed) {
+        const el = document.getElementById('mo-fng');
+        el.textContent = `${d.fearGreed.value}`;
+        el.className = 'mo-value ' + (d.fearGreed.value >= 55 ? 'pos' : d.fearGreed.value <= 45 ? 'neg' : 'neutral');
+        el.title = d.fearGreed.label;
+      }
+      if (d.btcDominance != null) {
+        document.getElementById('mo-dom').textContent = `${d.btcDominance.toFixed(1)}%`;
+      }
+      if (d.totalMarketCap != null) {
+        const el = document.getElementById('mo-mcap');
+        el.textContent = fmtBig(d.totalMarketCap);
+        if (d.marketCapChange24h != null) {
+          el.className = 'mo-value ' + (d.marketCapChange24h >= 0 ? 'pos' : 'neg');
+        }
+      }
+      if (d.fundingRate != null) {
+        const el = document.getElementById('mo-funding');
+        el.textContent = `${d.fundingRate >= 0 ? '+' : ''}${d.fundingRate.toFixed(3)}%`;
+        el.className = 'mo-value ' + (Math.abs(d.fundingRate) < 0.02 ? 'neutral' : d.fundingRate > 0 ? 'neg' : 'pos');
+      }
+      if (d.openInterest != null) {
+        document.getElementById('mo-oi').textContent = fmtBig(d.openInterest);
+      }
+    } catch (e) { /* تجاهل بصمت، يعيد المحاولة بالمرة الجاية */ }
+  }
+  function fmtBig(n) {
+    if (n >= 1e12) return (n / 1e12).toFixed(2) + 'ت';
+    if (n >= 1e9)  return (n / 1e9).toFixed(2) + 'ب';
+    if (n >= 1e6)  return (n / 1e6).toFixed(2) + 'م';
+    if (n >= 1e3)  return (n / 1e3).toFixed(1) + 'ك';
+    return n.toFixed(0);
+  }
+
   initChart();
   connect();
   connectBtcTicker();
+  loadMarketOverview();
+  setInterval(loadMarketOverview, 60000);
 </script>
 </body>
 </html>
