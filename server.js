@@ -5,7 +5,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
-const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
+const { RSI, MACD, BollingerBands, EMA, SMA, ADX, Stochastic, OBV, ATR, IchimokuCloud, VWAP } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
@@ -249,6 +249,9 @@ function last(arr) { return arr && arr.length ? arr[arr.length - 1] : undefined;
 function computeIndicators(candles) {
   if (candles.length < 30) return null;
   const closes = candles.map((c) => c.close);
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const volumes = candles.map((c) => c.volume);
 
   const rsi = last(RSI.calculate({ values: closes, period: 14 }));
 
@@ -264,7 +267,103 @@ function computeIndicators(candles) {
   const ema50 = last(EMA.calculate({ values: closes, period: 50 }));
   const ema200 = closes.length >= 200 ? last(EMA.calculate({ values: closes, period: 200 })) : null;
 
-  return { rsi, macd, bb, ema50, ema200, currentPrice: closes[closes.length - 1] };
+  // ── المؤشرات الإضافية الجديدة (محمية فرديًا؛ فشل مؤشر واحد لا يوقف الباقي) ──
+  let sma20 = null, vwap = null, stochastic = null, adx = null, obv = null, obvPrev = null,
+      supertrend = null, ichimoku = null, volumeProfile = null;
+
+  try { sma20 = last(SMA.calculate({ values: closes, period: 20 })); } catch (e) { console.error('SMA error:', e.message); }
+
+  try { vwap = last(VWAP.calculate({ close: closes, high: highs, low: lows, volume: volumes })); } catch (e) { console.error('VWAP error:', e.message); }
+
+  try {
+    const s = last(Stochastic.calculate({ high: highs, low: lows, close: closes, period: 14, signalPeriod: 3 }));
+    stochastic = s ? { k: s.k, d: s.d } : null;
+  } catch (e) { console.error('Stochastic error:', e.message); }
+
+  try {
+    const a = last(ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }));
+    adx = a ? { adx: a.adx, pdi: a.pdi, mdi: a.mdi } : null;
+  } catch (e) { console.error('ADX error:', e.message); }
+
+  try {
+    const obvArr = OBV.calculate({ close: closes, volume: volumes });
+    obv = last(obvArr);
+    obvPrev = obvArr.length > 1 ? obvArr[obvArr.length - 2] : null;
+  } catch (e) { console.error('OBV error:', e.message); }
+
+  try { supertrend = computeSupertrend(candles, 10, 3); } catch (e) { console.error('Supertrend error:', e.message); }
+
+  try {
+    const ichiRaw = last(IchimokuCloud.calculate({
+      high: highs, low: lows, conversionPeriod: 9, basePeriod: 26, spanPeriod: 52, displacement: 26,
+    }));
+    ichimoku = ichiRaw ? { conversion: ichiRaw.conversion, base: ichiRaw.base, spanA: ichiRaw.spanA, spanB: ichiRaw.spanB } : null;
+  } catch (e) { console.error('Ichimoku error:', e.message); }
+
+  try { volumeProfile = computeVolumeProfile(candles.slice(-100)); } catch (e) { console.error('VolumeProfile error:', e.message); }
+
+  return {
+    rsi, macd, bb, ema50, ema200,
+    sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
+    currentPrice: closes[closes.length - 1],
+  };
+}
+
+// Supertrend (مبني على ATR) — مو موجود جاهز بالمكتبة، حساب يدوي بالمعادلة القياسية
+function computeSupertrend(candles, period = 10, multiplier = 3) {
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const closes = candles.map((c) => c.close);
+  const atrArr = ATR.calculate({ high: highs, low: lows, close: closes, period });
+  if (!atrArr.length) return null;
+
+  const offset = candles.length - atrArr.length;
+  let finalUpper = null, finalLower = null, trendUp = true, st = null;
+
+  for (let i = 0; i < atrArr.length; i++) {
+    const idx = i + offset;
+    const hl2 = (highs[idx] + lows[idx]) / 2;
+    const atr = atrArr[i];
+    const basicUpper = hl2 + multiplier * atr;
+    const basicLower = hl2 - multiplier * atr;
+    const close = closes[idx];
+    const prevClose = idx > 0 ? closes[idx - 1] : close;
+
+    if (finalUpper === null) { finalUpper = basicUpper; finalLower = basicLower; }
+    else {
+      finalUpper = (basicUpper < finalUpper || prevClose > finalUpper) ? basicUpper : finalUpper;
+      finalLower = (basicLower > finalLower || prevClose < finalLower) ? basicLower : finalLower;
+    }
+
+    if (close > finalUpper) trendUp = true;
+    else if (close < finalLower) trendUp = false;
+
+    st = trendUp ? finalLower : finalUpper;
+  }
+  return st !== null ? { value: st, trendUp } : null;
+}
+
+// Volume Profile مبسط: يقسّم مدى السعر لمستويات ويحسب أين تركز الحجم (POC)
+function computeVolumeProfile(candles, buckets = 24) {
+  if (!candles.length) return null;
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const max = Math.max(...highs);
+  const min = Math.min(...lows);
+  if (max === min) return null;
+  const step = (max - min) / buckets;
+  const vol = new Array(buckets).fill(0);
+
+  for (const c of candles) {
+    const mid = (c.high + c.low) / 2;
+    let idx = Math.floor((mid - min) / step);
+    if (idx < 0) idx = 0; if (idx >= buckets) idx = buckets - 1;
+    vol[idx] += c.volume;
+  }
+  let pocIdx = 0;
+  for (let i = 1; i < buckets; i++) if (vol[i] > vol[pocIdx]) pocIdx = i;
+  const pocPrice = min + step * (pocIdx + 0.5);
+  return { pocPrice, rangeHigh: max, rangeLow: min };
 }
 
 // ── Decision Engine ───────────────────────────────────────────────────────────
