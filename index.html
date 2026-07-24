@@ -142,7 +142,7 @@
   #loading p { color: var(--muted); font-size: 0.85rem; }
 
   /* ══ Status pills row (الاتجاه / التوصية / الثقة / التحليل) ══ */
-  #status-row {
+  #status-row, .status-row-like {
     display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
@@ -302,6 +302,15 @@
   </div>
 </div>
 
+<!-- إجماع الـ13 مؤشر مجتمعين — طبقة منفصلة عن قرار الـ5 الأصلي أعلاه -->
+<div id="consensus-row" class="status-row-like" style="padding-top:0;">
+  <div class="pill" style="flex:1 1 100%;">
+    <div class="pill-label">📊 إجماع 13 مؤشر</div>
+    <div class="pill-value neutral" id="p-consensus">—</div>
+    <div style="font-size:0.62rem;color:var(--muted);margin-top:2px;" id="consensus-detail">—</div>
+  </div>
+</div>
+
 <!-- مناطق الشراء والبيع -->
 <div id="zones-row">
   <div class="zone-box buy">
@@ -364,6 +373,86 @@
       </div>
     </div>
     <div class="acc-body" id="b-bb">—</div>
+  </div>
+
+  <div class="acc-item" data-key="supertrend">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Supertrend</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-supertrend">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-supertrend">—</div>
+  </div>
+
+  <div class="acc-item" data-key="vwap">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">VWAP</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-vwap">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-vwap">—</div>
+  </div>
+
+  <div class="acc-item" data-key="stochastic">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-stochastic">—</div>
+  </div>
+
+  <div class="acc-item" data-key="adx">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX (قوة الاتجاه)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-adx">—</div>
+  </div>
+
+  <div class="acc-item" data-key="obv">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV (تدفق الحجم)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-obv">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-obv">—</div>
+  </div>
+
+  <div class="acc-item" data-key="sma20">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">SMA 20</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-sma20">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-sma20">—</div>
+  </div>
+
+  <div class="acc-item" data-key="ichimoku">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">سحابة إيشيموكو</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-ichimoku">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-ichimoku">—</div>
+  </div>
+
+  <div class="acc-item" data-key="volprofile">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Volume Profile (مبسّط)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-volprofile">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-volprofile">—</div>
   </div>
 </div>
 
@@ -531,12 +620,14 @@
     document.getElementById('chart-symbol').textContent = msg.symbol;
 
     renderIndicators(msg.indicators);
+    renderConsensus();
     renderDecision(msg.decision);
   }
 
   // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
   function renderIndicators(ind) {
     if (!ind) return;
+    consensusTracker = {}; // تصفير قبل كل تحديث عشان الإجماع يحسب من أحدث القيم فقط
 
     // RSI
     if (ind.rsi != null) {
@@ -571,7 +662,75 @@
       else if (ind.currentPrice > ind.bb.upper) { verdict = 'bear'; label = 'منطقة بيع قوية'; }
       setAcc('bb', verdict, label, `أعلى: <b>${fmt(ind.bb.upper)}</b> — وسط: <b>${fmt(ind.bb.middle)}</b> — أدنى: <b>${fmt(ind.bb.lower)}</b>`);
     }
+
+    // Supertrend
+    if (ind.supertrend) {
+      const verdict = ind.supertrend.trendUp ? 'bull' : 'bear';
+      const label = ind.supertrend.trendUp ? 'اتجاه صاعد' : 'اتجاه هابط';
+      setAcc('supertrend', verdict, label, `القيمة: <b>${fmt(ind.supertrend.value)}</b><br>السعر ${ind.supertrend.trendUp ? 'أعلى' : 'أدنى'} من خط Supertrend`);
+    } else {
+      setAcc('supertrend', 'neutral', 'يتحمّل...', 'يحتاج بيانات أكثر للحساب');
+    }
+
+    // VWAP
+    if (ind.vwap != null) {
+      const verdict = ind.currentPrice > ind.vwap ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'فوق VWAP (قوة شرائية)' : 'تحت VWAP (ضغط بيعي)';
+      setAcc('vwap', verdict, label, `القيمة: <b>${fmt(ind.vwap)}</b><br>مرجع السعر العادل الموزون بالحجم`);
+    }
+
+    // Stochastic
+    if (ind.stochastic) {
+      const k = ind.stochastic.k;
+      const verdict = k < 20 ? 'bull' : k > 80 ? 'bear' : 'neutral';
+      const label = k < 20 ? 'تشبع بيعي' : k > 80 ? 'تشبع شرائي' : 'محايد';
+      setAcc('stochastic', verdict, label, `K: <b>${k.toFixed(1)}</b> — D: <b>${ind.stochastic.d.toFixed(1)}</b><br>أقل من 20 = تشبع بيعي — أكثر من 80 = تشبع شرائي`);
+    }
+
+    // ADX (قوة الاتجاه، مو اتجاهه)
+    if (ind.adx) {
+      const strong = ind.adx.adx >= 25;
+      const verdict = !strong ? 'neutral' : (ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear');
+      const label = !strong ? 'اتجاه ضعيف/تذبذب' : (ind.adx.pdi > ind.adx.mdi ? 'اتجاه صاعد قوي' : 'اتجاه هابط قوي');
+      setAcc('adx', verdict, label, `ADX: <b>${ind.adx.adx.toFixed(1)}</b> (فوق 25 = اتجاه قوي)<br>+DI: <b>${ind.adx.pdi.toFixed(1)}</b> — -DI: <b>${ind.adx.mdi.toFixed(1)}</b>`);
+    }
+
+    // OBV
+    if (ind.obv != null && ind.obvPrev != null) {
+      const verdict = ind.obv > ind.obvPrev ? 'bull' : ind.obv < ind.obvPrev ? 'bear' : 'neutral';
+      const label = verdict === 'bull' ? 'تدفق شرائي' : verdict === 'bear' ? 'تدفق بيعي' : 'مستقر';
+      setAcc('obv', verdict, label, `القيمة: <b>${fmtBig(ind.obv)}</b><br>يقيس هل الحجم يدعم حركة السعر الحالية`);
+    }
+
+    // SMA 20
+    if (ind.sma20 != null) {
+      const verdict = ind.currentPrice > ind.sma20 ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'فوق SMA20' : 'تحت SMA20';
+      setAcc('sma20', verdict, label, `القيمة: <b>${fmt(ind.sma20)}</b>`);
+    }
+
+    // Ichimoku
+    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) {
+      const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB);
+      const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB);
+      let verdict = 'neutral', label = 'داخل السحابة (تذبذب)';
+      if (ind.currentPrice > top) { verdict = 'bull'; label = 'فوق السحابة (صاعد)'; }
+      else if (ind.currentPrice < bottom) { verdict = 'bear'; label = 'تحت السحابة (هابط)'; }
+      setAcc('ichimoku', verdict, label, `Span A: <b>${fmt(ind.ichimoku.spanA)}</b> — Span B: <b>${fmt(ind.ichimoku.spanB)}</b><br>Conversion: <b>${fmt(ind.ichimoku.conversion)}</b> — Base: <b>${fmt(ind.ichimoku.base)}</b>`);
+    } else {
+      setAcc('ichimoku', 'neutral', 'يتحمّل...', 'يحتاج بيانات تاريخية أكثر (حتى 52+26 شمعة)');
+    }
+
+    // Volume Profile (مبسّط) — نقطة تركز الحجم (POC)
+    if (ind.volumeProfile) {
+      const vp = ind.volumeProfile;
+      const verdict = ind.currentPrice > vp.pocPrice ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'السعر فوق منطقة التركز' : 'السعر تحت منطقة التركز';
+      setAcc('volprofile', verdict, label, `نقطة تركز الحجم (POC): <b>${fmt(vp.pocPrice)}</b><br>مدى آخر 100 شمعة: <b>${fmt(vp.rangeLow)}</b> – <b>${fmt(vp.rangeHigh)}</b><br><span style="color:var(--muted)">نسخة مبسّطة — ليست مطابقة لأي أداة تجارية معينة</span>`);
+    }
   }
+
+  let consensusTracker = {};
 
   function setAcc(key, verdict, label, bodyHtml) {
     const item = document.querySelector(`.acc-item[data-key="${key}"]`);
@@ -580,6 +739,39 @@
     const v = document.getElementById(`v-${key}`);
     v.textContent = label; v.className = `acc-verdict ${verdict}`;
     document.getElementById(`b-${key}`).innerHTML = bodyHtml;
+    consensusTracker[key] = verdict; // نسجل إشارة كل مؤشر لحساب إجماع الـ13 لاحقًا
+  }
+
+  // ══ إجماع كل الـ13 مؤشر مع بعض — طبقة منفصلة، لا تُغيّر قرار الـ5 الأصلي أعلاه ══
+  function renderConsensus() {
+    const verdicts = Object.values(consensusTracker);
+    const total = verdicts.length;
+    if (total === 0) return;
+
+    const bull = verdicts.filter(v => v === 'bull').length;
+    const bear = verdicts.filter(v => v === 'bear').length;
+    const neutral = total - bull - bear;
+    const diff = bull - bear;
+    const absDiff = Math.abs(diff);
+
+    let strength, strengthClass;
+    if (absDiff >= 8)      { strength = 'قوي جدًا'; strengthClass = diff > 0 ? 'pos' : 'neg'; }
+    else if (absDiff >= 5) { strength = 'قوي';      strengthClass = diff > 0 ? 'pos' : 'neg'; }
+    else if (absDiff >= 2) { strength = 'متوسط';    strengthClass = 'neutral'; }
+    else                   { strength = 'ضعيف/متضارب'; strengthClass = 'neutral'; }
+
+    const direction = diff > 0 ? 'إيجابي' : diff < 0 ? 'سلبي' : 'محايد';
+
+    const el = document.getElementById('p-consensus');
+    if (el) {
+      el.textContent = strength;
+      el.className = `pill-value ${strengthClass}`;
+      el.title = `${direction} — ${bull} شراء / ${bear} بيع / ${neutral} محايد من أصل ${total}`;
+    }
+    const detailEl = document.getElementById('consensus-detail');
+    if (detailEl) {
+      detailEl.textContent = `${direction} — 🟢${bull} شراء  🔴${bear} بيع  ⚪${neutral} محايد (من ${total} مؤشر)`;
+    }
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
