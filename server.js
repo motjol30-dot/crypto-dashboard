@@ -5,7 +5,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
-const { RSI, MACD, BollingerBands, EMA, SMA, ADX, Stochastic, OBV, ATR, IchimokuCloud, VWAP } = require('technicalindicators');
+const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
@@ -65,7 +65,7 @@ app.get('/api/market-overview', async (_req, res) => {
 
   // 2) هيمنة البيتكوين + القيمة السوقية الإجمالية + الحجم (CoinGecko مجاني)
   try {
-    const r = await axios.get('https://api.coingecko.com/api/v3/global', { timeout: 8000 });
+    const r = await axios.get('https://api.coingecko.com/api/v3/global', { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CryptoDashboard/1.0)' } });
     const d = r.data?.data;
     if (d) {
       result.btcDominance = d.market_cap_percentage?.btc ?? null;
@@ -267,54 +267,164 @@ function computeIndicators(candles) {
   const ema50 = last(EMA.calculate({ values: closes, period: 50 }));
   const ema200 = closes.length >= 200 ? last(EMA.calculate({ values: closes, period: 200 })) : null;
 
-  // ── المؤشرات الإضافية الجديدة (محمية فرديًا؛ فشل مؤشر واحد لا يوقف الباقي) ──
-  let sma20 = null, vwap = null, stochastic = null, adx = null, obv = null, obvPrev = null,
-      supertrend = null, ichimoku = null, volumeProfile = null;
+  // ── المؤشرات الإضافية الثمانية: معادلات يدوية بحتة (بدون أي اعتماد على مكتبة خارجية) ──
+  const n = closes.length;
 
-  try { sma20 = last(SMA.calculate({ values: closes, period: 20 })); } catch (e) { console.error('SMA error:', e.message); }
+  // SMA 20
+  let sma20 = null;
+  if (n >= 20) {
+    let sum = 0;
+    for (let i = n - 20; i < n; i++) sum += closes[i];
+    sma20 = sum / 20;
+  }
 
-  try { vwap = last(VWAP.calculate({ close: closes, high: highs, low: lows, volume: volumes })); } catch (e) { console.error('VWAP error:', e.message); }
+  // VWAP (على آخر 100 شمعة كنافذة تقريبية)
+  let vwap = null;
+  {
+    const win = candles.slice(-100);
+    let cumPV = 0, cumVol = 0;
+    for (const c of win) {
+      const typical = (c.high + c.low + c.close) / 3;
+      cumPV += typical * c.volume;
+      cumVol += c.volume;
+    }
+    if (cumVol > 0) vwap = cumPV / cumVol;
+  }
 
-  try {
-    const s = last(Stochastic.calculate({ high: highs, low: lows, close: closes, period: 14, signalPeriod: 3 }));
-    stochastic = s ? { k: s.k, d: s.d } : null;
-  } catch (e) { console.error('Stochastic error:', e.message); }
+  // Stochastic %K / %D (فترة 14، تنعيم 3)
+  let stochastic = null;
+  if (n >= 17) {
+    const kValues = [];
+    for (let i = 13; i < n; i++) {
+      const hh = Math.max(...highs.slice(i - 13, i + 1));
+      const ll = Math.min(...lows.slice(i - 13, i + 1));
+      kValues.push(hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100);
+    }
+    const kLast = kValues[kValues.length - 1];
+    const dSlice = kValues.slice(-3);
+    const dLast = dSlice.reduce((a, b) => a + b, 0) / dSlice.length;
+    stochastic = { k: kLast, d: dLast };
+  }
 
-  try {
-    const a = last(ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }));
-    adx = a ? { adx: a.adx, pdi: a.pdi, mdi: a.mdi } : null;
-  } catch (e) { console.error('ADX error:', e.message); }
+  // ADX(14) — طريقة Wilder اليدوية
+  let adx = null;
+  if (n >= 30) {
+    const period = 14;
+    const trArr = [], plusDM = [], minusDM = [];
+    for (let i = 1; i < n; i++) {
+      const upMove = highs[i] - highs[i - 1];
+      const downMove = lows[i - 1] - lows[i];
+      plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+      minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+      trArr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    }
+    const wilderSmooth = (arr) => {
+      const out = [];
+      let s = 0;
+      for (let i = 0; i < period; i++) s += arr[i];
+      out.push(s);
+      for (let i = period; i < arr.length; i++) out.push(out[out.length - 1] - out[out.length - 1] / period + arr[i]);
+      return out;
+    };
+    if (trArr.length >= period) {
+      const trS = wilderSmooth(trArr), plusS = wilderSmooth(plusDM), minusS = wilderSmooth(minusDM);
+      const pdiArr = plusS.map((v, i) => (trS[i] ? (v / trS[i]) * 100 : 0));
+      const mdiArr = minusS.map((v, i) => (trS[i] ? (v / trS[i]) * 100 : 0));
+      const dxArr = pdiArr.map((p, i) => { const m = mdiArr[i]; return (p + m) ? (Math.abs(p - m) / (p + m)) * 100 : 0; });
+      if (dxArr.length >= period) {
+        let sum = 0;
+        for (let i = 0; i < period; i++) sum += dxArr[i];
+        let adxVal = sum / period;
+        for (let i = period; i < dxArr.length; i++) adxVal = (adxVal * (period - 1) + dxArr[i]) / period;
+        adx = { adx: adxVal, pdi: pdiArr[pdiArr.length - 1], mdi: mdiArr[mdiArr.length - 1] };
+      }
+    }
+  }
 
-  try {
-    const obvArr = OBV.calculate({ close: closes, volume: volumes });
-    obv = last(obvArr);
-    obvPrev = obvArr.length > 1 ? obvArr[obvArr.length - 2] : null;
-  } catch (e) { console.error('OBV error:', e.message); }
+  // OBV (يدوي)
+  let obv = null, obvPrev = null;
+  {
+    let val = 0;
+    const arr = [0];
+    for (let i = 1; i < n; i++) {
+      if (closes[i] > closes[i - 1]) val += volumes[i];
+      else if (closes[i] < closes[i - 1]) val -= volumes[i];
+      arr.push(val);
+    }
+    obv = arr[arr.length - 1];
+    obvPrev = arr.length > 1 ? arr[arr.length - 2] : null;
+  }
 
-  try { supertrend = computeSupertrend(candles, 10, 3); } catch (e) { console.error('Supertrend error:', e.message); }
+  // Supertrend (يدوي، مبني على ATR يدوي)
+  const supertrend = computeSupertrend(candles);
 
-  try {
-    const ichiRaw = last(IchimokuCloud.calculate({
-      high: highs, low: lows, conversionPeriod: 9, basePeriod: 26, spanPeriod: 52, displacement: 26,
-    }));
-    ichimoku = ichiRaw ? { conversion: ichiRaw.conversion, base: ichiRaw.base, spanA: ichiRaw.spanA, spanB: ichiRaw.spanB } : null;
-  } catch (e) { console.error('Ichimoku error:', e.message); }
+  // إيشيموكو (يدوي، نسخة مبسّطة بدون الإزاحة الزمنية)
+  let ichimoku = null;
+  if (n >= 52) {
+    const hl = (period) => {
+      const h = Math.max(...highs.slice(-period));
+      const l = Math.min(...lows.slice(-period));
+      return (h + l) / 2;
+    };
+    const conversion = hl(9), base = hl(26), spanB = hl(52);
+    ichimoku = { conversion, base, spanA: (conversion + base) / 2, spanB };
+  }
 
-  try { volumeProfile = computeVolumeProfile(candles.slice(-100)); } catch (e) { console.error('VolumeProfile error:', e.message); }
+  const volumeProfile = computeVolumeProfile(candles.slice(-100));
+
+  // نقاط الارتكاز (Pivot Points) — من الشمعة السابقة المكتملة
+  let pivot = null;
+  if (n >= 2) {
+    const prev = candles[n - 2];
+    const p = (prev.high + prev.low + prev.close) / 3;
+    pivot = { p, r1: 2 * p - prev.low, s1: 2 * p - prev.high };
+  }
+
+  // مقارنة الشموع (آخر 3 شموع: اتجاه متتالي + كشف ابتلاع بسيط)
+  let candleCompare = null;
+  if (n >= 3) {
+    const c1 = candles[n - 3], c2 = candles[n - 2], c3 = candles[n - 1];
+    const dir = (c) => c.close > c.open ? 1 : c.close < c.open ? -1 : 0;
+    const d1 = dir(c1), d2 = dir(c2), d3 = dir(c3);
+    const consecutiveUp = d1 > 0 && d2 > 0 && d3 > 0;
+    const consecutiveDown = d1 < 0 && d2 < 0 && d3 < 0;
+    // ابتلاع صاعد/هابط بسيط بين آخر شمعتين
+    const bullEngulf = d2 < 0 && d3 > 0 && c3.close > c2.open && c3.open < c2.close;
+    const bearEngulf = d2 > 0 && d3 < 0 && c3.close < c2.open && c3.open > c2.close;
+    candleCompare = { consecutiveUp, consecutiveDown, bullEngulf, bearEngulf };
+  }
 
   return {
     rsi, macd, bb, ema50, ema200,
     sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
+    pivot, candleCompare,
     currentPrice: closes[closes.length - 1],
   };
 }
 
-// Supertrend (مبني على ATR) — مو موجود جاهز بالمكتبة، حساب يدوي بالمعادلة القياسية
+// Supertrend (مبني على ATR يدوي) — معادلة قياسية بالكامل يدوية
 function computeSupertrend(candles, period = 10, multiplier = 3) {
   const highs = candles.map((c) => c.high);
   const lows = candles.map((c) => c.low);
   const closes = candles.map((c) => c.close);
-  const atrArr = ATR.calculate({ high: highs, low: lows, close: closes, period });
+
+  // ATR يدوي (تنعيم Wilder)
+  const trArr = [];
+  for (let i = 1; i < closes.length; i++) {
+    trArr.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    ));
+  }
+  if (trArr.length < period) return null;
+
+  let atr = trArr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const atrArr = [atr];
+  for (let i = period; i < trArr.length; i++) {
+    atr = (atr * (period - 1) + trArr[i]) / period;
+    atrArr.push(atr);
+  }
   if (!atrArr.length) return null;
 
   const offset = candles.length - atrArr.length;
@@ -323,9 +433,9 @@ function computeSupertrend(candles, period = 10, multiplier = 3) {
   for (let i = 0; i < atrArr.length; i++) {
     const idx = i + offset;
     const hl2 = (highs[idx] + lows[idx]) / 2;
-    const atr = atrArr[i];
-    const basicUpper = hl2 + multiplier * atr;
-    const basicLower = hl2 - multiplier * atr;
+    const a = atrArr[i];
+    const basicUpper = hl2 + multiplier * a;
+    const basicLower = hl2 - multiplier * a;
     const close = closes[idx];
     const prevClose = idx > 0 ? closes[idx - 1] : close;
 

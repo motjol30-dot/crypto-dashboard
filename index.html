@@ -260,16 +260,16 @@
     <div class="mo-value neutral" id="mo-dom">—</div>
   </div>
   <div class="mo-card">
-    <div class="mo-label">القيمة السوقية</div>
-    <div class="mo-value neutral" id="mo-mcap">—</div>
+    <div class="mo-label">تحليل المؤشرات</div>
+    <div class="mo-value neutral" id="mo-analysis">—</div>
   </div>
   <div class="mo-card">
-    <div class="mo-label">تمويل BTC</div>
-    <div class="mo-value neutral" id="mo-funding">—</div>
+    <div class="mo-label">🟢 شراء</div>
+    <div class="mo-value neutral" id="mo-buy-count">—</div>
   </div>
   <div class="mo-card">
-    <div class="mo-label">فائدة مفتوحة</div>
-    <div class="mo-value neutral" id="mo-oi">—</div>
+    <div class="mo-label">🔴 بيع</div>
+    <div class="mo-value neutral" id="mo-sell-count">—</div>
   </div>
 </div>
 
@@ -299,15 +299,6 @@
   <div class="pill">
     <div class="pill-label">التحليل</div>
     <div class="pill-value neutral" id="p-overall">—</div>
-  </div>
-</div>
-
-<!-- إجماع الـ13 مؤشر مجتمعين — طبقة منفصلة عن قرار الـ5 الأصلي أعلاه -->
-<div id="consensus-row" class="status-row-like" style="padding-top:0;">
-  <div class="pill" style="flex:1 1 100%;">
-    <div class="pill-label">📊 إجماع 13 مؤشر</div>
-    <div class="pill-value neutral" id="p-consensus">—</div>
-    <div style="font-size:0.62rem;color:var(--muted);margin-top:2px;" id="consensus-detail">—</div>
   </div>
 </div>
 
@@ -454,6 +445,36 @@
     </div>
     <div class="acc-body" id="b-volprofile">—</div>
   </div>
+
+  <div class="acc-item" data-key="pivot">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">نقاط الارتكاز</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-pivot">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-pivot">—</div>
+  </div>
+
+  <div class="acc-item" data-key="candlecmp">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">مقارنة الشموع</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-candlecmp">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-candlecmp">—</div>
+  </div>
+
+  <div class="acc-item" data-key="btc120">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بيتكوين ±120$</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-btc120">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-btc120">يتابع حركة البيتكوين بشكل مستقل بغض النظر عن العملة المختارة حاليًا</div>
+  </div>
 </div>
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
@@ -555,6 +576,7 @@
     const price = latest.close;
     const priceEl = document.getElementById('btc-price');
     priceEl.textContent = fmt(price);
+    updateBtc120Indicator(price);
 
     // لون السعر نفسه يتحرك مع كل تحديث لحظي (تيك بتيك): أخضر لو صعد، أحمر لو نزل
     if (btcLastTickPrice !== null) {
@@ -728,6 +750,38 @@
       const label = verdict === 'bull' ? 'السعر فوق منطقة التركز' : 'السعر تحت منطقة التركز';
       setAcc('volprofile', verdict, label, `نقطة تركز الحجم (POC): <b>${fmt(vp.pocPrice)}</b><br>مدى آخر 100 شمعة: <b>${fmt(vp.rangeLow)}</b> – <b>${fmt(vp.rangeHigh)}</b><br><span style="color:var(--muted)">نسخة مبسّطة — ليست مطابقة لأي أداة تجارية معينة</span>`);
     }
+
+    // نقاط الارتكاز (Pivot Points)
+    if (ind.pivot) {
+      const verdict = ind.currentPrice > ind.pivot.p ? 'bull' : 'bear';
+      const label = verdict === 'bull' ? 'فوق نقطة الارتكاز' : 'تحت نقطة الارتكاز';
+      setAcc('pivot', verdict, label, `الارتكاز: <b>${fmt(ind.pivot.p)}</b><br>مقاومة R1: <b>${fmt(ind.pivot.r1)}</b> — دعم S1: <b>${fmt(ind.pivot.s1)}</b>`);
+    }
+
+    // مقارنة الشموع
+    if (ind.candleCompare) {
+      const cc = ind.candleCompare;
+      let verdict = 'neutral', label = 'لا نمط واضح';
+      if (cc.bullEngulf) { verdict = 'bull'; label = 'ابتلاع صاعد'; }
+      else if (cc.bearEngulf) { verdict = 'bear'; label = 'ابتلاع هابط'; }
+      else if (cc.consecutiveUp) { verdict = 'bull'; label = '3 شموع صاعدة متتالية'; }
+      else if (cc.consecutiveDown) { verdict = 'bear'; label = '3 شموع هابطة متتالية'; }
+      setAcc('candlecmp', verdict, label, `مقارنة آخر 3 شموع لكشف الزخم المتتالي أو نمط الابتلاع`);
+    }
+  }
+
+  // ══ مؤشر البيتكوين ±120$ — مستقل تمامًا، يتابع البيتكوين بغض النظر عن العملة المختارة ══
+  let btc120RefPrice = null;
+  function updateBtc120Indicator(price) {
+    if (btc120RefPrice === null) { btc120RefPrice = price; return; }
+    const diff = price - btc120RefPrice;
+    if (Math.abs(diff) >= 120) {
+      const verdict = diff > 0 ? 'bull' : 'bear';
+      const label = diff > 0 ? 'إيجابي (+120$ أو أكثر)' : 'سلبي (-120$ أو أكثر)';
+      setAcc('btc120', verdict, label, `آخر تغيّر مسجّل: <b>${diff > 0 ? '+' : ''}${diff.toFixed(0)}$</b> عن آخر مرجع`);
+      btc120RefPrice = price;
+      renderConsensus(); // إعادة حساب الإجماع فورًا لأن هذا المؤشر يتحدث بشكل مستقل عن باقي التحديثات
+    }
   }
 
   let consensusTracker = {};
@@ -755,23 +809,22 @@
     const absDiff = Math.abs(diff);
 
     let strength, strengthClass;
-    if (absDiff >= 8)      { strength = 'قوي جدًا'; strengthClass = diff > 0 ? 'pos' : 'neg'; }
-    else if (absDiff >= 5) { strength = 'قوي';      strengthClass = diff > 0 ? 'pos' : 'neg'; }
-    else if (absDiff >= 2) { strength = 'متوسط';    strengthClass = 'neutral'; }
-    else                   { strength = 'ضعيف/متضارب'; strengthClass = 'neutral'; }
+    if (absDiff >= 8)      { strength = diff > 0 ? 'شراء مؤكد' : 'بيع مؤكد'; strengthClass = diff > 0 ? 'pos' : 'neg'; }
+    else if (absDiff >= 5) { strength = diff > 0 ? 'شراء قوي' : 'بيع قوي';   strengthClass = diff > 0 ? 'pos' : 'neg'; }
+    else if (absDiff >= 2) { strength = 'متوسط';                            strengthClass = 'neutral'; }
+    else                   { strength = 'ضعيف/متضارب';                     strengthClass = 'neutral'; }
 
     const direction = diff > 0 ? 'إيجابي' : diff < 0 ? 'سلبي' : 'محايد';
+    const title = `${direction} — ${bull} شراء / ${bear} بيع / ${neutral} محايد من أصل ${total}`;
 
-    const el = document.getElementById('p-consensus');
-    if (el) {
-      el.textContent = strength;
-      el.className = `pill-value ${strengthClass}`;
-      el.title = `${direction} — ${bull} شراء / ${bear} بيع / ${neutral} محايد من أصل ${total}`;
-    }
-    const detailEl = document.getElementById('consensus-detail');
-    if (detailEl) {
-      detailEl.textContent = `${direction} — 🟢${bull} شراء  🔴${bear} بيع  ⚪${neutral} محايد (من ${total} مؤشر)`;
-    }
+    const anEl = document.getElementById('mo-analysis');
+    if (anEl) { anEl.textContent = strength; anEl.className = `mo-value ${strengthClass}`; anEl.title = title; }
+
+    const buyEl = document.getElementById('mo-buy-count');
+    if (buyEl) { buyEl.textContent = `${bull}/${total}`; buyEl.className = 'mo-value pos'; }
+
+    const sellEl = document.getElementById('mo-sell-count');
+    if (sellEl) { sellEl.textContent = `${bear}/${total}`; sellEl.className = 'mo-value neg'; }
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
@@ -883,21 +936,6 @@
       }
       if (d.btcDominance != null) {
         document.getElementById('mo-dom').textContent = `${d.btcDominance.toFixed(1)}%`;
-      }
-      if (d.totalMarketCap != null) {
-        const el = document.getElementById('mo-mcap');
-        el.textContent = fmtBig(d.totalMarketCap);
-        if (d.marketCapChange24h != null) {
-          el.className = 'mo-value ' + (d.marketCapChange24h >= 0 ? 'pos' : 'neg');
-        }
-      }
-      if (d.fundingRate != null) {
-        const el = document.getElementById('mo-funding');
-        el.textContent = `${d.fundingRate >= 0 ? '+' : ''}${d.fundingRate.toFixed(3)}%`;
-        el.className = 'mo-value ' + (Math.abs(d.fundingRate) < 0.02 ? 'neutral' : d.fundingRate > 0 ? 'neg' : 'pos');
-      }
-      if (d.openInterest != null) {
-        document.getElementById('mo-oi').textContent = fmtBig(d.openInterest);
       }
     } catch (e) { /* تجاهل بصمت، يعيد المحاولة بالمرة الجاية */ }
   }
