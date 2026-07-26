@@ -475,6 +475,16 @@
     </div>
     <div class="acc-body" id="b-btc120">يتابع حركة البيتكوين بشكل مستقل بغض النظر عن العملة المختارة حاليًا</div>
   </div>
+
+  <div class="acc-item" data-key="accdist">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">التجميع والتصريف (A/D)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-accdist">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-accdist">—</div>
+  </div>
 </div>
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
@@ -767,6 +777,15 @@
       else if (cc.consecutiveUp) { verdict = 'bull'; label = '3 شموع صاعدة متتالية'; }
       else if (cc.consecutiveDown) { verdict = 'bear'; label = '3 شموع هابطة متتالية'; }
       setAcc('candlecmp', verdict, label, `مقارنة آخر 3 شموع لكشف الزخم المتتالي أو نمط الابتلاع`);
+    }
+
+    // التجميع والتصريف (Accumulation/Distribution) — قراءة مستويات السيولة
+    if (ind.accDist) {
+      const ad = ind.accDist;
+      let verdict = 'neutral', label = ad.zone;
+      if (ad.zone.includes('تجميع')) verdict = 'bull';
+      else if (ad.zone.includes('تصريف')) verdict = 'bear';
+      setAcc('accdist', verdict, label, `الاتجاه: ${ad.rising ? 'صاعد (تدفق سيولة داخل)' : 'هابط (تدفق سيولة خارج)'}<br>يقيس ضغط الشراء/البيع الحقيقي من موقع الإغلاق داخل مدى الشمعة مضروبًا بالحجم`);
     }
   }
 

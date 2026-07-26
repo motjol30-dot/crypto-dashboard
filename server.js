@@ -118,22 +118,69 @@ wss.on('connection', (ws) => {
   ws.on('error', () => clientSubs.delete(ws));
 });
 
-// ── MEXC Historical + Stream ──────────────────────────────────────────────────
+// ── تسلسل المصادر لكل العملات: Binance أولًا ← MEXC احتياطي ← OKX احتياطي ثالث ──
 
-async function fetchHistorical(symbol, interval, limit = 300) {
-  // MEXC klines API is Binance-compatible
-  const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const { data } = await axios.get(url, { timeout: 10000 });
-  // Each row: [openTime, open, high, low, close, volume, closeTime, quoteVolume]
+async function fetchHistoricalBinance(symbol, interval, limit = 300) {
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const { data } = await axios.get(url, { timeout: 8000 });
   return data.map((k) => ({
     time: Math.floor(k[0] / 1000),
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-    volume: parseFloat(k[5]),
-    isClosed: true,
+    open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]),
+    volume: parseFloat(k[5]), isClosed: true,
   }));
+}
+
+async function fetchHistoricalMexc(symbol, interval, limit = 300) {
+  const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const { data } = await axios.get(url, { timeout: 10000 });
+  return data.map((k) => ({
+    time: Math.floor(k[0] / 1000),
+    open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]),
+    volume: parseFloat(k[5]), isClosed: true,
+  }));
+}
+
+async function fetchHistoricalOkx(symbol, interval, limit = 300) {
+  const instId = symbol.replace(/USDT$/, '-USDT'); // BTCUSDT → BTC-USDT
+  const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${interval}&limit=${limit}`;
+  const { data } = await axios.get(url, { timeout: 10000 });
+  const rows = data.data || [];
+  // OKX يرجّع الأحدث أولًا — نعكس الترتيب عشان يصير الأقدم أولًا مثل باقي المصادر
+  return rows.map((r) => ({
+    time: Math.floor(Number(r[0]) / 1000),
+    open: parseFloat(r[1]), high: parseFloat(r[2]), low: parseFloat(r[3]), close: parseFloat(r[4]),
+    volume: parseFloat(r[5]), isClosed: true,
+  })).reverse();
+}
+
+function updateCandleStore(symbol, interval, candle) {
+  const key = `${symbol}_${interval}`;
+  if (!candleStore[key]) candleStore[key] = [];
+  const candles = candleStore[key];
+  const lastC = candles[candles.length - 1];
+  if (lastC && lastC.time === candle.time) candles[candles.length - 1] = candle;
+  else if (!lastC || candle.time > lastC.time) {
+    candles.push(candle);
+    if (candles.length > 600) candles.shift();
+  }
+}
+
+async function fetchHistorical(symbol, interval, limit = 300) {
+  try {
+    const c = await fetchHistoricalBinance(symbol, interval, limit);
+    console.log(`[${symbol}_${interval}] بيانات تاريخية من Binance`);
+    return c;
+  } catch (err) { console.warn(`[${symbol}_${interval}] فشل Binance (${err.message}) — تجربة MEXC`); }
+
+  try {
+    const c = await fetchHistoricalMexc(symbol, interval, limit);
+    console.log(`[${symbol}_${interval}] بيانات تاريخية من MEXC`);
+    return c;
+  } catch (err) { console.warn(`[${symbol}_${interval}] فشل MEXC (${err.message}) — تجربة OKX`); }
+
+  const c = await fetchHistoricalOkx(symbol, interval, limit);
+  console.log(`[${symbol}_${interval}] بيانات تاريخية من OKX`);
+  return c;
 }
 
 async function ensureStream(symbol, interval) {
@@ -146,20 +193,80 @@ async function ensureStream(symbol, interval) {
     candleStore[key] = candles;
     console.log(`[${key}] loaded ${candles.length} historical candles`);
   } catch (err) {
-    console.error(`[${key}] historical fetch failed:`, err.message);
+    console.error(`[${key}] فشلت كل المصادر التاريخية:`, err.message);
     candleStore[key] = [];
   }
 
   connectStream(symbol, interval);
 }
 
+// تسلسل البث اللحظي: Binance ← MEXC ← OKX (كل واحد يجرب 8 ثوانٍ، لو ما رد ينتقل للي بعده)
 function connectStream(symbol, interval) {
+  connectBinanceStream(symbol, interval, () =>
+    connectMexcStream(symbol, interval, () =>
+      connectOkxStream(symbol, interval)));
+}
+
+function connectBinanceStream(symbol, interval, onFail) {
+  const key = `${symbol}_${interval}`;
+  const wsUrl = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
+  const ws = new WebSocket(wsUrl);
+  streamWs[key] = ws;
+  let hasReceivedData = false;
+
+  const failTimer = setTimeout(() => {
+    if (!hasReceivedData) {
+      console.warn(`[${key}] Binance لم يستجب خلال 8 ثوانٍ — تجربة MEXC`);
+      try { ws.terminate(); } catch (e) {}
+    }
+  }, 8000);
+
+  ws.on('open', () => console.log(`[${key}] Binance stream connected`));
+
+  ws.on('message', (raw) => {
+    hasReceivedData = true;
+    clearTimeout(failTimer);
+    let msg; try { msg = JSON.parse(raw); } catch { return; }
+    const k = msg.k;
+    if (!k) return;
+    updateCandleStore(symbol, interval, {
+      time: Math.floor(k.t / 1000),
+      open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c),
+      volume: parseFloat(k.v), isClosed: k.x === true,
+    });
+    broadcastUpdate(symbol, interval);
+  });
+
+  ws.on('error', (err) => console.error(`[${key}] Binance WS error:`, err.message));
+
+  ws.on('close', () => {
+    clearTimeout(failTimer);
+    delete streamWs[key];
+    if (!hasReceivedData) {
+      console.warn(`[${key}] بينانس أغلق بدون بيانات — الانتقال لـ MEXC`);
+      onFail();
+    } else {
+      console.log(`[${key}] Binance stream closed — إعادة الاتصال ببينانس خلال 5 ثوانٍ`);
+      setTimeout(() => connectBinanceStream(symbol, interval, onFail), 5000);
+    }
+  });
+}
+
+function connectMexcStream(symbol, interval, onFail) {
   const key = `${symbol}_${interval}`;
   const wsInterval = MEXC_WS_INTERVAL[interval];
   const topic = `spot@public.kline.v3.api@${symbol}@${wsInterval}`;
 
   const ws = new WebSocket('wss://wbs.mexc.com/ws');
   streamWs[key] = ws;
+  let hasReceivedData = false;
+
+  const failTimer = setTimeout(() => {
+    if (!hasReceivedData) {
+      console.warn(`[${key}] MEXC لم يستجب خلال 8 ثوانٍ — تجربة OKX`);
+      try { ws.terminate(); } catch (e) {}
+    }
+  }, 8000);
 
   ws.on('open', () => {
     console.log(`[${key}] MEXC stream connected`);
@@ -174,32 +281,16 @@ function connectStream(symbol, interval) {
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+    if (!msg.d || !msg.d.k) return; // تجاهل PONG وتأكيد الاشتراك
 
-    // Ignore PONG / subscription confirmations
-    if (!msg.d || !msg.d.k) return;
-
+    hasReceivedData = true;
+    clearTimeout(failTimer);
     const k = msg.d.k;
-    const candle = {
+    updateCandleStore(symbol, interval, {
       time: Math.floor(k.t / 1000),
-      open: parseFloat(k.o),
-      high: parseFloat(k.h),
-      low: parseFloat(k.l),
-      close: parseFloat(k.c),
-      volume: parseFloat(k.v),
-      isClosed: k.X === true,
-    };
-
-    if (!candleStore[key]) candleStore[key] = [];
-    const candles = candleStore[key];
-    const last = candles[candles.length - 1];
-
-    if (last && last.time === candle.time) {
-      candles[candles.length - 1] = candle;
-    } else if (!last || candle.time > last.time) {
-      candles.push(candle);
-      if (candles.length > 600) candles.shift();
-    }
-
+      open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c),
+      volume: parseFloat(k.v), isClosed: k.X === true,
+    });
     broadcastUpdate(symbol, interval);
   });
 
@@ -207,9 +298,54 @@ function connectStream(symbol, interval) {
 
   ws.on('close', () => {
     clearInterval(ping);
-    console.log(`[${key}] MEXC stream closed — reconnecting in 5s`);
+    clearTimeout(failTimer);
     delete streamWs[key];
-    setTimeout(() => connectStream(symbol, interval), 5000);
+    if (!hasReceivedData && onFail) {
+      console.warn(`[${key}] MEXC أغلق بدون بيانات — الانتقال لـ OKX`);
+      onFail();
+    } else {
+      console.log(`[${key}] MEXC stream closed — reconnecting in 5s`);
+      setTimeout(() => connectMexcStream(symbol, interval, onFail), 5000);
+    }
+  });
+}
+
+function connectOkxStream(symbol, interval) {
+  const key = `${symbol}_${interval}`;
+  const instId = symbol.replace(/USDT$/, '-USDT');
+  const channel = `candle${interval}`;
+  const ws = new WebSocket('wss://ws.okx.com:8443/public');
+  streamWs[key] = ws;
+
+  ws.on('open', () => {
+    console.log(`[${key}] OKX stream connected`);
+    ws.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] }));
+  });
+
+  const ping = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.send('ping');
+  }, 20000);
+
+  ws.on('message', (raw) => {
+    if (raw.toString() === 'pong') return;
+    let msg; try { msg = JSON.parse(raw); } catch { return; }
+    const row = msg.data?.[0];
+    if (!row) return;
+    updateCandleStore(symbol, interval, {
+      time: Math.floor(Number(row[0]) / 1000),
+      open: parseFloat(row[1]), high: parseFloat(row[2]), low: parseFloat(row[3]), close: parseFloat(row[4]),
+      volume: parseFloat(row[5]), isClosed: row[8] === '1',
+    });
+    broadcastUpdate(symbol, interval);
+  });
+
+  ws.on('error', (err) => console.error(`[${key}] OKX WS error:`, err.message));
+
+  ws.on('close', () => {
+    clearInterval(ping);
+    console.log(`[${key}] OKX stream closed — reconnecting in 5s (آخر مصدر بالتسلسل)`);
+    delete streamWs[key];
+    setTimeout(() => connectOkxStream(symbol, interval), 5000);
   });
 }
 
@@ -394,10 +530,35 @@ function computeIndicators(candles) {
     candleCompare = { consecutiveUp, consecutiveDown, bullEngulf, bearEngulf };
   }
 
+  // التجميع والتصريف (Accumulation/Distribution Line) — قراءة تدفق السيولة الحقيقي
+  // Money Flow Multiplier = ((close-low)-(high-close)) / (high-low)  → موجب = تجميع (شراء)، سالب = تصريف (بيع)
+  let accDist = null;
+  {
+    const win = candles.slice(-60);
+    let adLine = 0;
+    const adArr = [];
+    for (const c of win) {
+      const range = c.high - c.low;
+      const mfm = range === 0 ? 0 : ((c.close - c.low) - (c.high - c.close)) / range;
+      adLine += mfm * c.volume;
+      adArr.push(adLine);
+    }
+    if (adArr.length >= 5) {
+      const recent = adArr.slice(-5);
+      const rising = recent[recent.length - 1] > recent[0];
+      const lastMFM = ((win[win.length - 1].close - win[win.length - 1].low) - (win[win.length - 1].high - win[win.length - 1].close)) /
+                      ((win[win.length - 1].high - win[win.length - 1].low) || 1);
+      let zone = 'متعادل';
+      if (rising && lastMFM > 0.2) zone = 'تجميع (Accumulation)';
+      else if (!rising && lastMFM < -0.2) zone = 'تصريف (Distribution)';
+      accDist = { value: adLine, rising, zone };
+    }
+  }
+
   return {
     rsi, macd, bb, ema50, ema200,
     sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
-    pivot, candleCompare,
+    pivot, candleCompare, accDist,
     currentPrice: closes[closes.length - 1],
   };
 }
