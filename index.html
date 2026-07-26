@@ -57,6 +57,20 @@
   #btc-arrow.down { color: var(--red); }
   #btc-arrow.flat { color: var(--muted); }
 
+  /* ══ صف الذهب المستقل — خانة لحاله تحت الهيدر مباشرة ══ */
+  #gold-ticker-row {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+  }
+  #gold-ticker-row .gold-label { font-size: 0.75rem; font-weight: 800; color: #d4af37; }
+  #gold-ticker-row .gold-price { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; }
+  #gold-arrow { font-size: 1rem; font-weight: 900; }
+  #gold-arrow.up   { color: var(--green); }
+  #gold-arrow.down { color: var(--red); }
+  #gold-arrow.flat { color: var(--muted); }
+  #gold-ticker-row .gold-note { font-size: 0.6rem; color: var(--muted); }
+
   /* عنصر ثاني = وسط الصفحة: اختيار/كتابة العملة */
   #symbol-wrap { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
   #symbol-input {
@@ -249,6 +263,14 @@
 
   <div id="conn-dot"></div>
 </header>
+
+<!-- خانة الذهب المستقلة (PAXG — عملة رقمية مدعومة فعليًا بأونصة ذهب حقيقية) -->
+<div id="gold-ticker-row">
+  <span class="gold-label">🥇 الذهب</span>
+  <span class="gold-price" id="gold-price">—</span>
+  <span id="gold-arrow" class="flat">▬</span>
+  <span class="gold-note">(عبر PAXG)</span>
+</div>
 
 <div id="market-overview">
   <div class="mo-card">
@@ -966,9 +988,52 @@
     return n.toFixed(0);
   }
 
+  // ══ اتصال مستقل بسعر الذهب (PAXG) — خانة لحالها، بغض النظر عن العملة المختارة ══
+  let goldWs = null, goldLastMsgTime = 0, goldWatchdog = null, goldLastTickPrice = null;
+
+  function connectGoldTicker() {
+    if (goldWs) { try { goldWs.close(); } catch (e) {} goldWs = null; }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    goldWs = new WebSocket(`${proto}://${location.host}`);
+    goldWs.onopen = () => {
+      goldWs.send(JSON.stringify({ type: 'subscribe', symbol: 'PAXGUSDT', interval: '5m' }));
+      goldLastMsgTime = Date.now();
+    };
+    goldWs.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'update' && msg.symbol === 'PAXGUSDT') { goldLastMsgTime = Date.now(); updateGoldTicker(msg); }
+    };
+    goldWs.onclose = () => setTimeout(connectGoldTicker, 3000);
+    goldWs.onerror = () => goldWs.close();
+
+    if (goldWatchdog) clearInterval(goldWatchdog);
+    goldWatchdog = setInterval(() => {
+      if (Date.now() - goldLastMsgTime > 20000) { try { goldWs.close(); } catch (e) {} }
+    }, 5000);
+  }
+
+  function updateGoldTicker(msg) {
+    const latest = msg.candles[msg.candles.length - 1];
+    if (!latest) return;
+    const price = latest.close;
+    const priceEl = document.getElementById('gold-price');
+    priceEl.textContent = fmt(price);
+
+    if (goldLastTickPrice !== null) {
+      const arrowEl = document.getElementById('gold-arrow');
+      if (price > goldLastTickPrice) {
+        priceEl.style.color = 'var(--green)'; arrowEl.className = 'up'; arrowEl.textContent = '▲';
+      } else if (price < goldLastTickPrice) {
+        priceEl.style.color = 'var(--red)'; arrowEl.className = 'down'; arrowEl.textContent = '▼';
+      }
+    }
+    goldLastTickPrice = price;
+  }
+
   initChart();
   connect();
   connectBtcTicker();
+  connectGoldTicker();
   loadMarketOverview();
   setInterval(loadMarketOverview, 60000);
 </script>
