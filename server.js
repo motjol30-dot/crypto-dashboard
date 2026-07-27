@@ -9,7 +9,7 @@ const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
-const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'PAXGUSDT'];
+const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT'];
 const INTERVALS = ['5m', '15m', '30m'];
 
 // MEXC WebSocket interval codes
@@ -89,106 +89,6 @@ app.get('/api/market-overview', async (_req, res) => {
   } catch (e) { result.errors.push('openInterest'); }
 
   marketCache = { data: result, ts: now };
-  res.json(result);
-});
-
-/* ============================================================
- * الطبقة الكلية: الدولار (DXY) + النفط (WTI) + مناطق الفيوتشر + الأخبار
- * DXY: نحسبه بأنفسنا من 6 أزواج عملات (معادلة رسمية) — يشتغل بنفس مفتاح Twelve Data المجاني
- * WTI: يحتاج مصدر ثاني لأن Twelve Data يطلب خطة مدفوعة للسلع — Alpha Vantage (مجاني، اختياري)
- * ============================================================ */
-const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
-const CRYPTOPANIC_TOKEN = process.env.CRYPTOPANIC_TOKEN || '';
-
-let macroCache = { data: null, ts: 0 };
-const MACRO_CACHE_MS = 60 * 1000;
-
-// معادلة مؤشر الدولار الرسمية (ICE US Dollar Index) من 6 أزواج عملات رئيسية
-async function computeDxyProxy() {
-  const pairs = ['EUR/USD', 'USD/JPY', 'GBP/USD', 'USD/CAD', 'USD/SEK', 'USD/CHF'];
-  const r = await axios.get('https://api.twelvedata.com/price', {
-    params: { symbol: pairs.join(','), apikey: TWELVE_DATA_KEY }, timeout: 8000,
-  });
-  const d = r.data;
-  // لو زوج واحد بس مطلوب، الرد يكون object مباشر بدل object لكل زوج — نطبّع الشكلين
-  const get = (sym) => {
-    const v = pairs.length === 1 ? d : d[sym];
-    if (!v || !v.price) throw new Error(v?.message || `تعذّر جلب ${sym}`);
-    return parseFloat(v.price);
-  };
-  const eurusd = get('EUR/USD'), usdjpy = get('USD/JPY'), gbpusd = get('GBP/USD'),
-        usdcad = get('USD/CAD'), usdsek = get('USD/SEK'), usdchf = get('USD/CHF');
-
-  return 50.14348112 *
-    Math.pow(eurusd, -0.576) *
-    Math.pow(usdjpy, 0.136) *
-    Math.pow(gbpusd, -0.119) *
-    Math.pow(usdcad, 0.091) *
-    Math.pow(usdsek, 0.042) *
-    Math.pow(usdchf, 0.036);
-}
-
-app.get('/api/macro-overview', async (_req, res) => {
-  const now = Date.now();
-  if (macroCache.data && now - macroCache.ts < MACRO_CACHE_MS) {
-    return res.json(macroCache.data);
-  }
-
-  const result = { dxy: null, news: null, dxyError: null, errors: [] };
-
-  if (!TWELVE_DATA_KEY) {
-    result.errors.push('no_twelvedata_key');
-    result.dxyError = 'لا يوجد مفتاح TWELVE_DATA_KEY';
-  } else {
-    try {
-      result.dxy = await computeDxyProxy();
-    } catch (e) {
-      result.errors.push('dxy');
-      result.dxyError = e.response?.data?.message || e.message;
-    }
-  }
-
-  // مؤشر الأخبار (يحتاج توكن مجاني من cryptopanic.com/developers)
-  if (!CRYPTOPANIC_TOKEN) {
-    result.errors.push('no_cryptopanic_token');
-  } else {
-    try {
-      const r = await axios.get('https://cryptopanic.com/api/v1/posts/', {
-        params: { auth_token: CRYPTOPANIC_TOKEN, public: 'true', filter: 'important' }, timeout: 8000,
-      });
-      const posts = (r.data?.results || []).slice(0, 20);
-      let pos = 0, neg = 0;
-      for (const p of posts) {
-        const v = p.votes || {};
-        if ((v.positive || 0) > (v.negative || 0)) pos++;
-        else if ((v.negative || 0) > (v.positive || 0)) neg++;
-      }
-      result.news = { positive: pos, negative: neg, total: posts.length };
-    } catch (e) { result.errors.push('news'); }
-  }
-
-  macroCache = { data: result, ts: now };
-  res.json(result);
-});
-
-// مناطق الفيوتشر: معدل التمويل + الفائدة المفتوحة لأي عملة مختارة (نفس منصة MEXC)
-app.get('/api/futures-zone', async (req, res) => {
-  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
-  const contractSymbol = symbol.replace(/USDT$/, '_USDT');
-  const result = { fundingRate: null, openInterest: null, errors: [] };
-
-  try {
-    const r = await axios.get(`https://contract.mexc.com/api/v1/contract/funding_rate/${contractSymbol}`, { timeout: 8000 });
-    const fr = r.data?.data?.fundingRate;
-    if (fr != null) result.fundingRate = Number(fr) * 100;
-  } catch (e) { result.errors.push('fundingRate'); }
-
-  try {
-    const r = await axios.get(`https://contract.mexc.com/api/v1/contract/open_interest/${contractSymbol}`, { timeout: 8000 });
-    const oi = r.data?.data?.holdVol ?? r.data?.data?.amount;
-    if (oi != null) result.openInterest = Number(oi);
-  } catch (e) { result.errors.push('openInterest'); }
-
   res.json(result);
 });
 
