@@ -108,24 +108,34 @@ app.get('/api/macro-overview', async (_req, res) => {
     return res.json(macroCache.data);
   }
 
-  const result = { dxy: null, oil: null, news: null, errors: [] };
+  const result = { dxy: null, oil: null, news: null, dxyError: null, oilError: null, errors: [] };
 
   if (!TWELVE_DATA_KEY) {
     result.errors.push('no_twelvedata_key');
+    result.dxyError = 'لا يوجد مفتاح TWELVE_DATA_KEY';
+    result.oilError = 'لا يوجد مفتاح TWELVE_DATA_KEY';
   } else {
     try {
       const r = await axios.get(`https://api.twelvedata.com/price`, {
         params: { symbol: 'DXY', apikey: TWELVE_DATA_KEY }, timeout: 8000,
       });
       if (r.data?.price) result.dxy = parseFloat(r.data.price);
-    } catch (e) { result.errors.push('dxy'); }
+      else result.dxyError = r.data?.message || `رد غير متوقع: ${JSON.stringify(r.data).slice(0, 150)}`;
+    } catch (e) {
+      result.errors.push('dxy');
+      result.dxyError = e.response?.data?.message || e.message;
+    }
 
     try {
       const r = await axios.get(`https://api.twelvedata.com/price`, {
         params: { symbol: 'WTI/USD', apikey: TWELVE_DATA_KEY }, timeout: 8000,
       });
       if (r.data?.price) result.oil = parseFloat(r.data.price);
-    } catch (e) { result.errors.push('oil'); }
+      else result.oilError = r.data?.message || `رد غير متوقع: ${JSON.stringify(r.data).slice(0, 150)}`;
+    } catch (e) {
+      result.errors.push('oil');
+      result.oilError = e.response?.data?.message || e.message;
+    }
   }
 
   // مؤشر الأخبار (يحتاج توكن مجاني من cryptopanic.com/developers)

@@ -1101,26 +1101,38 @@
         const el = document.getElementById('macro-dxy-price');
         const arrowEl = document.getElementById('macro-dxy-arrow');
         el.textContent = d.dxy.toFixed(2);
+        el.title = '';
         if (prevDxy !== null) {
           if (d.dxy > prevDxy) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
           else if (d.dxy < prevDxy) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
         }
         prevDxy = d.dxy;
       } else {
-        document.getElementById('macro-dxy-price').textContent = 'بدون مفتاح';
+        const el = document.getElementById('macro-dxy-price');
+        el.textContent = 'خطأ ⓘ';
+        el.style.color = 'var(--red)';
+        el.title = d.dxyError || 'سبب غير معروف';
+        el.onclick = () => alert('DXY: ' + (d.dxyError || 'سبب غير معروف'));
+        el.style.cursor = 'pointer';
       }
 
       if (d.oil != null) {
         const el = document.getElementById('macro-oil-price');
         const arrowEl = document.getElementById('macro-oil-arrow');
         el.textContent = d.oil.toFixed(2);
+        el.title = '';
         if (prevOil !== null) {
           if (d.oil > prevOil) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
           else if (d.oil < prevOil) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
         }
         prevOil = d.oil;
       } else {
-        document.getElementById('macro-oil-price').textContent = 'بدون مفتاح';
+        const el = document.getElementById('macro-oil-price');
+        el.textContent = 'خطأ ⓘ';
+        el.style.color = 'var(--red)';
+        el.title = d.oilError || 'سبب غير معروف';
+        el.onclick = () => alert('WTI: ' + (d.oilError || 'سبب غير معروف'));
+        el.style.cursor = 'pointer';
       }
 
       if (d.news) {
