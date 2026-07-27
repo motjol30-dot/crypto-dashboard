@@ -57,8 +57,29 @@
   #btc-arrow.down { color: var(--red); }
   #btc-arrow.flat { color: var(--muted); }
 
+  /* ══ 4 مربعات ملتصقة: BTC / XAU / DXY / WTI ══ */
+  #macro-row {
+    flex: 1; display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .macro-box {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 5px 4px; background: var(--bg); border-left: 1px solid var(--border); min-width: 0;
+  }
+  .macro-box:last-child { border-left: none; }
+  .macro-label { font-size: 0.6rem; color: var(--muted); font-weight: 800; }
+  .macro-price { font-size: 0.78rem; font-weight: 800; font-family: 'Courier New', monospace; white-space: nowrap; }
+  .macro-arrow { font-size: 0.8rem; font-weight: 900; }
+  .macro-arrow.up   { color: var(--green); }
+  .macro-arrow.down { color: var(--red); }
+  .macro-arrow.flat { color: var(--muted); }
+
+  /* ══ صف اختيار عملة التحليل الرئيسي (منفصل تحت الهيدر) ══ */
+  #symbol-row {
+    background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 10px;
+  }
+
   /* عنصر ثاني = وسط الصفحة: اختيار/كتابة العملة */
-  #symbol-wrap { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #symbol-wrap { width: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
   #symbol-input {
     width: 100%; background: var(--bg); border: 1px solid var(--border);
     color: var(--text); padding: 8px 10px; border-radius: 8px;
@@ -104,24 +125,6 @@
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
 
-  /* ══ نظرة عامة على السوق: 5 بطاقات ══ */
-  #market-overview {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
-    padding: 8px 10px; background: var(--surface); border-bottom: 1px solid var(--border);
-    overflow-x: auto;
-  }
-  .mo-card {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 6px 4px; text-align: center; min-width: 62px;
-  }
-  .mo-card .mo-label { font-size: 0.56rem; color: var(--muted); font-weight: 700; white-space: nowrap; }
-  .mo-card .mo-value  { font-size: 0.78rem; font-weight: 800; margin-top: 3px; font-family: 'Courier New', monospace; }
-  .mo-value.pos { color: var(--green); }
-  .mo-value.neg { color: var(--red); }
-  .mo-value.neutral { color: var(--yellow); }
-  @media (max-width: 380px) {
-    #market-overview { grid-template-columns: repeat(3, 1fr); }
-  }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
   #chart-change { font-size: 0.8rem; font-weight: 700; }
@@ -156,6 +159,17 @@
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
 
+  /* ══ المربع النهائي البارز ══ */
+  #final-verdict-row {
+    padding: 10px; background: var(--surface2); border-bottom: 2px solid var(--accent);
+    text-align: center;
+  }
+  .final-label { font-size: 0.68rem; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+  .final-value { font-size: 1.3rem; font-weight: 900; }
+  .final-value.pos { color: var(--green); }
+  .final-value.neg { color: var(--red); }
+  .final-value.neutral { color: var(--yellow); }
+
   /* ══ Zones ══ */
   #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
   .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
@@ -168,6 +182,16 @@
 
   /* ══ Indicators accordion ══ */
   #indicators-list { padding: 4px 10px 10px; }
+  .group-header {
+    font-size: 0.8rem; font-weight: 800; color: var(--accent);
+    margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+  }
+  .group-header:first-child { margin-top: 0; }
+  .group-summary {
+    font-size: 0.68rem; color: var(--muted); margin-bottom: 6px;
+  }
+  .group-summary.pos { color: var(--green); }
+  .group-summary.neg { color: var(--red); }
   .acc-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
   .acc-head {
     display: flex; align-items: center; justify-content: space-between;
@@ -214,14 +238,40 @@
 <body>
 
 <header>
-  <!-- يمين: بيتكوين لايف -->
-  <div id="btc-ticker">
-    <span class="label">BTC</span>
-    <span class="price" id="btc-price">—</span>
-    <span id="btc-arrow" class="flat">▬</span>
+  <!-- يسار: قائمة الفريم المنسدلة (مربع صغير) -->
+  <div id="tf-wrap">
+    <button id="tf-toggle">5 د ▾</button>
+    <div id="tf-menu">
+      <button data-interval="5m" data-label="5 د" class="active">5 دقائق</button>
+      <button data-interval="15m" data-label="15 د">15 دقيقة</button>
+      <button data-interval="30m" data-label="30 د">نص ساعة</button>
+    </div>
   </div>
 
-  <!-- وسط: كتابة/اختيار العملة -->
+  <!-- 4 مربعات ملتصقة: البيتكوين / الذهب / الدولار / النفط -->
+  <div id="macro-row">
+    <div class="macro-box" id="macro-btc">
+      <span class="macro-label">BTC</span>
+      <span class="macro-price" id="macro-btc-price">—</span>
+      <span class="macro-arrow flat" id="macro-btc-arrow">▬</span>
+    </div>
+    <div class="macro-box" id="macro-gold">
+      <span class="macro-label">🥇XAU</span>
+      <span class="macro-price" id="macro-gold-price">—</span>
+      <span class="macro-arrow flat" id="macro-gold-arrow">▬</span>
+    </div>
+    <div class="macro-box" id="macro-dxy">
+      <span class="macro-label">DXY</span>
+      <span class="macro-price" id="macro-dxy-price">—</span>
+      <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
+    </div>
+  </div>
+
+  <div id="conn-dot"></div>
+</header>
+
+<!-- صف اختيار العملة للتحليل الرئيسي (منفصل عن الهيدر) -->
+<div id="symbol-row">
   <div id="symbol-wrap">
     <input id="symbol-input" list="symbol-suggestions" placeholder="اكتب رمز العملة… BTCUSDT" value="BTCUSDT" autocomplete="off" />
     <span id="symbol-live-price">— <span class="updated-at" id="symbol-live-time"></span></span>
@@ -236,42 +286,9 @@
       <option value="AVAXUSDT">
     </datalist>
   </div>
-
-  <!-- يسار: قائمة الفريم المنسدلة -->
-  <div id="tf-wrap">
-    <button id="tf-toggle">5 د ▾</button>
-    <div id="tf-menu">
-      <button data-interval="5m" data-label="5 د" class="active">5 دقائق</button>
-      <button data-interval="15m" data-label="15 د">15 دقيقة</button>
-      <button data-interval="30m" data-label="30 د">نص ساعة</button>
-    </div>
-  </div>
-
-  <div id="conn-dot"></div>
-</header>
-
-<div id="market-overview">
-  <div class="mo-card">
-    <div class="mo-label">الخوف والطمع</div>
-    <div class="mo-value neutral" id="mo-fng">—</div>
-  </div>
-  <div class="mo-card">
-    <div class="mo-label">هيمنة BTC</div>
-    <div class="mo-value neutral" id="mo-dom">—</div>
-  </div>
-  <div class="mo-card">
-    <div class="mo-label">تحليل المؤشرات</div>
-    <div class="mo-value neutral" id="mo-analysis">—</div>
-  </div>
-  <div class="mo-card">
-    <div class="mo-label">🟢 شراء</div>
-    <div class="mo-value neutral" id="mo-buy-count">—</div>
-  </div>
-  <div class="mo-card">
-    <div class="mo-label">🔴 بيع</div>
-    <div class="mo-value neutral" id="mo-sell-count">—</div>
-  </div>
 </div>
+
+
 
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
@@ -300,6 +317,20 @@
     <div class="pill-label">التحليل</div>
     <div class="pill-value neutral" id="p-overall">—</div>
   </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الزخم</div>
+    <div class="pill-value neutral" id="p-momentum">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الحجم</div>
+    <div class="pill-value neutral" id="p-volume">—</div>
+  </div>
+</div>
+
+<!-- المربع النهائي: يجمع المربعات الستة أعلاه بحكم واحد -->
+<div id="final-verdict-row">
+  <div class="final-label">🎯 القرار النهائي (يجمع الـ6 مربعات)</div>
+  <div class="final-value neutral" id="p-final">—</div>
 </div>
 
 <!-- مناطق الشراء والبيع -->
@@ -316,6 +347,10 @@
 
 <!-- المؤشرات: أكورديون -->
 <div id="indicators-list">
+
+  <div class="group-header">📉 الزخم والتذبذب</div>
+  <div class="group-summary" id="grp-momentum">—</div>
+
   <div class="acc-item" data-key="rsi">
     <div class="acc-head">
       <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI (14)</span></div>
@@ -334,56 +369,6 @@
       </div>
     </div>
     <div class="acc-body" id="b-macd">—</div>
-  </div>
-
-  <div class="acc-item" data-key="ema50">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 50</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-ema50">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-ema50">—</div>
-  </div>
-
-  <div class="acc-item" data-key="ema200">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 200</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-ema200">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-ema200">—</div>
-  </div>
-
-  <div class="acc-item" data-key="bb">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بولينجر باندز</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-bb">—</div>
-  </div>
-
-  <div class="acc-item" data-key="supertrend">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Supertrend</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-supertrend">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-supertrend">—</div>
-  </div>
-
-  <div class="acc-item" data-key="vwap">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">VWAP</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-vwap">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-vwap">—</div>
   </div>
 
   <div class="acc-item" data-key="stochastic">
@@ -406,14 +391,27 @@
     <div class="acc-body" id="b-adx">—</div>
   </div>
 
-  <div class="acc-item" data-key="obv">
+  <div class="group-header">📈 المتوسطات المتحركة والاتجاه</div>
+  <div class="group-summary" id="grp-trend">—</div>
+
+  <div class="acc-item" data-key="ema50">
     <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV (تدفق الحجم)</span></div>
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 50</span></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-obv">—</span><span class="acc-arrow">▾</span>
+        <span class="acc-verdict neutral" id="v-ema50">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div class="acc-body" id="b-obv">—</div>
+    <div class="acc-body" id="b-ema50">—</div>
+  </div>
+
+  <div class="acc-item" data-key="ema200">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 200</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-ema200">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-ema200">—</div>
   </div>
 
   <div class="acc-item" data-key="sma20">
@@ -426,6 +424,26 @@
     <div class="acc-body" id="b-sma20">—</div>
   </div>
 
+  <div class="acc-item" data-key="supertrend">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Supertrend</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-supertrend">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-supertrend">—</div>
+  </div>
+
+  <div class="acc-item" data-key="vwap">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">VWAP</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-vwap">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-vwap">—</div>
+  </div>
+
   <div class="acc-item" data-key="ichimoku">
     <div class="acc-head">
       <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">سحابة إيشيموكو</span></div>
@@ -436,6 +454,19 @@
     <div class="acc-body" id="b-ichimoku">—</div>
   </div>
 
+  <div class="group-header">💧 الحجم والسيولة</div>
+  <div class="group-summary" id="grp-volume">—</div>
+
+  <div class="acc-item" data-key="obv">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV (تدفق الحجم)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-obv">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-obv">—</div>
+  </div>
+
   <div class="acc-item" data-key="volprofile">
     <div class="acc-head">
       <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Volume Profile (مبسّط)</span></div>
@@ -444,6 +475,29 @@
       </div>
     </div>
     <div class="acc-body" id="b-volprofile">—</div>
+  </div>
+
+  <div class="acc-item" data-key="accdist">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">التجميع والتصريف (A/D)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-accdist">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-accdist">—</div>
+  </div>
+
+  <div class="group-header">🕯️ الأسعار والأنماط</div>
+  <div class="group-summary" id="grp-price">—</div>
+
+  <div class="acc-item" data-key="bb">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بولينجر باندز</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-bb">—</div>
   </div>
 
   <div class="acc-item" data-key="pivot">
@@ -466,6 +520,9 @@
     <div class="acc-body" id="b-candlecmp">—</div>
   </div>
 
+  <div class="group-header">🌍 بيانات السوق الكلية</div>
+  <div class="group-summary" id="grp-macro">—</div>
+
   <div class="acc-item" data-key="btc120">
     <div class="acc-head">
       <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بيتكوين ±120$</span></div>
@@ -476,15 +533,46 @@
     <div class="acc-body" id="b-btc120">يتابع حركة البيتكوين بشكل مستقل بغض النظر عن العملة المختارة حاليًا</div>
   </div>
 
-  <div class="acc-item" data-key="accdist">
+  <div class="acc-item" data-key="feargreed">
     <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">التجميع والتصريف (A/D)</span></div>
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الخوف والطمع</span></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-accdist">—</span><span class="acc-arrow">▾</span>
+        <span class="acc-verdict neutral" id="v-feargreed">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div class="acc-body" id="b-accdist">—</div>
+    <div class="acc-body" id="b-feargreed">يحدّث كل دقيقة من مصدر خارجي مجاني</div>
   </div>
+
+  <div class="acc-item" data-key="dominance">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">هيمنة البيتكوين</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-dominance">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-dominance">يحدّث كل دقيقة — يقارن حسب العملة المختارة حاليًا</div>
+  </div>
+
+  <div class="acc-item" data-key="futures">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">مناطق الفيوتشر</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-futures">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-futures">معدل التمويل والفائدة المفتوحة للعملة المختارة حاليًا</div>
+  </div>
+
+  <div class="acc-item" data-key="news">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الأخبار</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-news">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-news">يحتاج توكن مجاني من CryptoPanic (اختياري)</div>
+  </div>
+
 </div>
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
@@ -584,7 +672,7 @@
     const latest = msg.candles[msg.candles.length - 1];
     if (!latest) return;
     const price = latest.close;
-    const priceEl = document.getElementById('btc-price');
+    const priceEl = document.getElementById('macro-btc-price');
     priceEl.textContent = fmt(price);
     updateBtc120Indicator(price);
 
@@ -598,25 +686,15 @@
 
     if (btcRefPrice === null) { btcRefPrice = price; return; }
     const diff = price - btcRefPrice;
-    const arrowEl = document.getElementById('btc-arrow');
+    const arrowEl = document.getElementById('macro-btc-arrow');
 
     if (diff >= BTC_UP_THRESHOLD) {
       btcArrowState = 'up'; btcRefPrice = price;
     } else if (diff <= -BTC_DOWN_THRESHOLD) {
       btcArrowState = 'down'; btcRefPrice = price;
     }
-    arrowEl.className = btcArrowState;
+    arrowEl.className = `macro-arrow ${btcArrowState}`;
     arrowEl.textContent = btcArrowState === 'up' ? '▲' : btcArrowState === 'down' ? '▼' : '▬';
-
-    // بطة تنبيه صغيرة تلمع بنفس لون السهم عند تغيّر الحالة (تأكيد بصري إضافي)
-    let badge = document.getElementById('btc-flash-badge');
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.id = 'btc-flash-badge';
-      badge.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;transition:background .3s;';
-      arrowEl.parentElement.insertBefore(badge, arrowEl);
-    }
-    badge.style.background = btcArrowState === 'up' ? 'var(--green)' : btcArrowState === 'down' ? 'var(--red)' : 'var(--muted)';
   }
 
   // ══ تحديث الشاشة عند وصول بيانات العملة المختارة ══
@@ -652,7 +730,6 @@
     document.getElementById('chart-symbol').textContent = msg.symbol;
 
     renderIndicators(msg.indicators);
-    renderConsensus();
     renderDecision(msg.decision);
   }
 
@@ -803,6 +880,16 @@
     }
   }
 
+  // خريطة كل مؤشر لمجموعته (لتنظيم العرض وحساب إجماع كل مجموعة لحالها)
+  const GROUP_MAP = {
+    rsi: 'momentum', macd: 'momentum', stochastic: 'momentum', adx: 'momentum',
+    ema50: 'trend', ema200: 'trend', sma20: 'trend', supertrend: 'trend', vwap: 'trend', ichimoku: 'trend',
+    obv: 'volume', volprofile: 'volume', accdist: 'volume',
+    bb: 'price', pivot: 'price', candlecmp: 'price',
+    btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro', news: 'macro',
+  };
+  const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي' };
+
   let consensusTracker = {};
 
   function setAcc(key, verdict, label, bodyHtml) {
@@ -812,51 +899,75 @@
     const v = document.getElementById(`v-${key}`);
     v.textContent = label; v.className = `acc-verdict ${verdict}`;
     document.getElementById(`b-${key}`).innerHTML = bodyHtml;
-    consensusTracker[key] = verdict; // نسجل إشارة كل مؤشر لحساب إجماع الـ13 لاحقًا
+    consensusTracker[key] = verdict;
   }
 
-  // ══ إجماع كل الـ13 مؤشر مع بعض — طبقة منفصلة، لا تُغيّر قرار الـ5 الأصلي أعلاه ══
+  function groupVerdictCounts(group) {
+    let bull = 0, bear = 0, neutral = 0;
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      if (GROUP_MAP[key] !== group) continue;
+      if (verdict === 'bull') bull++; else if (verdict === 'bear') bear++; else neutral++;
+    }
+    return { bull, bear, neutral, total: bull + bear + neutral };
+  }
+
+  // ══ إجماع كل المؤشرات + ملخص كل مجموعة + المربع النهائي (7 مستويات) ══
   function renderConsensus() {
     const verdicts = Object.values(consensusTracker);
     const total = verdicts.length;
     if (total === 0) return;
 
-    const bull = verdicts.filter(v => v === 'bull').length;
-    const bear = verdicts.filter(v => v === 'bear').length;
-    const neutral = total - bull - bear;
-    const diff = bull - bear;
-    const absDiff = Math.abs(diff);
+    // ملخص كل مجموعة على حدة (يعرض تحت عنوان كل مجموعة بقائمة المؤشرات)
+    let momentumMajority = 0, volumeMajority = 0;
+    for (const group of ['momentum', 'trend', 'volume', 'price', 'macro']) {
+      const c = groupVerdictCounts(group);
+      const el = document.getElementById(`grp-${group}`);
+      if (el && c.total > 0) {
+        el.textContent = `🟢${c.bull} شراء  🔴${c.bear} بيع  ⚪${c.neutral} محايد`;
+        el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
+      }
+      if (group === 'momentum') momentumMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+      if (group === 'volume') volumeMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+    }
 
-    let strength, strengthClass;
-    if (absDiff >= 8)      { strength = diff > 0 ? 'شراء مؤكد' : 'بيع مؤكد'; strengthClass = diff > 0 ? 'pos' : 'neg'; }
-    else if (absDiff >= 5) { strength = diff > 0 ? 'شراء قوي' : 'بيع قوي';   strengthClass = diff > 0 ? 'pos' : 'neg'; }
-    else if (absDiff >= 2) { strength = 'متوسط';                            strengthClass = 'neutral'; }
-    else                   { strength = 'ضعيف/متضارب';                     strengthClass = 'neutral'; }
+    // مربعي إجماع الزخم وإجماع الحجم (من الـ6 مربعات بالحالة)
+    setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral',
+            momentumMajority > 0 ? 'شراء' : momentumMajority < 0 ? 'بيع' : 'محايد');
+    setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
+            volumeMajority > 0 ? 'شراء' : volumeMajority < 0 ? 'بيع' : 'محايد');
 
-    const direction = diff > 0 ? 'إيجابي' : diff < 0 ? 'سلبي' : 'محايد';
-    const title = `${direction} — ${bull} شراء / ${bear} بيع / ${neutral} محايد من أصل ${total}`;
+    // المربع النهائي: يجمع الاتجاه + التوصية (من قرار الـ5 الأصلي) + إجماع الزخم + إجماع الحجم
+    const trendSign = lastTrendSign, actionSign = lastActionSign;
+    const finalScore = trendSign + actionSign + momentumMajority + volumeMajority; // من -4 إلى 4
 
-    const anEl = document.getElementById('mo-analysis');
-    if (anEl) { anEl.textContent = strength; anEl.className = `mo-value ${strengthClass}`; anEl.title = title; }
+    let finalLabel, finalClass;
+    if (finalScore >= 3) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
+    else if (finalScore === 2) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
+    else if (finalScore === 1) { finalLabel = '📈 شراء'; finalClass = 'pos'; }
+    else if (finalScore === 0) { finalLabel = '⚪ محايد'; finalClass = 'neutral'; }
+    else if (finalScore === -1) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
+    else if (finalScore === -2) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
+    else { finalLabel = '📉 بيع قوي جدًا'; finalClass = 'neg'; }
 
-    const buyEl = document.getElementById('mo-buy-count');
-    if (buyEl) { buyEl.textContent = `${bull}/${total}`; buyEl.className = 'mo-value pos'; }
-
-    const sellEl = document.getElementById('mo-sell-count');
-    if (sellEl) { sellEl.textContent = `${bear}/${total}`; sellEl.className = 'mo-value neg'; }
+    const finalEl = document.getElementById('p-final');
+    if (finalEl) { finalEl.textContent = finalLabel; finalEl.className = `final-value ${finalClass}`; }
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
+  let lastTrendSign = 0, lastActionSign = 0;
+
   function renderDecision(d) {
     if (!d) return;
 
     const trendMap = { 'صعود': ['up', 'صعود'], 'هبوط': ['down', 'هبوط'], 'تذبذب': ['neutral', 'تذبذب'] };
     const [tc, tl] = trendMap[d.trend] || ['neutral', d.trend];
     setPill('p-trend', tc, tl);
+    lastTrendSign = d.trend === 'صعود' ? 1 : d.trend === 'هبوط' ? -1 : 0;
 
     const actionMap = { 'buy zone': ['up', 'شراء'], 'sell zone': ['down', 'بيع'], 'wait': ['neutral', 'انتظر'] };
     const [ac, al] = actionMap[d.action] || ['neutral', d.action];
     setPill('p-action', ac, al);
+    lastActionSign = d.action === 'buy zone' ? 1 : d.action === 'sell zone' ? -1 : 0;
 
     const conf = Math.min(100, Math.max(0, d.confidence));
     setPill('p-conf', conf >= 50 ? 'up' : 'down', `${conf}%`);
@@ -865,6 +976,8 @@
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
     setPill('p-overall', oc, ol);
+
+    renderConsensus(); // إعادة حساب المربع النهائي بعد تحديث الاتجاه/التوصية
 
     if (d.buyZone)  document.getElementById('buy-zone-range').innerHTML  = `${d.buyZone.from} – ${d.buyZone.to}`;
     if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
@@ -908,6 +1021,7 @@
     currentSymbol = v; lastPrice = null; showLoading(true);
     document.getElementById('symbol-live-price').innerHTML = '— <span class="updated-at"></span>';
     subscribe();
+    loadFuturesZone(); // مناطق الفيوتشر تخص العملة المختارة، لازم تتحدث فورًا
   }
   document.getElementById('symbol-input').addEventListener('change', applySymbolInput);
   document.getElementById('symbol-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); applySymbolInput(); } });
@@ -942,22 +1056,92 @@
   });
 
   // ══ نظرة عامة على السوق (5 مؤشرات) — تتحدث كل دقيقة ══
+  let prevBtcDominance = null;
+
   async function loadMarketOverview() {
     try {
       const r = await fetch('/api/market-overview');
       const d = await r.json();
 
       if (d.fearGreed) {
-        const el = document.getElementById('mo-fng');
-        el.textContent = `${d.fearGreed.value}`;
-        el.className = 'mo-value ' + (d.fearGreed.value >= 55 ? 'pos' : d.fearGreed.value <= 45 ? 'neg' : 'neutral');
-        el.title = d.fearGreed.label;
+        const v = d.fearGreed.value;
+        const verdict = v <= 45 ? 'bull' : v >= 55 ? 'bear' : 'neutral'; // خوف شديد = فرصة شراء تقليدية (عكسي)، طمع شديد = حذر بيع
+        const label = v <= 25 ? 'خوف شديد (فرصة محتملة)' : v >= 75 ? 'طمع شديد (حذر)' : v <= 45 ? 'خوف' : v >= 55 ? 'طمع' : 'محايد';
+        setAcc('feargreed', verdict, `${label} (${v})`, `القيمة: <b>${v}/100</b> — ${d.fearGreed.label}<br>تفسير عكسي تقليدي: الخوف الشديد فرصة، الطمع الشديد تحذير`);
       }
+
       if (d.btcDominance != null) {
-        document.getElementById('mo-dom').textContent = `${d.btcDominance.toFixed(1)}%`;
+        const rising = prevBtcDominance !== null && d.btcDominance > prevBtcDominance;
+        const falling = prevBtcDominance !== null && d.btcDominance < prevBtcDominance;
+        const isBtc = currentSymbol === 'BTCUSDT';
+        let verdict = 'neutral', label = 'مستقرة';
+        if (rising) { verdict = isBtc ? 'bull' : 'bear'; label = isBtc ? 'ترتفع (إيجابي للبيتكوين)' : 'ترتفع (ضغط على الألتكوين)'; }
+        else if (falling) { verdict = isBtc ? 'bear' : 'bull'; label = isBtc ? 'تنخفض (ضغط على البيتكوين)' : 'تنخفض (إيجابي للألتكوين)'; }
+        setAcc('dominance', verdict, `${d.btcDominance.toFixed(1)}% — ${label}`, `النسبة الحالية: <b>${d.btcDominance.toFixed(2)}%</b><br>التفسير يعتمد على العملة المختارة حاليًا (${currentSymbol})`);
+        prevBtcDominance = d.btcDominance;
       }
-    } catch (e) { /* تجاهل بصمت، يعيد المحاولة بالمرة الجاية */ }
+      renderConsensus();
+    } catch (e) { /* تجاهل بصمت */ }
   }
+
+  // ── الدولار (DXY) + النفط (WTI) + الأخبار ──
+  let prevDxy = null;
+
+  async function loadMacroOverview() {
+    try {
+      const r = await fetch('/api/macro-overview');
+      const d = await r.json();
+
+      if (d.dxy != null) {
+        const el = document.getElementById('macro-dxy-price');
+        const arrowEl = document.getElementById('macro-dxy-arrow');
+        el.textContent = d.dxy.toFixed(2);
+        el.title = '';
+        if (prevDxy !== null) {
+          if (d.dxy > prevDxy) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
+          else if (d.dxy < prevDxy) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
+        }
+        prevDxy = d.dxy;
+      } else {
+        const el = document.getElementById('macro-dxy-price');
+        el.textContent = 'خطأ ⓘ';
+        el.style.color = 'var(--red)';
+        el.title = d.dxyError || 'سبب غير معروف';
+        el.onclick = () => alert('DXY: ' + (d.dxyError || 'سبب غير معروف'));
+        el.style.cursor = 'pointer';
+      }
+
+      if (d.news) {
+        const { positive, negative, total } = d.news;
+        const verdict = positive > negative ? 'bull' : negative > positive ? 'bear' : 'neutral';
+        const label = positive > negative ? `إيجابية (${positive}/${total})` : negative > positive ? `سلبية (${negative}/${total})` : 'متعادلة';
+        setAcc('news', verdict, label, `آخر ${total} خبر مهم: 🟢${positive} إيجابي — 🔴${negative} سلبي`);
+      } else {
+        setAcc('news', 'neutral', 'بدون توكن', 'يحتاج توكن مجاني من cryptopanic.com/developers — أضفه كمتغيّر بيئة CRYPTOPANIC_TOKEN');
+      }
+      renderConsensus();
+    } catch (e) { /* تجاهل بصمت */ }
+  }
+
+  // ── مناطق الفيوتشر للعملة المختارة حاليًا ──
+  async function loadFuturesZone() {
+    try {
+      const r = await fetch(`/api/futures-zone?symbol=${currentSymbol}`);
+      const d = await r.json();
+      if (d.fundingRate != null) {
+        // تفسير عكسي تقليدي: تمويل موجب كبير = ازدحام شراء (حذر) — سالب كبير = ازدحام بيع (فرصة)
+        const fr = d.fundingRate;
+        const verdict = fr > 0.02 ? 'bear' : fr < -0.02 ? 'bull' : 'neutral';
+        const label = fr > 0.02 ? 'ازدحام شراء (حذر)' : fr < -0.02 ? 'ازدحام بيع (فرصة)' : 'متوازن';
+        const oiText = d.openInterest != null ? `<br>الفائدة المفتوحة: <b>${fmtBig(d.openInterest)}</b>` : '';
+        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>${oiText}`);
+      } else {
+        setAcc('futures', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة على المنصة، أو فشل الطلب');
+      }
+      renderConsensus();
+    } catch (e) { /* تجاهل بصمت */ }
+  }
+
   function fmtBig(n) {
     if (n >= 1e12) return (n / 1e12).toFixed(2) + 'ت';
     if (n >= 1e9)  return (n / 1e9).toFixed(2) + 'ب';
@@ -966,11 +1150,58 @@
     return n.toFixed(0);
   }
 
+  // ══ اتصال مستقل بسعر الذهب (PAXG) — خانة لحالها، بغض النظر عن العملة المختارة ══
+  let goldWs = null, goldLastMsgTime = 0, goldWatchdog = null, goldLastTickPrice = null;
+
+  function connectGoldTicker() {
+    if (goldWs) { try { goldWs.close(); } catch (e) {} goldWs = null; }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    goldWs = new WebSocket(`${proto}://${location.host}`);
+    goldWs.onopen = () => {
+      goldWs.send(JSON.stringify({ type: 'subscribe', symbol: 'PAXGUSDT', interval: '5m' }));
+      goldLastMsgTime = Date.now();
+    };
+    goldWs.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'update' && msg.symbol === 'PAXGUSDT') { goldLastMsgTime = Date.now(); updateGoldTicker(msg); }
+    };
+    goldWs.onclose = () => setTimeout(connectGoldTicker, 3000);
+    goldWs.onerror = () => goldWs.close();
+
+    if (goldWatchdog) clearInterval(goldWatchdog);
+    goldWatchdog = setInterval(() => {
+      if (Date.now() - goldLastMsgTime > 20000) { try { goldWs.close(); } catch (e) {} }
+    }, 5000);
+  }
+
+  function updateGoldTicker(msg) {
+    const latest = msg.candles[msg.candles.length - 1];
+    if (!latest) return;
+    const price = latest.close;
+    const priceEl = document.getElementById('macro-gold-price');
+    priceEl.textContent = fmt(price);
+
+    if (goldLastTickPrice !== null) {
+      const arrowEl = document.getElementById('macro-gold-arrow');
+      if (price > goldLastTickPrice) {
+        priceEl.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲';
+      } else if (price < goldLastTickPrice) {
+        priceEl.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼';
+      }
+    }
+    goldLastTickPrice = price;
+  }
+
   initChart();
   connect();
   connectBtcTicker();
+  connectGoldTicker();
   loadMarketOverview();
+  loadMacroOverview();
+  loadFuturesZone();
   setInterval(loadMarketOverview, 60000);
+  setInterval(loadMacroOverview, 60000);
+  setInterval(loadFuturesZone, 60000);
 </script>
 </body>
 </html>
