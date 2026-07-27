@@ -265,11 +265,6 @@
       <span class="macro-price" id="macro-dxy-price">—</span>
       <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
     </div>
-    <div class="macro-box" id="macro-oil">
-      <span class="macro-label">WTI</span>
-      <span class="macro-price" id="macro-oil-price">—</span>
-      <span class="macro-arrow flat" id="macro-oil-arrow">▬</span>
-    </div>
   </div>
 
   <div id="conn-dot"></div>
@@ -1090,7 +1085,7 @@
   }
 
   // ── الدولار (DXY) + النفط (WTI) + الأخبار ──
-  let prevDxy = null, prevOil = null;
+  let prevDxy = null;
 
   async function loadMacroOverview() {
     try {
@@ -1113,25 +1108,6 @@
         el.style.color = 'var(--red)';
         el.title = d.dxyError || 'سبب غير معروف';
         el.onclick = () => alert('DXY: ' + (d.dxyError || 'سبب غير معروف'));
-        el.style.cursor = 'pointer';
-      }
-
-      if (d.oil != null) {
-        const el = document.getElementById('macro-oil-price');
-        const arrowEl = document.getElementById('macro-oil-arrow');
-        el.textContent = d.oil.toFixed(2);
-        el.title = '';
-        if (prevOil !== null) {
-          if (d.oil > prevOil) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
-          else if (d.oil < prevOil) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
-        }
-        prevOil = d.oil;
-      } else {
-        const el = document.getElementById('macro-oil-price');
-        el.textContent = 'خطأ ⓘ';
-        el.style.color = 'var(--red)';
-        el.title = d.oilError || 'سبب غير معروف';
-        el.onclick = () => alert('WTI: ' + (d.oilError || 'سبب غير معروف'));
         el.style.cursor = 'pointer';
       }
 

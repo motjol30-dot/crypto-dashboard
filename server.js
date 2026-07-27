@@ -94,7 +94,8 @@ app.get('/api/market-overview', async (_req, res) => {
 
 /* ============================================================
  * الطبقة الكلية: الدولار (DXY) + النفط (WTI) + مناطق الفيوتشر + الأخبار
- * DXY والنفط يحتاجون مفتاح Twelve Data مجاني (TWELVE_DATA_KEY كمتغيّر بيئة)
+ * DXY: نحسبه بأنفسنا من 6 أزواج عملات (معادلة رسمية) — يشتغل بنفس مفتاح Twelve Data المجاني
+ * WTI: يحتاج مصدر ثاني لأن Twelve Data يطلب خطة مدفوعة للسلع — Alpha Vantage (مجاني، اختياري)
  * ============================================================ */
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
 const CRYPTOPANIC_TOKEN = process.env.CRYPTOPANIC_TOKEN || '';
@@ -102,39 +103,48 @@ const CRYPTOPANIC_TOKEN = process.env.CRYPTOPANIC_TOKEN || '';
 let macroCache = { data: null, ts: 0 };
 const MACRO_CACHE_MS = 60 * 1000;
 
+// معادلة مؤشر الدولار الرسمية (ICE US Dollar Index) من 6 أزواج عملات رئيسية
+async function computeDxyProxy() {
+  const pairs = ['EUR/USD', 'USD/JPY', 'GBP/USD', 'USD/CAD', 'USD/SEK', 'USD/CHF'];
+  const r = await axios.get('https://api.twelvedata.com/price', {
+    params: { symbol: pairs.join(','), apikey: TWELVE_DATA_KEY }, timeout: 8000,
+  });
+  const d = r.data;
+  // لو زوج واحد بس مطلوب، الرد يكون object مباشر بدل object لكل زوج — نطبّع الشكلين
+  const get = (sym) => {
+    const v = pairs.length === 1 ? d : d[sym];
+    if (!v || !v.price) throw new Error(v?.message || `تعذّر جلب ${sym}`);
+    return parseFloat(v.price);
+  };
+  const eurusd = get('EUR/USD'), usdjpy = get('USD/JPY'), gbpusd = get('GBP/USD'),
+        usdcad = get('USD/CAD'), usdsek = get('USD/SEK'), usdchf = get('USD/CHF');
+
+  return 50.14348112 *
+    Math.pow(eurusd, -0.576) *
+    Math.pow(usdjpy, 0.136) *
+    Math.pow(gbpusd, -0.119) *
+    Math.pow(usdcad, 0.091) *
+    Math.pow(usdsek, 0.042) *
+    Math.pow(usdchf, 0.036);
+}
+
 app.get('/api/macro-overview', async (_req, res) => {
   const now = Date.now();
   if (macroCache.data && now - macroCache.ts < MACRO_CACHE_MS) {
     return res.json(macroCache.data);
   }
 
-  const result = { dxy: null, oil: null, news: null, dxyError: null, oilError: null, errors: [] };
+  const result = { dxy: null, news: null, dxyError: null, errors: [] };
 
   if (!TWELVE_DATA_KEY) {
     result.errors.push('no_twelvedata_key');
     result.dxyError = 'لا يوجد مفتاح TWELVE_DATA_KEY';
-    result.oilError = 'لا يوجد مفتاح TWELVE_DATA_KEY';
   } else {
     try {
-      const r = await axios.get(`https://api.twelvedata.com/price`, {
-        params: { symbol: 'DXY', apikey: TWELVE_DATA_KEY }, timeout: 8000,
-      });
-      if (r.data?.price) result.dxy = parseFloat(r.data.price);
-      else result.dxyError = r.data?.message || `رد غير متوقع: ${JSON.stringify(r.data).slice(0, 150)}`;
+      result.dxy = await computeDxyProxy();
     } catch (e) {
       result.errors.push('dxy');
       result.dxyError = e.response?.data?.message || e.message;
-    }
-
-    try {
-      const r = await axios.get(`https://api.twelvedata.com/price`, {
-        params: { symbol: 'WTI/USD', apikey: TWELVE_DATA_KEY }, timeout: 8000,
-      });
-      if (r.data?.price) result.oil = parseFloat(r.data.price);
-      else result.oilError = r.data?.message || `رد غير متوقع: ${JSON.stringify(r.data).slice(0, 150)}`;
-    } catch (e) {
-      result.errors.push('oil');
-      result.oilError = e.response?.data?.message || e.message;
     }
   }
 
