@@ -92,6 +92,86 @@ app.get('/api/market-overview', async (_req, res) => {
   res.json(result);
 });
 
+/* ============================================================
+ * الطبقة الكلية: الدولار (DXY) + النفط (WTI) + مناطق الفيوتشر + الأخبار
+ * DXY والنفط يحتاجون مفتاح Twelve Data مجاني (TWELVE_DATA_KEY كمتغيّر بيئة)
+ * ============================================================ */
+const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
+const CRYPTOPANIC_TOKEN = process.env.CRYPTOPANIC_TOKEN || '';
+
+let macroCache = { data: null, ts: 0 };
+const MACRO_CACHE_MS = 60 * 1000;
+
+app.get('/api/macro-overview', async (_req, res) => {
+  const now = Date.now();
+  if (macroCache.data && now - macroCache.ts < MACRO_CACHE_MS) {
+    return res.json(macroCache.data);
+  }
+
+  const result = { dxy: null, oil: null, news: null, errors: [] };
+
+  if (!TWELVE_DATA_KEY) {
+    result.errors.push('no_twelvedata_key');
+  } else {
+    try {
+      const r = await axios.get(`https://api.twelvedata.com/price`, {
+        params: { symbol: 'DXY', apikey: TWELVE_DATA_KEY }, timeout: 8000,
+      });
+      if (r.data?.price) result.dxy = parseFloat(r.data.price);
+    } catch (e) { result.errors.push('dxy'); }
+
+    try {
+      const r = await axios.get(`https://api.twelvedata.com/price`, {
+        params: { symbol: 'WTI/USD', apikey: TWELVE_DATA_KEY }, timeout: 8000,
+      });
+      if (r.data?.price) result.oil = parseFloat(r.data.price);
+    } catch (e) { result.errors.push('oil'); }
+  }
+
+  // مؤشر الأخبار (يحتاج توكن مجاني من cryptopanic.com/developers)
+  if (!CRYPTOPANIC_TOKEN) {
+    result.errors.push('no_cryptopanic_token');
+  } else {
+    try {
+      const r = await axios.get('https://cryptopanic.com/api/v1/posts/', {
+        params: { auth_token: CRYPTOPANIC_TOKEN, public: 'true', filter: 'important' }, timeout: 8000,
+      });
+      const posts = (r.data?.results || []).slice(0, 20);
+      let pos = 0, neg = 0;
+      for (const p of posts) {
+        const v = p.votes || {};
+        if ((v.positive || 0) > (v.negative || 0)) pos++;
+        else if ((v.negative || 0) > (v.positive || 0)) neg++;
+      }
+      result.news = { positive: pos, negative: neg, total: posts.length };
+    } catch (e) { result.errors.push('news'); }
+  }
+
+  macroCache = { data: result, ts: now };
+  res.json(result);
+});
+
+// مناطق الفيوتشر: معدل التمويل + الفائدة المفتوحة لأي عملة مختارة (نفس منصة MEXC)
+app.get('/api/futures-zone', async (req, res) => {
+  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
+  const contractSymbol = symbol.replace(/USDT$/, '_USDT');
+  const result = { fundingRate: null, openInterest: null, errors: [] };
+
+  try {
+    const r = await axios.get(`https://contract.mexc.com/api/v1/contract/funding_rate/${contractSymbol}`, { timeout: 8000 });
+    const fr = r.data?.data?.fundingRate;
+    if (fr != null) result.fundingRate = Number(fr) * 100;
+  } catch (e) { result.errors.push('fundingRate'); }
+
+  try {
+    const r = await axios.get(`https://contract.mexc.com/api/v1/contract/open_interest/${contractSymbol}`, { timeout: 8000 });
+    const oi = r.data?.data?.holdVol ?? r.data?.data?.amount;
+    if (oi != null) result.openInterest = Number(oi);
+  } catch (e) { result.errors.push('openInterest'); }
+
+  res.json(result);
+});
+
 // ── Frontend WebSocket server ─────────────────────────────────────────────────
 
 const wss = new WebSocket.Server({ server });
