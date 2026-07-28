@@ -98,7 +98,6 @@ app.get('/api/market-overview', async (_req, res) => {
  * WTI: يحتاج مصدر ثاني لأن Twelve Data يطلب خطة مدفوعة للسلع — Alpha Vantage (مجاني، اختياري)
  * ============================================================ */
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
-const CRYPTOPANIC_TOKEN = process.env.CRYPTOPANIC_TOKEN || '';
 
 let macroCache = { data: null, ts: 0 };
 const MACRO_CACHE_MS = 60 * 1000;
@@ -146,25 +145,6 @@ app.get('/api/macro-overview', async (_req, res) => {
       result.errors.push('dxy');
       result.dxyError = e.response?.data?.message || e.message;
     }
-  }
-
-  // مؤشر الأخبار (يحتاج توكن مجاني من cryptopanic.com/developers)
-  if (!CRYPTOPANIC_TOKEN) {
-    result.errors.push('no_cryptopanic_token');
-  } else {
-    try {
-      const r = await axios.get('https://cryptopanic.com/api/v1/posts/', {
-        params: { auth_token: CRYPTOPANIC_TOKEN, public: 'true', filter: 'important' }, timeout: 8000,
-      });
-      const posts = (r.data?.results || []).slice(0, 20);
-      let pos = 0, neg = 0;
-      for (const p of posts) {
-        const v = p.votes || {};
-        if ((v.positive || 0) > (v.negative || 0)) pos++;
-        else if ((v.negative || 0) > (v.positive || 0)) neg++;
-      }
-      result.news = { positive: pos, negative: neg, total: posts.length };
-    } catch (e) { result.errors.push('news'); }
   }
 
   macroCache = { data: result, ts: now };

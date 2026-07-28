@@ -563,16 +563,6 @@
     <div class="acc-body" id="b-futures">معدل التمويل والفائدة المفتوحة للعملة المختارة حاليًا</div>
   </div>
 
-  <div class="acc-item" data-key="news">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الأخبار</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-news">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-news">يحتاج توكن مجاني من CryptoPanic (اختياري)</div>
-  </div>
-
 </div>
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
@@ -886,7 +876,7 @@
     ema50: 'trend', ema200: 'trend', sma20: 'trend', supertrend: 'trend', vwap: 'trend', ichimoku: 'trend',
     obv: 'volume', volprofile: 'volume', accdist: 'volume',
     bb: 'price', pivot: 'price', candlecmp: 'price',
-    btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro', news: 'macro',
+    btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro',
   };
   const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي' };
 
@@ -917,13 +907,15 @@
     const total = verdicts.length;
     if (total === 0) return;
 
-    // ملخص كل مجموعة على حدة (يعرض تحت عنوان كل مجموعة بقائمة المؤشرات)
+    // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
+    const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي' };
     let momentumMajority = 0, volumeMajority = 0;
     for (const group of ['momentum', 'trend', 'volume', 'price', 'macro']) {
       const c = groupVerdictCounts(group);
       const el = document.getElementById(`grp-${group}`);
       if (el && c.total > 0) {
-        el.textContent = `🟢${c.bull} شراء  🔴${c.bear} بيع  ⚪${c.neutral} محايد`;
+        const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: شراء' : c.bear > c.bull ? '📉 قرار المجموعة: بيع' : '⚪ قرار المجموعة: محايد';
+        el.textContent = `${verdictWord}  (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
         el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
       }
       if (group === 'momentum') momentumMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
@@ -1111,14 +1103,6 @@
         el.style.cursor = 'pointer';
       }
 
-      if (d.news) {
-        const { positive, negative, total } = d.news;
-        const verdict = positive > negative ? 'bull' : negative > positive ? 'bear' : 'neutral';
-        const label = positive > negative ? `إيجابية (${positive}/${total})` : negative > positive ? `سلبية (${negative}/${total})` : 'متعادلة';
-        setAcc('news', verdict, label, `آخر ${total} خبر مهم: 🟢${positive} إيجابي — 🔴${negative} سلبي`);
-      } else {
-        setAcc('news', 'neutral', 'بدون توكن', 'يحتاج توكن مجاني من cryptopanic.com/developers — أضفه كمتغيّر بيئة CRYPTOPANIC_TOKEN');
-      }
       renderConsensus();
     } catch (e) { /* تجاهل بصمت */ }
   }
