@@ -635,10 +635,38 @@ function computeIndicators(candles) {
     }
   }
 
+  // CVD (Cumulative Volume Delta) — تقدير الشراء/البيع الفعلي داخل كل شمعة + كشف التباعد عن السعر (امتصاص مؤسسي)
+  let cvd = null;
+  {
+    const win = candles.slice(-50);
+    let running = 0;
+    const cvdArr = [];
+    for (const c of win) {
+      const range = c.high - c.low;
+      const buyVol = range === 0 ? c.volume / 2 : c.volume * ((c.close - c.low) / range);
+      const sellVol = c.volume - buyVol;
+      running += (buyVol - sellVol);
+      cvdArr.push(running);
+    }
+    if (cvdArr.length >= 10) {
+      const lookback = 10;
+      const priceNow = win[win.length - 1].close;
+      const priceBefore = win[win.length - 1 - lookback].close;
+      const cvdNow = cvdArr[cvdArr.length - 1];
+      const cvdBefore = cvdArr[cvdArr.length - 1 - lookback];
+      const priceDir = priceNow > priceBefore ? 'up' : priceNow < priceBefore ? 'down' : 'flat';
+      const cvdDir = cvdNow > cvdBefore ? 'up' : cvdNow < cvdBefore ? 'down' : 'flat';
+      let signal = 'confirm';
+      if (priceDir === 'down' && cvdDir === 'up') signal = 'bullish_divergence'; // امتصاص مؤسسي صاعد
+      else if (priceDir === 'up' && cvdDir === 'down') signal = 'bearish_divergence'; // توزيع/تباعد سلبي
+      cvd = { value: cvdNow, priceDir, cvdDir, signal };
+    }
+  }
+
   return {
     rsi, macd, bb, ema50, ema200,
     sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
-    pivot, candleCompare, accDist,
+    pivot, candleCompare, accDist, cvd,
     currentPrice: closes[closes.length - 1],
   };
 }

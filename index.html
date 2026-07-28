@@ -348,47 +348,47 @@
 <!-- المؤشرات: أكورديون -->
 <div id="indicators-list">
 
-  <div class="group-header">📉 الزخم والتذبذب</div>
-  <div class="group-summary" id="grp-momentum">—</div>
+  <div class="group-header">🌍 بيانات السوق الكلية</div>
+  <div class="group-summary" id="grp-macro">—</div>
 
-  <div class="acc-item" data-key="rsi">
+  <div class="acc-item" data-key="btc120">
     <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI (14)</span></div>
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بيتكوين ±120$</span></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-rsi">—</span><span class="acc-arrow">▾</span>
+        <span class="acc-verdict neutral" id="v-btc120">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div class="acc-body" id="b-rsi">—</div>
+    <div class="acc-body" id="b-btc120">يتابع حركة البيتكوين بشكل مستقل بغض النظر عن العملة المختارة حاليًا</div>
   </div>
 
-  <div class="acc-item" data-key="macd">
+  <div class="acc-item" data-key="feargreed">
     <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div>
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الخوف والطمع</span></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span>
+        <span class="acc-verdict neutral" id="v-feargreed">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div class="acc-body" id="b-macd">—</div>
+    <div class="acc-body" id="b-feargreed">يحدّث كل دقيقة من مصدر خارجي مجاني</div>
   </div>
 
-  <div class="acc-item" data-key="stochastic">
+  <div class="acc-item" data-key="dominance">
     <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div>
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">هيمنة البيتكوين</span></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span>
+        <span class="acc-verdict neutral" id="v-dominance">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div class="acc-body" id="b-stochastic">—</div>
+    <div class="acc-body" id="b-dominance">يحدّث كل دقيقة — يقارن حسب العملة المختارة حاليًا</div>
   </div>
 
-  <div class="acc-item" data-key="adx">
+  <div class="acc-item" data-key="futures">
     <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX (قوة الاتجاه)</span></div>
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">مناطق الفيوتشر</span></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span>
+        <span class="acc-verdict neutral" id="v-futures">—</span><span class="acc-arrow">▾</span>
       </div>
     </div>
-    <div class="acc-body" id="b-adx">—</div>
+    <div class="acc-body" id="b-futures">معدل التمويل والفائدة المفتوحة للعملة المختارة حاليًا</div>
   </div>
 
   <div class="group-header">📈 المتوسطات المتحركة والاتجاه</div>
@@ -487,6 +487,69 @@
     <div class="acc-body" id="b-accdist">—</div>
   </div>
 
+  <div class="acc-item" data-key="cvd">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">CVD (دلتا الحجم التراكمي)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-cvd">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-cvd">—</div>
+  </div>
+
+  <div class="acc-item" data-key="openinterest">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الفائدة المفتوحة</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-openinterest">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-openinterest">—</div>
+  </div>
+
+  <div class="group-header">📉 الزخم والتذبذب</div>
+  <div class="group-summary" id="grp-momentum">—</div>
+
+  <div class="acc-item" data-key="rsi">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI (14)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-rsi">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-rsi">—</div>
+  </div>
+
+  <div class="acc-item" data-key="macd">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-macd">—</div>
+  </div>
+
+  <div class="acc-item" data-key="stochastic">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-stochastic">—</div>
+  </div>
+
+  <div class="acc-item" data-key="adx">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX (قوة الاتجاه)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-adx">—</div>
+  </div>
+
   <div class="group-header">🕯️ الأسعار والأنماط</div>
   <div class="group-summary" id="grp-price">—</div>
 
@@ -519,51 +582,8 @@
     </div>
     <div class="acc-body" id="b-candlecmp">—</div>
   </div>
-
-  <div class="group-header">🌍 بيانات السوق الكلية</div>
-  <div class="group-summary" id="grp-macro">—</div>
-
-  <div class="acc-item" data-key="btc120">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بيتكوين ±120$</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-btc120">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-btc120">يتابع حركة البيتكوين بشكل مستقل بغض النظر عن العملة المختارة حاليًا</div>
-  </div>
-
-  <div class="acc-item" data-key="feargreed">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الخوف والطمع</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-feargreed">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-feargreed">يحدّث كل دقيقة من مصدر خارجي مجاني</div>
-  </div>
-
-  <div class="acc-item" data-key="dominance">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">هيمنة البيتكوين</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-dominance">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-dominance">يحدّث كل دقيقة — يقارن حسب العملة المختارة حاليًا</div>
-  </div>
-
-  <div class="acc-item" data-key="futures">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">مناطق الفيوتشر</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="acc-verdict neutral" id="v-futures">—</span><span class="acc-arrow">▾</span>
-      </div>
-    </div>
-    <div class="acc-body" id="b-futures">معدل التمويل والفائدة المفتوحة للعملة المختارة حاليًا</div>
-  </div>
-
 </div>
+
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
 <ul id="notes-list"></ul>
@@ -854,6 +874,16 @@
       else if (ad.zone.includes('تصريف')) verdict = 'bear';
       setAcc('accdist', verdict, label, `الاتجاه: ${ad.rising ? 'صاعد (تدفق سيولة داخل)' : 'هابط (تدفق سيولة خارج)'}<br>يقيس ضغط الشراء/البيع الحقيقي من موقع الإغلاق داخل مدى الشمعة مضروبًا بالحجم`);
     }
+
+    // CVD — دلتا الحجم التراكمي: يكشف الامتصاص المؤسسي عند تباعد السعر عن الحجم
+    if (ind.cvd) {
+      const c = ind.cvd;
+      let verdict = 'neutral', label = 'يؤكد اتجاه السعر';
+      if (c.signal === 'bullish_divergence') { verdict = 'bull'; label = 'امتصاص مؤسسي صاعد (تباعد إيجابي)'; }
+      else if (c.signal === 'bearish_divergence') { verdict = 'bear'; label = 'توزيع/تباعد سلبي'; }
+      else { verdict = c.priceDir === 'up' ? 'bull' : c.priceDir === 'down' ? 'bear' : 'neutral'; }
+      setAcc('cvd', verdict, label, `اتجاه السعر: ${c.priceDir} — اتجاه CVD: ${c.cvdDir}<br>لو السعر ينخفض وCVD يصعد = شراء مؤسسي خفي يمتص العرض`);
+    }
   }
 
   // ══ مؤشر البيتكوين ±120$ — مستقل تمامًا، يتابع البيتكوين بغض النظر عن العملة المختارة ══
@@ -874,7 +904,7 @@
   const GROUP_MAP = {
     rsi: 'momentum', macd: 'momentum', stochastic: 'momentum', adx: 'momentum',
     ema50: 'trend', ema200: 'trend', sma20: 'trend', supertrend: 'trend', vwap: 'trend', ichimoku: 'trend',
-    obv: 'volume', volprofile: 'volume', accdist: 'volume',
+    obv: 'volume', volprofile: 'volume', accdist: 'volume', cvd: 'volume', openinterest: 'volume',
     bb: 'price', pivot: 'price', candlecmp: 'price',
     btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro',
   };
@@ -1108,6 +1138,8 @@
   }
 
   // ── مناطق الفيوتشر للعملة المختارة حاليًا ──
+  let prevOI = null, prevOIPrice = null;
+
   async function loadFuturesZone() {
     try {
       const r = await fetch(`/api/futures-zone?symbol=${currentSymbol}`);
@@ -1117,11 +1149,31 @@
         const fr = d.fundingRate;
         const verdict = fr > 0.02 ? 'bear' : fr < -0.02 ? 'bull' : 'neutral';
         const label = fr > 0.02 ? 'ازدحام شراء (حذر)' : fr < -0.02 ? 'ازدحام بيع (فرصة)' : 'متوازن';
-        const oiText = d.openInterest != null ? `<br>الفائدة المفتوحة: <b>${fmtBig(d.openInterest)}</b>` : '';
-        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>${oiText}`);
+        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>`);
       } else {
         setAcc('futures', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة على المنصة، أو فشل الطلب');
       }
+
+      // الفائدة المفتوحة كمؤشر مستقل: يقارن اتجاهها مع اتجاه السعر (توسع حقيقي / تغطية شورت)
+      if (d.openInterest != null) {
+        const currentPrice = lastPrice;
+        if (prevOI !== null && prevOIPrice !== null && currentPrice != null) {
+          const oiUp = d.openInterest > prevOI, oiDown = d.openInterest < prevOI;
+          const priceUp = currentPrice > prevOIPrice, priceDown = currentPrice < prevOIPrice;
+          let verdict = 'neutral', label = 'مستقر';
+          if (priceUp && oiUp) { verdict = 'bull'; label = 'توسع حقيقي (صعود مدعوم بأموال جديدة)'; }
+          else if (priceUp && oiDown) { verdict = 'neutral'; label = 'تغطية شورت (صعود هش)'; }
+          else if (priceDown && oiUp) { verdict = 'bear'; label = 'توسع هبوطي حقيقي'; }
+          else if (priceDown && oiDown) { verdict = 'neutral'; label = 'إغلاق مراكز (هبوط قد يهدأ)'; }
+          setAcc('openinterest', verdict, label, `الفائدة المفتوحة الحالية: <b>${fmtBig(d.openInterest)}</b><br>يقارن اتجاه الفائدة المفتوحة مع اتجاه السعر لتمييز الصعود المدعوم بأموال حقيقية عن مجرد تغطية مراكز`);
+        } else {
+          setAcc('openinterest', 'neutral', 'يتحمّل...', `الفائدة المفتوحة الحالية: <b>${fmtBig(d.openInterest)}</b><br>يحتاج قراءتين على الأقل للمقارنة`);
+        }
+        prevOI = d.openInterest; prevOIPrice = currentPrice;
+      } else {
+        setAcc('openinterest', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة، أو فشل الطلب');
+      }
+
       renderConsensus();
     } catch (e) { /* تجاهل بصمت */ }
   }
