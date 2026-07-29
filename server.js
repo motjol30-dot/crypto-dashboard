@@ -469,7 +469,8 @@ function computeIndicators(candles) {
   const lows = candles.map((c) => c.low);
   const volumes = candles.map((c) => c.volume);
 
-  const rsi = last(RSI.calculate({ values: closes, period: 14 }));
+  const rsiArr = RSI.calculate({ values: closes, period: 14 });
+  const rsi = last(rsiArr);
 
   const macdRaw = last(MACD.calculate({
     values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9,
@@ -663,10 +664,81 @@ function computeIndicators(candles) {
     }
   }
 
+  // ══════════ طبقة الارتداد (Reversal) ══════════
+
+  // Stochastic RSI (14,3,3)
+  let stochRsi = null;
+  if (rsiArr.length >= 17) {
+    const kArr = [];
+    for (let i = 13; i < rsiArr.length; i++) {
+      const win = rsiArr.slice(i - 13, i + 1);
+      const hi = Math.max(...win), lo = Math.min(...win);
+      kArr.push(hi === lo ? 50 : ((rsiArr[i] - lo) / (hi - lo)) * 100);
+    }
+    if (kArr.length >= 4) {
+      const dSmooth = (arr, p) => arr.slice(-p).reduce((a, b) => a + b, 0) / p;
+      const kNow = dSmooth(kArr, 3), kPrev = dSmooth(kArr.slice(0, -1), 3);
+      const dNow = dSmooth(kArr.slice(-5), 3), dPrev = dSmooth(kArr.slice(0, -1).slice(-5), 3);
+      stochRsi = { k: kNow, d: dNow, crossUp: kPrev <= dPrev && kNow > dNow, crossDown: kPrev >= dPrev && kNow < dNow };
+    }
+  }
+
+  // Bollinger %B (يحتاج قيمة حالية وسابقة لكشف لحظة العبور)
+  let bbPercentB = null;
+  if (bb) {
+    const closesForBB = closes.slice(-21);
+    const prevClose = closesForBB[closesForBB.length - 2];
+    const range = bb.upper - bb.lower;
+    const nowB = range === 0 ? 0.5 : (closes[n - 1] - bb.lower) / range;
+    const prevB = range === 0 || prevClose == null ? nowB : (prevClose - bb.lower) / range;
+    bbPercentB = { now: nowB, prev: prevB, crossedUpFromZero: prevB < 0 && nowB >= 0, crossedDownFromOne: prevB > 1 && nowB <= 1 };
+  }
+
+  // دايفرجنز RSI — مقارنة قاع السعر بقاع RSI خلال آخر 10 شمعات
+  let rsiDivergence = null;
+  if (rsiArr.length >= 11 && n >= 11) {
+    const priceNow = closes[n - 1], priceBefore = closes[n - 11];
+    const rsiNow = rsiArr[rsiArr.length - 1], rsiBefore = rsiArr[rsiArr.length - 11];
+    let type = 'none';
+    if (priceNow < priceBefore && rsiNow > rsiBefore) type = 'bullish'; // تجميع خفي
+    else if (priceNow > priceBefore && rsiNow < rsiBefore) type = 'bearish'; // توزيع خفي
+    rsiDivergence = { type, priceNow, priceBefore, rsiNow, rsiBefore };
+  }
+
+  // Williams %R (14) — يحتاج قيمة حالية وسابقة لكشف لحظة العبور
+  let williamsR = null;
+  if (n >= 15) {
+    const calcWR = (idx) => {
+      const hh = Math.max(...highs.slice(idx - 13, idx + 1));
+      const ll = Math.min(...lows.slice(idx - 13, idx + 1));
+      return hh === ll ? -50 : ((hh - closes[idx]) / (hh - ll)) * -100;
+    };
+    const wrNow = calcWR(n - 1), wrPrev = calcWR(n - 2);
+    williamsR = { now: wrNow, prev: wrPrev, crossUpFrom80: wrPrev < -80 && wrNow >= -80, crossDownFrom20: wrPrev > -20 && wrNow <= -20 };
+  }
+
+  // ══════════ طبقة ثبات الاتجاه (Trend Stability) ══════════
+
+  // Choppiness Index (14) — 0-100: تحت 38.2 = ترند ثابت، فوق 61.8 = تذبذب عشوائي
+  let chop = null;
+  if (n >= 15) {
+    const trWin = [];
+    for (let i = n - 14; i < n; i++) {
+      trWin.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    }
+    const atrSum = trWin.reduce((a, b) => a + b, 0);
+    const hh14 = Math.max(...highs.slice(-14)), ll14 = Math.min(...lows.slice(-14));
+    const range14 = hh14 - ll14;
+    if (range14 > 0 && atrSum > 0) {
+      chop = 100 * Math.log10(atrSum / range14) / Math.log10(14);
+    }
+  }
+
   return {
     rsi, macd, bb, ema50, ema200,
     sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
     pivot, candleCompare, accDist, cvd,
+    stochRsi, bbPercentB, rsiDivergence, williamsR, chop,
     currentPrice: closes[closes.length - 1],
   };
 }

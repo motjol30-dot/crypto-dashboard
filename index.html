@@ -348,6 +348,92 @@
 <!-- المؤشرات: أكورديون -->
 <div id="indicators-list">
 
+  <div class="group-header">🔄 الارتداد (Reversal)</div>
+  <div class="group-summary" id="grp-reversal">—</div>
+
+  <div class="acc-item" data-key="stochrsi">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-stochrsi">—</div>
+  </div>
+
+  <div class="acc-item" data-key="bbpercentb">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger %B</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-bbpercentb">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-bbpercentb">—</div>
+  </div>
+
+  <div class="acc-item" data-key="rsidiv">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI Divergence</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-rsidiv">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-rsidiv">—</div>
+  </div>
+
+  <div class="acc-item" data-key="williamsr">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Williams %R</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-williamsr">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-williamsr">—</div>
+  </div>
+
+  <div class="group-header">🔒 ثبات الاتجاه (Trend Stability)</div>
+  <div class="group-summary" id="grp-stability">—</div>
+
+  <div class="acc-item" data-key="stab-adx">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX (ثبات الاتجاه)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-stab-adx">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-stab-adx">—</div>
+  </div>
+
+  <div class="acc-item" data-key="chop">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Choppiness Index</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-chop">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-chop">—</div>
+  </div>
+
+  <div class="acc-item" data-key="stab-obv">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV (ثبات مدعوم بالسيولة)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-stab-obv">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-stab-obv">—</div>
+  </div>
+
+  <div class="acc-item" data-key="stab-ichimoku">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">إيشيموكو (عمق الاستقرار)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-stab-ichimoku">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-stab-ichimoku">—</div>
+  </div>
+
   <div class="group-header">🌍 بيانات السوق الكلية</div>
   <div class="group-summary" id="grp-macro">—</div>
 
@@ -884,6 +970,88 @@
       else { verdict = c.priceDir === 'up' ? 'bull' : c.priceDir === 'down' ? 'bear' : 'neutral'; }
       setAcc('cvd', verdict, label, `اتجاه السعر: ${c.priceDir} — اتجاه CVD: ${c.cvdDir}<br>لو السعر ينخفض وCVD يصعد = شراء مؤسسي خفي يمتص العرض`);
     }
+
+    // ══ طبقة الارتداد ══
+
+    // Stochastic RSI
+    if (ind.stochRsi) {
+      const s = ind.stochRsi;
+      let verdict = 'neutral', label = 'لا إشارة';
+      if (s.k < 20 && s.crossUp) { verdict = 'bull'; label = 'بداية ارتداد صاعد 🟢'; }
+      else if (s.k > 80 && s.crossDown) { verdict = 'bear'; label = 'بداية ارتداد هابط 🔴'; }
+      setAcc('stochrsi', verdict, label, `K: <b>${s.k.toFixed(1)}</b> — D: <b>${s.d.toFixed(1)}</b><br>تشبع بيعي/شرائي + تقاطع = إشارة ارتداد مبكرة`);
+    }
+
+    // Bollinger %B
+    if (ind.bbPercentB) {
+      const b = ind.bbPercentB;
+      let verdict = 'neutral', label = 'داخل النطاق';
+      if (b.crossedUpFromZero) { verdict = 'bull'; label = 'ارتداد صاعد مؤكد للمتوسط 🟢'; }
+      else if (b.crossedDownFromOne) { verdict = 'bear'; label = 'ارتداد هابط مؤكد للمتوسط 🔴'; }
+      setAcc('bbpercentb', verdict, label, `%B الحالية: <b>${b.now.toFixed(2)}</b> (السابقة: ${b.prev.toFixed(2)})<br>0 = الحد السفلي، 1 = الحد العلوي`);
+    }
+
+    // RSI Divergence
+    if (ind.rsiDivergence) {
+      const r = ind.rsiDivergence;
+      let verdict = 'neutral', label = 'لا يوجد تباعد';
+      if (r.type === 'bullish') { verdict = 'bull'; label = 'تجميع خفي - ارتداد صاعد وشيك 🟢'; }
+      else if (r.type === 'bearish') { verdict = 'bear'; label = 'توزيع خفي - ارتداد هابط وشيك 🔴'; }
+      setAcc('rsidiv', verdict, label, `السعر الآن مقابل قبل 10 شموع: <b>${fmt(r.priceNow)}</b> / <b>${fmt(r.priceBefore)}</b><br>RSI الآن مقابل قبل 10 شموع: <b>${r.rsiNow.toFixed(1)}</b> / <b>${r.rsiBefore.toFixed(1)}</b>`);
+    }
+
+    // Williams %R
+    if (ind.williamsR) {
+      const w = ind.williamsR;
+      let verdict = 'neutral', label = 'لا إشارة';
+      if (w.crossUpFrom80) { verdict = 'bull'; label = 'نبضة ارتداد صاعدة 🟢'; }
+      else if (w.crossDownFrom20) { verdict = 'bear'; label = 'نبضة ارتداد هابطة 🔴'; }
+      setAcc('williamsr', verdict, label, `القيمة الحالية: <b>${w.now.toFixed(1)}</b><br>تحت -80 = تشبع بيعي، فوق -20 = تشبع شرائي`);
+    }
+
+    // ══ طبقة ثبات الاتجاه ══
+
+    // ADX (كثبات، مو زخم)
+    if (ind.adx) {
+      let verdict = 'neutral', label = 'اتجاه هش ⚠️';
+      if (ind.adx.adx > 25) { verdict = ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear'; label = 'الاتجاه ثابت وقوي 🔒'; }
+      else if (ind.adx.adx < 20) { verdict = 'neutral'; label = 'ضعيف ومعرض للكسر ⚠️'; }
+      setAcc('stab-adx', verdict, label, `ADX: <b>${ind.adx.adx.toFixed(1)}</b> (فوق 25 = ثبات، تحت 20 = هشاشة)`);
+    }
+
+    // Choppiness Index
+    if (ind.chop != null) {
+      let verdict = 'neutral', label = 'منطقة انتقالية';
+      if (ind.chop < 38.2) { verdict = ind.candleCompare?.consecutiveUp ? 'bull' : ind.candleCompare?.consecutiveDown ? 'bear' : 'neutral'; label = 'تريند مستقر وثابت 📈/📉'; }
+      else if (ind.chop > 61.8) { verdict = 'neutral'; label = 'سوق متذبذب وعشوائي 🌀'; }
+      setAcc('chop', verdict, label, `القيمة: <b>${ind.chop.toFixed(1)}</b> (تحت 38.2 = ثبات، فوق 61.8 = تذبذب عشوائي)`);
+    }
+
+    // OBV (كثبات مدعوم بالسيولة)
+    if (ind.obv != null && ind.obvPrev != null) {
+      const obvUp = ind.obv > ind.obvPrev;
+      const priceUp = ind.candleCompare?.consecutiveUp;
+      const priceDown = ind.candleCompare?.consecutiveDown;
+      let verdict = 'neutral', label = 'محايد';
+      if (priceUp && obvUp) { verdict = 'bull'; label = 'ثبات صاعد مدعوم بالسيولة 💸'; }
+      else if (priceUp && !obvUp) { verdict = 'bear'; label = 'ثبات وهمي/تصريف ⚠️'; }
+      else if (priceDown && !obvUp) { verdict = 'bear'; label = 'ثبات هابط مدعوم بالسيولة 💸'; }
+      else if (priceDown && obvUp) { verdict = 'neutral'; label = 'ثبات هبوط وهمي ⚠️'; }
+      setAcc('stab-obv', verdict, label, `يقارن اتجاه السعر مع اتجاه OBV للتأكد هل الثبات حقيقي أو وهمي`);
+    }
+
+    // إيشيموكو (كعمق استقرار)
+    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) {
+      const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB);
+      const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB);
+      const cloudGreen = ind.ichimoku.spanA > ind.ichimoku.spanB;
+      let verdict = 'neutral', label = 'داخل السحابة (غير مستقر)';
+      if (ind.currentPrice > top && cloudGreen) { verdict = 'bull'; label = 'استقرار صعودي تام وآمن 🛡️'; }
+      else if (ind.currentPrice < bottom && !cloudGreen) { verdict = 'bear'; label = 'استقرار هبوطي تام 🛡️'; }
+      setAcc('stab-ichimoku', verdict, label, `السحابة: ${cloudGreen ? 'خضراء (صاعدة)' : 'حمراء (هابطة)'}<br>أي نزول/صعود لا يكسر السحابة يعتبر ضوضاء فقط`);
+    } else {
+      setAcc('stab-ichimoku', 'neutral', 'يتحمّل...', 'يحتاج 52+ شمعة على الأقل');
+    }
   }
 
   // ══ مؤشر البيتكوين ±120$ — مستقل تمامًا، يتابع البيتكوين بغض النظر عن العملة المختارة ══
@@ -907,8 +1075,10 @@
     obv: 'volume', volprofile: 'volume', accdist: 'volume', cvd: 'volume', openinterest: 'volume',
     bb: 'price', pivot: 'price', candlecmp: 'price',
     btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro',
+    stochrsi: 'reversal', bbpercentb: 'reversal', rsidiv: 'reversal', williamsr: 'reversal',
+    'stab-adx': 'stability', chop: 'stability', 'stab-obv': 'stability', 'stab-ichimoku': 'stability',
   };
-  const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي' };
+  const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات' };
 
   let consensusTracker = {};
 
@@ -940,7 +1110,7 @@
     // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
     const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي' };
     let momentumMajority = 0, volumeMajority = 0;
-    for (const group of ['momentum', 'trend', 'volume', 'price', 'macro']) {
+    for (const group of ['reversal', 'stability', 'momentum', 'trend', 'volume', 'price', 'macro']) {
       const c = groupVerdictCounts(group);
       const el = document.getElementById(`grp-${group}`);
       if (el && c.total > 0) {
