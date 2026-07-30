@@ -245,6 +245,8 @@
       <button data-interval="5m" data-label="5 د" class="active">5 دقائق</button>
       <button data-interval="15m" data-label="15 د">15 دقيقة</button>
       <button data-interval="30m" data-label="30 د">نص ساعة</button>
+      <button data-interval="2h" data-label="2 س">ساعتين</button>
+      <button data-interval="4h" data-label="4 س">4 ساعات</button>
     </div>
   </div>
 
@@ -284,6 +286,7 @@
       <option value="DOGEUSDT">
       <option value="ADAUSDT">
       <option value="AVAXUSDT">
+      <option value="PAXGUSDT">
     </datalist>
   </div>
 </div>
@@ -324,6 +327,14 @@
   <div class="pill">
     <div class="pill-label">إجماع الحجم</div>
     <div class="pill-value neutral" id="p-volume">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الارتداد</div>
+    <div class="pill-value neutral" id="p-reversal">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الثبات</div>
+    <div class="pill-value neutral" id="p-stability">—</div>
   </div>
 </div>
 
@@ -1108,8 +1119,8 @@
     if (total === 0) return;
 
     // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
-    const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي' };
-    let momentumMajority = 0, volumeMajority = 0;
+    const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات' };
+    let momentumMajority = 0, volumeMajority = 0, reversalMajority = 0, stabilityMajority = 0;
     for (const group of ['reversal', 'stability', 'momentum', 'trend', 'volume', 'price', 'macro']) {
       const c = groupVerdictCounts(group);
       const el = document.getElementById(`grp-${group}`);
@@ -1120,25 +1131,31 @@
       }
       if (group === 'momentum') momentumMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
       if (group === 'volume') volumeMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+      if (group === 'reversal') reversalMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+      if (group === 'stability') stabilityMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
     }
 
-    // مربعي إجماع الزخم وإجماع الحجم (من الـ6 مربعات بالحالة)
+    // مربعات الإجماع الأربعة (زخم / حجم / ارتداد / ثبات)
     setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral',
             momentumMajority > 0 ? 'شراء' : momentumMajority < 0 ? 'بيع' : 'محايد');
     setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
             volumeMajority > 0 ? 'شراء' : volumeMajority < 0 ? 'بيع' : 'محايد');
+    setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral',
+            reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
+    setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
+            stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
 
-    // المربع النهائي: يجمع الاتجاه + التوصية (من قرار الـ5 الأصلي) + إجماع الزخم + إجماع الحجم
+    // المربع النهائي: يجمع الاتجاه + التوصية + إجماع الزخم + الحجم + الارتداد + الثبات (8 مربعات)
     const trendSign = lastTrendSign, actionSign = lastActionSign;
-    const finalScore = trendSign + actionSign + momentumMajority + volumeMajority; // من -4 إلى 4
+    const finalScore = trendSign + actionSign + momentumMajority + volumeMajority + reversalMajority + stabilityMajority; // من -6 إلى 6
 
     let finalLabel, finalClass;
-    if (finalScore >= 3) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
-    else if (finalScore === 2) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
-    else if (finalScore === 1) { finalLabel = '📈 شراء'; finalClass = 'pos'; }
+    if (finalScore >= 4) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
+    else if (finalScore >= 2) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
+    else if (finalScore >= 1) { finalLabel = '📈 شراء'; finalClass = 'pos'; }
     else if (finalScore === 0) { finalLabel = '⚪ محايد'; finalClass = 'neutral'; }
-    else if (finalScore === -1) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
-    else if (finalScore === -2) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
+    else if (finalScore >= -1) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
+    else if (finalScore >= -3) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
     else { finalLabel = '📉 بيع قوي جدًا'; finalClass = 'neg'; }
 
     const finalEl = document.getElementById('p-final');
@@ -1210,13 +1227,30 @@
     let v = document.getElementById('symbol-input').value.trim().toUpperCase().replace(/\s+/g, '');
     if (!v) return;
     if (!v.endsWith('USDT')) v += 'USDT';
+    if (v === currentSymbol) return; // تجنّب إعادة الاشتراك بنفس العملة
     currentSymbol = v; lastPrice = null; showLoading(true);
     document.getElementById('symbol-live-price').innerHTML = '— <span class="updated-at"></span>';
     subscribe();
     loadFuturesZone(); // مناطق الفيوتشر تخص العملة المختارة، لازم تتحدث فورًا
   }
-  document.getElementById('symbol-input').addEventListener('change', applySymbolInput);
-  document.getElementById('symbol-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); applySymbolInput(); } });
+
+  const KNOWN_SYMBOLS = new Set(['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','PAXGUSDT']);
+  let symbolInputDebounce = null;
+  const symbolInputEl = document.getElementById('symbol-input');
+
+  symbolInputEl.addEventListener('change', applySymbolInput);
+  symbolInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); applySymbolInput(); } });
+
+  // بعض متصفحات الجوال لا تُطلق change عند اختيار عنصر من القائمة المقترحة (datalist) — نراقب input مباشرة كحل احتياطي
+  symbolInputEl.addEventListener('input', () => {
+    const raw = symbolInputEl.value.trim().toUpperCase().replace(/\s+/g, '');
+    if (KNOWN_SYMBOLS.has(raw) || KNOWN_SYMBOLS.has(raw + 'USDT')) {
+      applySymbolInput(); // قيمة معروفة بالضبط (اختيار من القائمة) → طبّق فورًا
+      return;
+    }
+    if (symbolInputDebounce) clearTimeout(symbolInputDebounce);
+    symbolInputDebounce = setTimeout(applySymbolInput, 900); // كتابة يدوية → طبّق بعد توقف قصير
+  });
 
   // ══ التحكم: قائمة الفريم المنسدلة ══
   const tfToggle = document.getElementById('tf-toggle');

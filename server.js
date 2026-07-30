@@ -10,10 +10,10 @@ const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 const PORT = process.env.PORT || 3000;
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'PAXGUSDT'];
-const INTERVALS = ['5m', '15m', '30m'];
+const INTERVALS = ['5m', '15m', '30m', '2h', '4h'];
 
 // MEXC WebSocket interval codes
-const MEXC_WS_INTERVAL = { '5m': 'Min5', '15m': 'Min15', '30m': 'Min30' };
+const MEXC_WS_INTERVAL = { '5m': 'Min5', '15m': 'Min15', '30m': 'Min30', '2h': 'Hour2', '4h': 'Hour4' };
 
 // candleStore[key] = [{ time, open, high, low, close, volume }]
 const candleStore = {};
