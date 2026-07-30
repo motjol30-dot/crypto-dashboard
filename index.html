@@ -989,8 +989,10 @@
     if (ind.stochRsi) {
       const s = ind.stochRsi;
       let verdict = 'neutral', label = 'لا إشارة';
-      if (s.k < 20 && s.crossUp) { verdict = 'bull'; label = 'بداية ارتداد صاعد 🟢'; }
-      else if (s.k > 80 && s.crossDown) { verdict = 'bear'; label = 'بداية ارتداد هابط 🔴'; }
+      if (s.crossUp) { verdict = 'bull'; label = 'بداية ارتداد صاعد مؤكد 🟢'; }
+      else if (s.crossDown) { verdict = 'bear'; label = 'بداية ارتداد هابط مؤكد 🔴'; }
+      else if (s.zoneUp) { verdict = 'bull'; label = 'منطقة تشبع بيعي - ارتداد صاعد محتمل 🟢'; }
+      else if (s.zoneDown) { verdict = 'bear'; label = 'منطقة تشبع شرائي - ارتداد هابط محتمل 🔴'; }
       setAcc('stochrsi', verdict, label, `K: <b>${s.k.toFixed(1)}</b> — D: <b>${s.d.toFixed(1)}</b><br>تشبع بيعي/شرائي + تقاطع = إشارة ارتداد مبكرة`);
     }
 
@@ -1000,6 +1002,8 @@
       let verdict = 'neutral', label = 'داخل النطاق';
       if (b.crossedUpFromZero) { verdict = 'bull'; label = 'ارتداد صاعد مؤكد للمتوسط 🟢'; }
       else if (b.crossedDownFromOne) { verdict = 'bear'; label = 'ارتداد هابط مؤكد للمتوسط 🔴'; }
+      else if (b.zoneUp) { verdict = 'bull'; label = 'قريب من الحد السفلي - ارتداد محتمل 🟢'; }
+      else if (b.zoneDown) { verdict = 'bear'; label = 'قريب من الحد العلوي - ارتداد محتمل 🔴'; }
       setAcc('bbpercentb', verdict, label, `%B الحالية: <b>${b.now.toFixed(2)}</b> (السابقة: ${b.prev.toFixed(2)})<br>0 = الحد السفلي، 1 = الحد العلوي`);
     }
 
@@ -1016,8 +1020,10 @@
     if (ind.williamsR) {
       const w = ind.williamsR;
       let verdict = 'neutral', label = 'لا إشارة';
-      if (w.crossUpFrom80) { verdict = 'bull'; label = 'نبضة ارتداد صاعدة 🟢'; }
-      else if (w.crossDownFrom20) { verdict = 'bear'; label = 'نبضة ارتداد هابطة 🔴'; }
+      if (w.crossUpFrom80) { verdict = 'bull'; label = 'نبضة ارتداد صاعدة مؤكدة 🟢'; }
+      else if (w.crossDownFrom20) { verdict = 'bear'; label = 'نبضة ارتداد هابطة مؤكدة 🔴'; }
+      else if (w.zoneUp) { verdict = 'bull'; label = 'تشبع بيعي مستمر - ارتداد محتمل 🟢'; }
+      else if (w.zoneDown) { verdict = 'bear'; label = 'تشبع شرائي مستمر - ارتداد محتمل 🔴'; }
       setAcc('williamsr', verdict, label, `القيمة الحالية: <b>${w.now.toFixed(1)}</b><br>تحت -80 = تشبع بيعي، فوق -20 = تشبع شرائي`);
     }
 
@@ -1119,6 +1125,8 @@
     const total = verdicts.length;
     if (total === 0) return;
 
+    const REVERSAL_NAMES = { stochrsi: 'Stochastic RSI', bbpercentb: 'Bollinger %B', rsidiv: 'RSI Divergence', williamsr: 'Williams %R' };
+
     // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
     const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات' };
     let momentumMajority = 0, volumeMajority = 0, reversalMajority = 0, stabilityMajority = 0;
@@ -1128,8 +1136,13 @@
       const el = document.getElementById(`grp-${group}`);
       if (el && c.total > 0) {
         if (group === 'reversal') {
-          // الارتداد الصاعد والهابط حدثين مستقلين — نعرضهم جنب بعض بدل دمجهم بحكم واحد
-          el.innerHTML = `<span style="color:var(--green)">🟢 ارتداد صعود: ${c.bull}</span> &nbsp;|&nbsp; <span style="color:var(--red)">🔴 ارتداد هبوط: ${c.bear}</span>`;
+          // طبقتين منفصلتين بنفس المربع: ارتداد الصعود وارتداد الهبوط، كل وحدة توري أسماء المؤشرات النشطة فيها فعليًا
+          const upNames = Object.entries(consensusTracker).filter(([k, v]) => GROUP_MAP[k] === 'reversal' && v === 'bull').map(([k]) => REVERSAL_NAMES[k] || k);
+          const downNames = Object.entries(consensusTracker).filter(([k, v]) => GROUP_MAP[k] === 'reversal' && v === 'bear').map(([k]) => REVERSAL_NAMES[k] || k);
+          el.innerHTML = `
+            <div style="color:var(--green); margin-bottom:3px;">🟢 ارتداد الصعود (${c.bull}): ${upNames.length ? upNames.join('، ') : 'لا يوجد حاليًا'}</div>
+            <div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear}): ${downNames.length ? downNames.join('، ') : 'لا يوجد حاليًا'}</div>
+          `;
           el.className = 'group-summary';
         } else {
           const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: شراء' : c.bear > c.bull ? '📉 قرار المجموعة: بيع' : '⚪ قرار المجموعة: محايد';
@@ -1450,6 +1463,7 @@
   setInterval(loadMarketOverview, 60000);
   setInterval(loadMacroOverview, 60000);
   setInterval(loadFuturesZone, 60000);
+  setInterval(() => location.reload(), 5000); // تحديث كامل للصفحة كل 5 ثوانٍ
 </script>
 </body>
 </html>

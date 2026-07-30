@@ -679,11 +679,15 @@ function computeIndicators(candles) {
       const dSmooth = (arr, p) => arr.slice(-p).reduce((a, b) => a + b, 0) / p;
       const kNow = dSmooth(kArr, 3), kPrev = dSmooth(kArr.slice(0, -1), 3);
       const dNow = dSmooth(kArr.slice(-5), 3), dPrev = dSmooth(kArr.slice(0, -1).slice(-5), 3);
-      stochRsi = { k: kNow, d: dNow, crossUp: kPrev <= dPrev && kNow > dNow, crossDown: kPrev >= dPrev && kNow < dNow };
+      stochRsi = {
+        k: kNow, d: dNow,
+        crossUp: kPrev <= dPrev && kNow > dNow, crossDown: kPrev >= dPrev && kNow < dNow,
+        zoneUp: kNow < 25, zoneDown: kNow > 75, // منطقة تشبع مستمرة (حتى بدون عبور مؤكد بعد)
+      };
     }
   }
 
-  // Bollinger %B (يحتاج قيمة حالية وسابقة لكشف لحظة العبور)
+  // Bollinger %B (يحتاج قيمة حالية وسابقة لكشف لحظة العبور + منطقة قرب الحد)
   let bbPercentB = null;
   if (bb) {
     const closesForBB = closes.slice(-21);
@@ -691,7 +695,11 @@ function computeIndicators(candles) {
     const range = bb.upper - bb.lower;
     const nowB = range === 0 ? 0.5 : (closes[n - 1] - bb.lower) / range;
     const prevB = range === 0 || prevClose == null ? nowB : (prevClose - bb.lower) / range;
-    bbPercentB = { now: nowB, prev: prevB, crossedUpFromZero: prevB < 0 && nowB >= 0, crossedDownFromOne: prevB > 1 && nowB <= 1 };
+    bbPercentB = {
+      now: nowB, prev: prevB,
+      crossedUpFromZero: prevB < 0 && nowB >= 0, crossedDownFromOne: prevB > 1 && nowB <= 1,
+      zoneUp: nowB <= 0.05, zoneDown: nowB >= 0.95, // قريب جدًا من حافة النطاق
+    };
   }
 
   // دايفرجنز RSI — مقارنة قاع السعر بقاع RSI خلال آخر 10 شمعات
@@ -705,7 +713,7 @@ function computeIndicators(candles) {
     rsiDivergence = { type, priceNow, priceBefore, rsiNow, rsiBefore };
   }
 
-  // Williams %R (14) — يحتاج قيمة حالية وسابقة لكشف لحظة العبور
+  // Williams %R (14) — يحتاج قيمة حالية وسابقة لكشف لحظة العبور + منطقة تشبع مستمرة
   let williamsR = null;
   if (n >= 15) {
     const calcWR = (idx) => {
@@ -714,7 +722,11 @@ function computeIndicators(candles) {
       return hh === ll ? -50 : ((hh - closes[idx]) / (hh - ll)) * -100;
     };
     const wrNow = calcWR(n - 1), wrPrev = calcWR(n - 2);
-    williamsR = { now: wrNow, prev: wrPrev, crossUpFrom80: wrPrev < -80 && wrNow >= -80, crossDownFrom20: wrPrev > -20 && wrNow <= -20 };
+    williamsR = {
+      now: wrNow, prev: wrPrev,
+      crossUpFrom80: wrPrev < -80 && wrNow >= -80, crossDownFrom20: wrPrev > -20 && wrNow <= -20,
+      zoneUp: wrNow <= -80, zoneDown: wrNow >= -20,
+    };
   }
 
   // ══════════ طبقة ثبات الاتجاه (Trend Stability) ══════════
