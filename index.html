@@ -1162,7 +1162,7 @@
     setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
             volumeMajority > 0 ? 'شراء' : volumeMajority < 0 ? 'بيع' : 'محايد');
     setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral',
-            `🟢${reversalBullCount} / 🔴${reversalBearCount}`);
+            reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
             stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
 
@@ -1463,7 +1463,7 @@
   setInterval(loadMarketOverview, 60000);
   setInterval(loadMacroOverview, 60000);
   setInterval(loadFuturesZone, 60000);
-  setInterval(() => location.reload(), 5000); // تحديث كامل للصفحة كل 5 ثوانٍ
+  setInterval(renderConsensus, 30000); // تحديث المربعات فقط (بدون إعادة تحميل الصفحة كاملة) كل 30 ثانية
 </script>
 </body>
 </html>
