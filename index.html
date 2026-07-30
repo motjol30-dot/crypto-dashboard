@@ -100,9 +100,10 @@
     cursor: pointer; white-space: nowrap;
   }
   #tf-menu {
-    display: none; position: absolute; top: 110%; left: 0;
+    display: none; position: absolute; top: 110%; right: 0;
     background: var(--surface2); border: 1px solid var(--border);
     border-radius: 8px; overflow: hidden; min-width: 100px; box-shadow: 0 6px 18px rgba(0,0,0,.4);
+    z-index: 50;
   }
   #tf-menu.open { display: block; }
   #tf-menu button {
@@ -1121,17 +1122,24 @@
     // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
     const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات' };
     let momentumMajority = 0, volumeMajority = 0, reversalMajority = 0, stabilityMajority = 0;
+    let reversalBullCount = 0, reversalBearCount = 0;
     for (const group of ['reversal', 'stability', 'momentum', 'trend', 'volume', 'price', 'macro']) {
       const c = groupVerdictCounts(group);
       const el = document.getElementById(`grp-${group}`);
       if (el && c.total > 0) {
-        const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: شراء' : c.bear > c.bull ? '📉 قرار المجموعة: بيع' : '⚪ قرار المجموعة: محايد';
-        el.textContent = `${verdictWord}  (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
-        el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
+        if (group === 'reversal') {
+          // الارتداد الصاعد والهابط حدثين مستقلين — نعرضهم جنب بعض بدل دمجهم بحكم واحد
+          el.innerHTML = `<span style="color:var(--green)">🟢 ارتداد صعود: ${c.bull}</span> &nbsp;|&nbsp; <span style="color:var(--red)">🔴 ارتداد هبوط: ${c.bear}</span>`;
+          el.className = 'group-summary';
+        } else {
+          const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: شراء' : c.bear > c.bull ? '📉 قرار المجموعة: بيع' : '⚪ قرار المجموعة: محايد';
+          el.textContent = `${verdictWord}  (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
+          el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
+        }
       }
       if (group === 'momentum') momentumMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
       if (group === 'volume') volumeMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
-      if (group === 'reversal') reversalMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+      if (group === 'reversal') { reversalMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0; reversalBullCount = c.bull; reversalBearCount = c.bear; }
       if (group === 'stability') stabilityMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
     }
 
@@ -1141,7 +1149,7 @@
     setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
             volumeMajority > 0 ? 'شراء' : volumeMajority < 0 ? 'بيع' : 'محايد');
     setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral',
-            reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
+            `🟢${reversalBullCount} / 🔴${reversalBearCount}`);
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
             stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
 
