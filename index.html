@@ -360,7 +360,7 @@
 <!-- المؤشرات: أكورديون -->
 <div id="indicators-list">
 
-  <div class="group-header">🔄 الارتداد (Reversal)</div>
+  <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة دائمًا</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
 
   <div class="acc-item" data-key="stochrsi">
@@ -726,18 +726,26 @@
   }
 
   // ══ اتصال البيانات الرئيسي (العملة المختارة) ══
+  let mainWsLastMsgTime = 0, mainWatchdog = null;
+
   function connect() {
-    if (ws) { ws.close(); ws = null; }
+    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}`);
     setDot('connecting');
-    ws.onopen    = () => { setDot('connected'); subscribe(); };
+    ws.onopen    = () => { setDot('connected'); subscribe(); mainWsLastMsgTime = Date.now(); };
     ws.onmessage = (ev) => {
+      mainWsLastMsgTime = Date.now();
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'update') handleUpdate(msg);
     };
     ws.onclose = () => { setDot('disconnected'); setTimeout(connect, 3000); };
     ws.onerror = () => ws.close();
+
+    if (mainWatchdog) clearInterval(mainWatchdog);
+    mainWatchdog = setInterval(() => {
+      if (Date.now() - mainWsLastMsgTime > 15000) { try { ws.close(); } catch (e) {} }
+    }, 5000);
   }
   function subscribe() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -991,8 +999,8 @@
       let verdict = 'neutral', label = 'لا إشارة';
       if (s.crossUp) { verdict = 'bull'; label = 'بداية ارتداد صاعد مؤكد 🟢'; }
       else if (s.crossDown) { verdict = 'bear'; label = 'بداية ارتداد هابط مؤكد 🔴'; }
-      else if (s.zoneUp) { verdict = 'bull'; label = 'منطقة تشبع بيعي - ارتداد صاعد محتمل 🟢'; }
-      else if (s.zoneDown) { verdict = 'bear'; label = 'منطقة تشبع شرائي - ارتداد هابط محتمل 🔴'; }
+      else if (s.zoneUp) { verdict = 'neutral'; label = '⚠️ تشبع بيعي - راقب ارتداد صاعد محتمل'; }
+      else if (s.zoneDown) { verdict = 'neutral'; label = '⚠️ تشبع شرائي - راقب ارتداد هابط محتمل'; }
       setAcc('stochrsi', verdict, label, `K: <b>${s.k.toFixed(1)}</b> — D: <b>${s.d.toFixed(1)}</b><br>تشبع بيعي/شرائي + تقاطع = إشارة ارتداد مبكرة`);
     }
 
@@ -1002,8 +1010,8 @@
       let verdict = 'neutral', label = 'داخل النطاق';
       if (b.crossedUpFromZero) { verdict = 'bull'; label = 'ارتداد صاعد مؤكد للمتوسط 🟢'; }
       else if (b.crossedDownFromOne) { verdict = 'bear'; label = 'ارتداد هابط مؤكد للمتوسط 🔴'; }
-      else if (b.zoneUp) { verdict = 'bull'; label = 'قريب من الحد السفلي - ارتداد محتمل 🟢'; }
-      else if (b.zoneDown) { verdict = 'bear'; label = 'قريب من الحد العلوي - ارتداد محتمل 🔴'; }
+      else if (b.zoneUp) { verdict = 'neutral'; label = '⚠️ قريب من الحد السفلي - راقب ارتداد محتمل'; }
+      else if (b.zoneDown) { verdict = 'neutral'; label = '⚠️ قريب من الحد العلوي - راقب ارتداد محتمل'; }
       setAcc('bbpercentb', verdict, label, `%B الحالية: <b>${b.now.toFixed(2)}</b> (السابقة: ${b.prev.toFixed(2)})<br>0 = الحد السفلي، 1 = الحد العلوي`);
     }
 
@@ -1022,8 +1030,8 @@
       let verdict = 'neutral', label = 'لا إشارة';
       if (w.crossUpFrom80) { verdict = 'bull'; label = 'نبضة ارتداد صاعدة مؤكدة 🟢'; }
       else if (w.crossDownFrom20) { verdict = 'bear'; label = 'نبضة ارتداد هابطة مؤكدة 🔴'; }
-      else if (w.zoneUp) { verdict = 'bull'; label = 'تشبع بيعي مستمر - ارتداد محتمل 🟢'; }
-      else if (w.zoneDown) { verdict = 'bear'; label = 'تشبع شرائي مستمر - ارتداد محتمل 🔴'; }
+      else if (w.zoneUp) { verdict = 'neutral'; label = '⚠️ تشبع بيعي مستمر - راقب ارتداد محتمل'; }
+      else if (w.zoneDown) { verdict = 'neutral'; label = '⚠️ تشبع شرائي مستمر - راقب ارتداد محتمل'; }
       setAcc('williamsr', verdict, label, `القيمة الحالية: <b>${w.now.toFixed(1)}</b><br>تحت -80 = تشبع بيعي، فوق -20 = تشبع شرائي`);
     }
 

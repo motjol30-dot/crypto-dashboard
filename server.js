@@ -190,6 +190,7 @@ wss.on('connection', (ws) => {
       }
       clientSubs.set(ws, { symbol, interval });
       await ensureStream(symbol, interval);
+      await ensureStream(symbol, '15m'); // فريم ثابت لمؤشرات الارتداد (لا يتأثر بتغيير فريم العرض)
       sendSnapshot(ws, symbol, interval);
     }
   });
@@ -431,12 +432,33 @@ function connectOkxStream(symbol, interval) {
 
 // ── Broadcast ─────────────────────────────────────────────────────────────────
 
+// يحسب كل المؤشرات بالفريم المختار، لكن يثبّت طبقة الارتداد على فريم 15 دقيقة دائمًا
+// (هذي المؤشرات تحديدًا أدق على 15 دقيقة، فما نخليها تتغير مع تبديل فريم العرض)
+function computeIndicatorsFixedReversal(symbol, interval, candles) {
+  const indicators = computeIndicators(candles);
+  if (!indicators) return indicators;
+
+  if (interval !== '15m') {
+    const candles15 = candleStore[`${symbol}_15m`];
+    if (candles15 && candles15.length >= 30) {
+      const ind15 = computeIndicators(candles15);
+      if (ind15) {
+        indicators.stochRsi = ind15.stochRsi;
+        indicators.bbPercentB = ind15.bbPercentB;
+        indicators.rsiDivergence = ind15.rsiDivergence;
+        indicators.williamsR = ind15.williamsR;
+      }
+    }
+  }
+  return indicators;
+}
+
 function broadcastUpdate(symbol, interval) {
   const key = `${symbol}_${interval}`;
   const candles = candleStore[key];
   if (!candles || !candles.length) return;
 
-  const indicators = computeIndicators(candles);
+  const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
   const decision = makeDecision(indicators);
   const payload = JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision });
 
@@ -451,7 +473,7 @@ function sendSnapshot(ws, symbol, interval) {
   const key = `${symbol}_${interval}`;
   const candles = candleStore[key];
   if (!candles || !candles.length) return;
-  const indicators = computeIndicators(candles);
+  const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
   const decision = makeDecision(indicators);
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision }));
