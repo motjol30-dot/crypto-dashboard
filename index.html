@@ -337,11 +337,15 @@
     <div class="pill-label">إجماع الثبات</div>
     <div class="pill-value neutral" id="p-stability">—</div>
   </div>
+  <div class="pill">
+    <div class="pill-label">طبقة البيتكوين</div>
+    <div class="pill-value neutral" id="p-btc">—</div>
+  </div>
 </div>
 
-<!-- المربع النهائي: يجمع المربعات الستة أعلاه بحكم واحد -->
+<!-- المربع النهائي: يجمع المربعات السبعة أعلاه بحكم واحد -->
 <div id="final-verdict-row">
-  <div class="final-label">🎯 القرار النهائي (يجمع الـ6 مربعات)</div>
+  <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 7 قرارات)</div>
   <div class="final-value neutral" id="p-final">—</div>
 </div>
 
@@ -444,6 +448,19 @@
       </div>
     </div>
     <div class="acc-body" id="b-stab-ichimoku">—</div>
+  </div>
+
+  <div class="group-header">₿ طبقة البيتكوين <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— كل 70$ حركة = نقطة، مستقلة عن العملة المختارة</span></div>
+  <div class="group-summary" id="grp-btc">—</div>
+
+  <div class="acc-item" data-key="btclayer">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">قوة حركة البيتكوين (70$/نقطة)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-btclayer">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-btclayer">تتابع خطوات 70$ في سعر البيتكوين: نقطة = استقرار، نقطتان = نسبي، 3 = واضح، 4 = حاد (يرفع وزنها إلى 25% من القرار النهائي)، 5 فأكثر = حاد جدًا</div>
   </div>
 
   <div class="group-header">🌍 بيانات السوق الكلية</div>
@@ -701,6 +718,12 @@
   const BTC_UP_THRESHOLD = 90;    // دولار
   const BTC_DOWN_THRESHOLD = 75;  // دولار
 
+  // ── طبقة البيتكوين الجديدة: كل 70$ حركة = نقطة (مستقلة عن مؤشر السهم أعلاه وعن مؤشر ±120$) ──
+  const BTC_LAYER_STEP = 70; // دولار لكل نقطة
+  let btcLayerRefPrice = null;
+  let btcLayerPoints = 0;  // آخر عدد نقاط مسجّل (1 إلى 5+)
+  let btcLayerSign = 0;    // 1 = صعود، -1 = هبوط، 0 = لا توجد إشارة بعد
+
   // ══ الشارت ══
   function initChart() {
     const container = document.getElementById('chart-container');
@@ -791,6 +814,7 @@
     const priceEl = document.getElementById('macro-btc-price');
     priceEl.textContent = fmt(price);
     updateBtc120Indicator(price);
+    updateBtcLayerIndicator(price);
 
     // لون السعر نفسه يتحرك مع كل تحديث لحظي (تيك بتيك): أخضر لو صعد، أحمر لو نزل
     if (btcLastTickPrice !== null) {
@@ -1094,6 +1118,42 @@
     }
   }
 
+  // ══ طبقة البيتكوين (خطوات 70$): كل 70$ حركة = نقطة، تتراكم شدة التصنيف حتى "حاد جدًا" ══
+  // 1 نقطة = مستقر (حركة طفيفة) / 2 = نسبي / 3 = واضح / 4 = حاد (يرفع وزنها إلى 25% من القرار) / 5+ = حاد جدًا
+  function classifyBtcLayer(points, dir) {
+    const upDown = (up, down) => dir === 'up' ? up : down;
+    if      (points <= 1) return { tier: 'stable',   label: upDown('استقرار (ميل طفيف للارتفاع)', 'استقرار (ميل طفيف للهبوط)') };
+    else if (points === 2) return { tier: 'relative', label: upDown('ارتفاع نسبي', 'هبوط نسبي') };
+    else if (points === 3) return { tier: 'moderate', label: upDown('ارتفاع واضح', 'هبوط واضح') };
+    else if (points === 4) return { tier: 'sharp',    label: upDown('ارتفاع حاد', 'هبوط حاد') };
+    else                   return { tier: 'extreme',  label: upDown('ارتفاع حاد جدًا', 'هبوط حاد جدًا') };
+  }
+
+  function updateBtcLayerIndicator(price) {
+    if (btcLayerRefPrice === null) { btcLayerRefPrice = price; return; }
+    const diff = price - btcLayerRefPrice;
+    const steps = Math.floor(Math.abs(diff) / BTC_LAYER_STEP);
+    if (steps < 1) return; // لسه ما تحرك خطوة كاملة (70$)
+
+    const dir = diff > 0 ? 'up' : 'down';
+    const points = Math.min(steps, 5); // نغطي حتى "حاد جدًا"؛ أي شيء فوق 5 يبقى بنفس أعلى مستوى
+    const { label } = classifyBtcLayer(points, dir);
+    const verdict = dir === 'up' ? 'bull' : 'bear';
+    const boosted = points >= 4;
+
+    btcLayerPoints = points;
+    btcLayerSign = dir === 'up' ? 1 : -1;
+
+    setAcc('btclayer', verdict, `${label} (${points} نقطة)`,
+      `آخر تغيّر مسجّل: <b>${diff > 0 ? '+' : ''}${diff.toFixed(0)}$</b> منذ آخر مرجع (كل 70$ = نقطة)<br>` +
+      (boosted
+        ? `⚡ إشارة قوية: هذه الطبقة تشكّل حاليًا <b>25%</b> من وزن القرار النهائي`
+        : `تشارك بوزن عادي مثل باقي الطبقات ضمن 7 قرارات`));
+
+    btcLayerRefPrice = price; // تحديث المرجع بعد تسجيل النقاط
+    renderConsensus(); // إعادة حساب فورية، هذه الطبقة مستقلة عن تحديثات العملة المختارة
+  }
+
   // خريطة كل مؤشر لمجموعته (لتنظيم العرض وحساب إجماع كل مجموعة لحالها)
   const GROUP_MAP = {
     rsi: 'momentum', macd: 'momentum', stochastic: 'momentum', adx: 'momentum',
@@ -1103,8 +1163,9 @@
     btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro',
     stochrsi: 'reversal', bbpercentb: 'reversal', rsidiv: 'reversal', williamsr: 'reversal',
     'stab-adx': 'stability', chop: 'stability', 'stab-obv': 'stability', 'stab-ichimoku': 'stability',
+    btclayer: 'btc',
   };
-  const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات' };
+  const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات', btc: 'طبقة البيتكوين' };
 
   let consensusTracker = {};
 
@@ -1127,7 +1188,7 @@
     return { bull, bear, neutral, total: bull + bear + neutral };
   }
 
-  // ══ إجماع كل المؤشرات + ملخص كل مجموعة + المربع النهائي (7 مستويات) ══
+  // ══ إجماع كل المؤشرات + ملخص كل مجموعة + المربع النهائي (8 مستويات، منها طبقة البيتكوين بوزن متغيّر) ══
   function renderConsensus() {
     const verdicts = Object.values(consensusTracker);
     const total = verdicts.length;
@@ -1136,10 +1197,10 @@
     const REVERSAL_NAMES = { stochrsi: 'Stochastic RSI', bbpercentb: 'Bollinger %B', rsidiv: 'RSI Divergence', williamsr: 'Williams %R' };
 
     // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
-    const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات' };
-    let momentumMajority = 0, volumeMajority = 0, reversalMajority = 0, stabilityMajority = 0;
+    const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات', btc: 'طبقة البيتكوين' };
+    let momentumMajority = 0, volumeMajority = 0, reversalMajority = 0, stabilityMajority = 0, btcMajority = 0;
     let reversalBullCount = 0, reversalBearCount = 0;
-    for (const group of ['reversal', 'stability', 'momentum', 'trend', 'volume', 'price', 'macro']) {
+    for (const group of ['reversal', 'stability', 'btc', 'momentum', 'trend', 'volume', 'price', 'macro']) {
       const c = groupVerdictCounts(group);
       const el = document.getElementById(`grp-${group}`);
       if (el && c.total > 0) {
@@ -1152,6 +1213,11 @@
             <div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear}): ${downNames.length ? downNames.join('، ') : 'لا يوجد حاليًا'}</div>
           `;
           el.className = 'group-summary';
+        } else if (group === 'btc') {
+          const boosted = btcLayerPoints >= 4;
+          const verdictWord = c.bull > c.bear ? '📈 قرار الطبقة: صعود' : c.bear > c.bull ? '📉 قرار الطبقة: هبوط' : '⚪ قرار الطبقة: محايد';
+          el.textContent = `${verdictWord} — ${btcLayerPoints} نقطة${boosted ? ' ⚡ (وزن مضاعف: 25% من القرار النهائي)' : ''}`;
+          el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
         } else {
           const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: شراء' : c.bear > c.bull ? '📉 قرار المجموعة: بيع' : '⚪ قرار المجموعة: محايد';
           el.textContent = `${verdictWord}  (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
@@ -1162,9 +1228,10 @@
       if (group === 'volume') volumeMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
       if (group === 'reversal') { reversalMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0; reversalBullCount = c.bull; reversalBearCount = c.bear; }
       if (group === 'stability') stabilityMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+      if (group === 'btc') btcMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
     }
 
-    // مربعات الإجماع الأربعة (زخم / حجم / ارتداد / ثبات)
+    // مربعات الإجماع الخمسة (زخم / حجم / ارتداد / ثبات / طبقة البيتكوين)
     setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral',
             momentumMajority > 0 ? 'شراء' : momentumMajority < 0 ? 'بيع' : 'محايد');
     setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
@@ -1173,22 +1240,41 @@
             reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
             stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
+    setPill('p-btc', btcMajority > 0 ? 'up' : btcMajority < 0 ? 'down' : 'neutral',
+            btcLayerSign === 0 ? 'محايد' : `${btcMajority > 0 ? 'صعود' : 'هبوط'} (${btcLayerPoints}ن)`);
 
-    // المربع النهائي: يجمع الاتجاه + التوصية + إجماع الزخم + الحجم + الارتداد + الثبات (8 مربعات)
+    // المربع النهائي: 7 قرارات موزونة (اتجاه + توصية + إجماع الزخم + الحجم + الارتداد + الثبات + طبقة البيتكوين)
+    // طبقة البيتكوين وزنها العادي = 1 مثل باقي القرارات؛ لو وصلت نقاطها لـ 4 أو أكثر (هبوط/ارتفاع حاد) يتضاعف وزنها إلى 2
+    // بحيث تشكّل 25% من مجموع الأوزان (2 من أصل 8) بدلًا من ~14% العادية (1 من أصل 7)
     const trendSign = lastTrendSign, actionSign = lastActionSign;
-    const finalScore = trendSign + actionSign + momentumMajority + volumeMajority + reversalMajority + stabilityMajority; // من -6 إلى 6
+    const btcWeight = btcLayerSign === 0 ? 0 : (btcLayerPoints >= 4 ? 2 : 1);
+    const terms = [
+      { sign: trendSign, w: 1 }, { sign: actionSign, w: 1 },
+      { sign: momentumMajority, w: 1 }, { sign: volumeMajority, w: 1 },
+      { sign: reversalMajority, w: 1 }, { sign: stabilityMajority, w: 1 },
+      { sign: btcMajority, w: btcWeight },
+    ];
+    const finalScore = terms.reduce((sum, t) => sum + t.sign * t.w, 0); // بحد أقصى نظري ±8 (لو تفعّل الوزن المضاعف)
 
     let finalLabel, finalClass;
-    if (finalScore >= 4) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
-    else if (finalScore >= 2) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
+    if (finalScore >= 5) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
+    else if (finalScore >= 3) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
     else if (finalScore >= 1) { finalLabel = '📈 شراء'; finalClass = 'pos'; }
     else if (finalScore === 0) { finalLabel = '⚪ محايد'; finalClass = 'neutral'; }
     else if (finalScore >= -1) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
-    else if (finalScore >= -3) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
+    else if (finalScore >= -4) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
     else { finalLabel = '📉 بيع قوي جدًا'; finalClass = 'neg'; }
 
     const finalEl = document.getElementById('p-final');
     if (finalEl) { finalEl.textContent = finalLabel; finalEl.className = `final-value ${finalClass}`; }
+
+    // تحديث عنوان القرار النهائي ليعكس تفعيل وزن طبقة البيتكوين المضاعف من عدمه
+    const labelEl = document.getElementById('final-label');
+    if (labelEl) {
+      labelEl.textContent = btcWeight >= 2
+        ? '🎯 القرار النهائي (7 قرارات — طبقة البيتكوين مفعّلة بوزن 25% ⚡)'
+        : '🎯 القرار النهائي (يجمع 7 قرارات)';
+    }
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
