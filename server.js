@@ -536,4 +536,464 @@ function computeIndicators(candles) {
     const kValues = [];
     for (let i = 13; i < n; i++) {
       const hh = Math.max(...highs.slice(i - 13, i + 1));
-      const l
+      const ll = Math.min(...lows.slice(i - 13, i + 1));
+      kValues.push(hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100);
+    }
+    const kLast = kValues[kValues.length - 1];
+    const dSlice = kValues.slice(-3);
+    const dLast = dSlice.reduce((a, b) => a + b, 0) / dSlice.length;
+    stochastic = { k: kLast, d: dLast };
+  }
+
+  // ADX(14) — طريقة Wilder اليدوية
+  let adx = null;
+  if (n >= 30) {
+    const period = 14;
+    const trArr = [], plusDM = [], minusDM = [];
+    for (let i = 1; i < n; i++) {
+      const upMove = highs[i] - highs[i - 1];
+      const downMove = lows[i - 1] - lows[i];
+      plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+      minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+      trArr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    }
+    const wilderSmooth = (arr) => {
+      const out = [];
+      let s = 0;
+      for (let i = 0; i < period; i++) s += arr[i];
+      out.push(s);
+      for (let i = period; i < arr.length; i++) out.push(out[out.length - 1] - out[out.length - 1] / period + arr[i]);
+      return out;
+    };
+    if (trArr.length >= period) {
+      const trS = wilderSmooth(trArr), plusS = wilderSmooth(plusDM), minusS = wilderSmooth(minusDM);
+      const pdiArr = plusS.map((v, i) => (trS[i] ? (v / trS[i]) * 100 : 0));
+      const mdiArr = minusS.map((v, i) => (trS[i] ? (v / trS[i]) * 100 : 0));
+      const dxArr = pdiArr.map((p, i) => { const m = mdiArr[i]; return (p + m) ? (Math.abs(p - m) / (p + m)) * 100 : 0; });
+      if (dxArr.length >= period) {
+        let sum = 0;
+        for (let i = 0; i < period; i++) sum += dxArr[i];
+        let adxVal = sum / period;
+        for (let i = period; i < dxArr.length; i++) adxVal = (adxVal * (period - 1) + dxArr[i]) / period;
+        adx = { adx: adxVal, pdi: pdiArr[pdiArr.length - 1], mdi: mdiArr[mdiArr.length - 1] };
+      }
+    }
+  }
+
+  // OBV (يدوي)
+  let obv = null, obvPrev = null;
+  {
+    let val = 0;
+    const arr = [0];
+    for (let i = 1; i < n; i++) {
+      if (closes[i] > closes[i - 1]) val += volumes[i];
+      else if (closes[i] < closes[i - 1]) val -= volumes[i];
+      arr.push(val);
+    }
+    obv = arr[arr.length - 1];
+    obvPrev = arr.length > 1 ? arr[arr.length - 2] : null;
+  }
+
+  // Supertrend (يدوي، مبني على ATR يدوي)
+  const supertrend = computeSupertrend(candles);
+
+  // إيشيموكو (يدوي، نسخة مبسّطة بدون الإزاحة الزمنية)
+  let ichimoku = null;
+  if (n >= 52) {
+    const hl = (period) => {
+      const h = Math.max(...highs.slice(-period));
+      const l = Math.min(...lows.slice(-period));
+      return (h + l) / 2;
+    };
+    const conversion = hl(9), base = hl(26), spanB = hl(52);
+    ichimoku = { conversion, base, spanA: (conversion + base) / 2, spanB };
+  }
+
+  const volumeProfile = computeVolumeProfile(candles.slice(-100));
+
+  // نقاط الارتكاز (Pivot Points) — من الشمعة السابقة المكتملة
+  let pivot = null;
+  if (n >= 2) {
+    const prev = candles[n - 2];
+    const p = (prev.high + prev.low + prev.close) / 3;
+    pivot = { p, r1: 2 * p - prev.low, s1: 2 * p - prev.high };
+  }
+
+  // مقارنة الشموع (آخر 3 شموع: اتجاه متتالي + كشف ابتلاع بسيط)
+  let candleCompare = null;
+  if (n >= 3) {
+    const c1 = candles[n - 3], c2 = candles[n - 2], c3 = candles[n - 1];
+    const dir = (c) => c.close > c.open ? 1 : c.close < c.open ? -1 : 0;
+    const d1 = dir(c1), d2 = dir(c2), d3 = dir(c3);
+    const consecutiveUp = d1 > 0 && d2 > 0 && d3 > 0;
+    const consecutiveDown = d1 < 0 && d2 < 0 && d3 < 0;
+    // ابتلاع صاعد/هابط بسيط بين آخر شمعتين
+    const bullEngulf = d2 < 0 && d3 > 0 && c3.close > c2.open && c3.open < c2.close;
+    const bearEngulf = d2 > 0 && d3 < 0 && c3.close < c2.open && c3.open > c2.close;
+    candleCompare = { consecutiveUp, consecutiveDown, bullEngulf, bearEngulf };
+  }
+
+  // التجميع والتصريف (Accumulation/Distribution Line) — قراءة تدفق السيولة الحقيقي
+  // Money Flow Multiplier = ((close-low)-(high-close)) / (high-low)  → موجب = تجميع (شراء)، سالب = تصريف (بيع)
+  let accDist = null;
+  {
+    const win = candles.slice(-60);
+    let adLine = 0;
+    const adArr = [];
+    for (const c of win) {
+      const range = c.high - c.low;
+      const mfm = range === 0 ? 0 : ((c.close - c.low) - (c.high - c.close)) / range;
+      adLine += mfm * c.volume;
+      adArr.push(adLine);
+    }
+    if (adArr.length >= 5) {
+      const recent = adArr.slice(-5);
+      const rising = recent[recent.length - 1] > recent[0];
+      const lastMFM = ((win[win.length - 1].close - win[win.length - 1].low) - (win[win.length - 1].high - win[win.length - 1].close)) /
+                      ((win[win.length - 1].high - win[win.length - 1].low) || 1);
+      let zone = 'متعادل';
+      if (rising && lastMFM > 0.2) zone = 'تجميع (Accumulation)';
+      else if (!rising && lastMFM < -0.2) zone = 'تصريف (Distribution)';
+      accDist = { value: adLine, rising, zone };
+    }
+  }
+
+  // CVD (Cumulative Volume Delta) — تقدير الشراء/البيع الفعلي داخل كل شمعة + كشف التباعد عن السعر (امتصاص مؤسسي)
+  let cvd = null;
+  {
+    const win = candles.slice(-50);
+    let running = 0;
+    const cvdArr = [];
+    for (const c of win) {
+      const range = c.high - c.low;
+      const buyVol = range === 0 ? c.volume / 2 : c.volume * ((c.close - c.low) / range);
+      const sellVol = c.volume - buyVol;
+      running += (buyVol - sellVol);
+      cvdArr.push(running);
+    }
+    if (cvdArr.length >= 10) {
+      const lookback = 10;
+      const priceNow = win[win.length - 1].close;
+      const priceBefore = win[win.length - 1 - lookback].close;
+      const cvdNow = cvdArr[cvdArr.length - 1];
+      const cvdBefore = cvdArr[cvdArr.length - 1 - lookback];
+      const priceDir = priceNow > priceBefore ? 'up' : priceNow < priceBefore ? 'down' : 'flat';
+      const cvdDir = cvdNow > cvdBefore ? 'up' : cvdNow < cvdBefore ? 'down' : 'flat';
+      let signal = 'confirm';
+      if (priceDir === 'down' && cvdDir === 'up') signal = 'bullish_divergence'; // امتصاص مؤسسي صاعد
+      else if (priceDir === 'up' && cvdDir === 'down') signal = 'bearish_divergence'; // توزيع/تباعد سلبي
+      cvd = { value: cvdNow, priceDir, cvdDir, signal };
+    }
+  }
+
+  // ══════════ طبقة الارتداد (Reversal) ══════════
+
+  // Stochastic RSI (14,3,3)
+  let stochRsi = null;
+  if (rsiArr.length >= 17) {
+    const kArr = [];
+    for (let i = 13; i < rsiArr.length; i++) {
+      const win = rsiArr.slice(i - 13, i + 1);
+      const hi = Math.max(...win), lo = Math.min(...win);
+      kArr.push(hi === lo ? 50 : ((rsiArr[i] - lo) / (hi - lo)) * 100);
+    }
+    if (kArr.length >= 4) {
+      const dSmooth = (arr, p) => arr.slice(-p).reduce((a, b) => a + b, 0) / p;
+      const kNow = dSmooth(kArr, 3), kPrev = dSmooth(kArr.slice(0, -1), 3);
+      const dNow = dSmooth(kArr.slice(-5), 3), dPrev = dSmooth(kArr.slice(0, -1).slice(-5), 3);
+      stochRsi = {
+        k: kNow, d: dNow,
+        crossUp: kPrev <= dPrev && kNow > dNow, crossDown: kPrev >= dPrev && kNow < dNow,
+        zoneUp: kNow < 25, zoneDown: kNow > 75, // منطقة تشبع مستمرة (حتى بدون عبور مؤكد بعد)
+      };
+    }
+  }
+
+  // Bollinger %B (يحتاج قيمة حالية وسابقة لكشف لحظة العبور + منطقة قرب الحد)
+  let bbPercentB = null;
+  if (bb) {
+    const closesForBB = closes.slice(-21);
+    const prevClose = closesForBB[closesForBB.length - 2];
+    const range = bb.upper - bb.lower;
+    const nowB = range === 0 ? 0.5 : (closes[n - 1] - bb.lower) / range;
+    const prevB = range === 0 || prevClose == null ? nowB : (prevClose - bb.lower) / range;
+    bbPercentB = {
+      now: nowB, prev: prevB,
+      crossedUpFromZero: prevB < 0 && nowB >= 0, crossedDownFromOne: prevB > 1 && nowB <= 1,
+      zoneUp: nowB <= 0.05, zoneDown: nowB >= 0.95, // قريب جدًا من حافة النطاق
+    };
+  }
+
+  // دايفرجنز RSI — مقارنة قاع السعر بقاع RSI خلال آخر 10 شمعات
+  let rsiDivergence = null;
+  if (rsiArr.length >= 11 && n >= 11) {
+    const priceNow = closes[n - 1], priceBefore = closes[n - 11];
+    const rsiNow = rsiArr[rsiArr.length - 1], rsiBefore = rsiArr[rsiArr.length - 11];
+    let type = 'none';
+    if (priceNow < priceBefore && rsiNow > rsiBefore) type = 'bullish'; // تجميع خفي
+    else if (priceNow > priceBefore && rsiNow < rsiBefore) type = 'bearish'; // توزيع خفي
+    rsiDivergence = { type, priceNow, priceBefore, rsiNow, rsiBefore };
+  }
+
+  // Williams %R (14) — يحتاج قيمة حالية وسابقة لكشف لحظة العبور + منطقة تشبع مستمرة
+  let williamsR = null;
+  if (n >= 15) {
+    const calcWR = (idx) => {
+      const hh = Math.max(...highs.slice(idx - 13, idx + 1));
+      const ll = Math.min(...lows.slice(idx - 13, idx + 1));
+      return hh === ll ? -50 : ((hh - closes[idx]) / (hh - ll)) * -100;
+    };
+    const wrNow = calcWR(n - 1), wrPrev = calcWR(n - 2);
+    williamsR = {
+      now: wrNow, prev: wrPrev,
+      crossUpFrom80: wrPrev < -80 && wrNow >= -80, crossDownFrom20: wrPrev > -20 && wrNow <= -20,
+      zoneUp: wrNow <= -80, zoneDown: wrNow >= -20,
+    };
+  }
+
+  // ══════════ طبقة ثبات الاتجاه (Trend Stability) ══════════
+
+  // Choppiness Index (14) — 0-100: تحت 38.2 = ترند ثابت، فوق 61.8 = تذبذب عشوائي
+  let chop = null;
+  if (n >= 15) {
+    const trWin = [];
+    for (let i = n - 14; i < n; i++) {
+      trWin.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    }
+    const atrSum = trWin.reduce((a, b) => a + b, 0);
+    const hh14 = Math.max(...highs.slice(-14)), ll14 = Math.min(...lows.slice(-14));
+    const range14 = hh14 - ll14;
+    if (range14 > 0 && atrSum > 0) {
+      chop = 100 * Math.log10(atrSum / range14) / Math.log10(14);
+    }
+  }
+
+  // ATR (14) — متوسط المدى الحقيقي بتنعيم وايلدر — يقيس التذبذب والسيولة اللحظية
+  let atr = null;
+  if (n >= 15) {
+    const trArrAtr = [];
+    for (let i = 1; i < n; i++) {
+      trArrAtr.push(Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1]),
+      ));
+    }
+    const atrPeriod = 14;
+    if (trArrAtr.length >= atrPeriod) {
+      let atrVal = trArrAtr.slice(0, atrPeriod).reduce((a, b) => a + b, 0) / atrPeriod;
+      for (let i = atrPeriod; i < trArrAtr.length; i++) {
+        atrVal = (atrVal * (atrPeriod - 1) + trArrAtr[i]) / atrPeriod;
+      }
+      const lastClose = closes[n - 1];
+      const atrPercent = lastClose ? (atrVal / lastClose) * 100 : null; // نسبة التذبذب من السعر الحالي
+      atr = { value: atrVal, percent: atrPercent };
+    }
+  }
+
+  return {
+    rsi, macd, bb, ema50, ema200,
+    sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
+    pivot, candleCompare, accDist, cvd,
+    stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr,
+    currentPrice: closes[closes.length - 1],
+  };
+}
+
+// Supertrend (مبني على ATR يدوي) — معادلة قياسية بالكامل يدوية
+function computeSupertrend(candles, period = 10, multiplier = 3) {
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const closes = candles.map((c) => c.close);
+
+  // ATR يدوي (تنعيم Wilder)
+  const trArr = [];
+  for (let i = 1; i < closes.length; i++) {
+    trArr.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    ));
+  }
+  if (trArr.length < period) return null;
+
+  let atr = trArr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const atrArr = [atr];
+  for (let i = period; i < trArr.length; i++) {
+    atr = (atr * (period - 1) + trArr[i]) / period;
+    atrArr.push(atr);
+  }
+  if (!atrArr.length) return null;
+
+  const offset = candles.length - atrArr.length;
+  let finalUpper = null, finalLower = null, trendUp = true, st = null;
+
+  for (let i = 0; i < atrArr.length; i++) {
+    const idx = i + offset;
+    const hl2 = (highs[idx] + lows[idx]) / 2;
+    const a = atrArr[i];
+    const basicUpper = hl2 + multiplier * a;
+    const basicLower = hl2 - multiplier * a;
+    const close = closes[idx];
+    const prevClose = idx > 0 ? closes[idx - 1] : close;
+
+    if (finalUpper === null) { finalUpper = basicUpper; finalLower = basicLower; }
+    else {
+      finalUpper = (basicUpper < finalUpper || prevClose > finalUpper) ? basicUpper : finalUpper;
+      finalLower = (basicLower > finalLower || prevClose < finalLower) ? basicLower : finalLower;
+    }
+
+    if (close > finalUpper) trendUp = true;
+    else if (close < finalLower) trendUp = false;
+
+    st = trendUp ? finalLower : finalUpper;
+  }
+  return st !== null ? { value: st, trendUp } : null;
+}
+
+// Volume Profile مبسط: يقسّم مدى السعر لمستويات ويحسب أين تركز الحجم (POC)
+function computeVolumeProfile(candles, buckets = 24) {
+  if (!candles.length) return null;
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const max = Math.max(...highs);
+  const min = Math.min(...lows);
+  if (max === min) return null;
+  const step = (max - min) / buckets;
+  const vol = new Array(buckets).fill(0);
+
+  for (const c of candles) {
+    const mid = (c.high + c.low) / 2;
+    let idx = Math.floor((mid - min) / step);
+    if (idx < 0) idx = 0; if (idx >= buckets) idx = buckets - 1;
+    vol[idx] += c.volume;
+  }
+  let pocIdx = 0;
+  for (let i = 1; i < buckets; i++) if (vol[i] > vol[pocIdx]) pocIdx = i;
+  const pocPrice = min + step * (pocIdx + 0.5);
+  return { pocPrice, rangeHigh: max, rangeLow: min };
+}
+
+// ── Decision Engine ───────────────────────────────────────────────────────────
+
+function makeDecision(indicators) {
+  if (!indicators) return null;
+  const { rsi, macd, bb, ema50, ema200, currentPrice, stochRsi, williamsR, cvd, accDist, chop, atr } = indicators;
+  const notes = [];
+  let bull = 0, bear = 0, rawScore = 50;
+
+  if (rsi != null) {
+    if      (rsi < 30)  { bull += 2; rawScore += 15; notes.push(`RSI عند ${rsi.toFixed(1)} — تشبع بيعي قوي، فرصة شراء محتملة`); }
+    else if (rsi < 45)  { bull += 1; rawScore += 8;  notes.push(`RSI عند ${rsi.toFixed(1)} — ضغط بيعي، المشترون يترقبون`); }
+    else if (rsi > 70)  { bear += 2; rawScore -= 15; notes.push(`RSI عند ${rsi.toFixed(1)} — تشبع شرائي، احتمالية تصحيح مرتفعة`); }
+    else if (rsi > 55)  { bull += 1; rawScore += 6;  notes.push(`RSI عند ${rsi.toFixed(1)} — زخم صعودي معتدل`); }
+    else                {                              notes.push(`RSI عند ${rsi.toFixed(1)} — محايد`); }
+  }
+
+  if (macd) {
+    if (macd.value > macd.signal) { bull += 1; rawScore += 10; notes.push(`MACD فوق خط الإشارة — إشارة شراء نشطة`); }
+    else                          { bear += 1; rawScore -= 10; notes.push(`MACD تحت خط الإشارة — إشارة بيع نشطة`); }
+    if (macd.histogram > 0)       { bull += 1; rawScore += 5;  notes.push(`هيستوغرام MACD موجب — تصاعد الزخم الصعودي`); }
+    else                          { bear += 1; rawScore -= 5;  notes.push(`هيستوغرام MACD سالب — تصاعد الزخم الهبوطي`); }
+  }
+
+  if (ema50 != null) {
+    if (currentPrice > ema50) { bull += 1; rawScore += 7;  notes.push(`السعر فوق EMA50 — دعم متحرك قصير المدى`); }
+    else                      { bear += 1; rawScore -= 7;  notes.push(`السعر تحت EMA50 — مقاومة متحركة قصيرة المدى`); }
+  }
+  if (ema200 != null) {
+    if (currentPrice > ema200) { bull += 2; rawScore += 10; notes.push(`السعر فوق EMA200 — الاتجاه العام صعودي`); }
+    else                       { bear += 2; rawScore -= 10; notes.push(`السعر تحت EMA200 — الاتجاه العام هبوطي`); }
+  }
+  if (ema50 != null && ema200 != null) {
+    if (ema50 > ema200) { bull += 1; rawScore += 5; notes.push(`EMA50 فوق EMA200 — التقاطع الذهبي مؤكَّد`); }
+    else                { bear += 1; rawScore -= 5; notes.push(`EMA50 تحت EMA200 — التقاطع الميت مؤكَّد`); }
+  }
+
+  if (bb) {
+    if      (currentPrice < bb.lower) { bull += 2; rawScore += 12; notes.push(`السعر تحت الحد الأدنى لبولينجر — منطقة شراء قوية`); }
+    else if (currentPrice > bb.upper) { bear += 2; rawScore -= 12; notes.push(`السعر فوق الحد الأعلى لبولينجر — منطقة بيع قوية`); }
+    else {
+      notes.push(currentPrice > (bb.upper + bb.lower) / 2
+        ? `السعر في النصف العلوي لبولينجر — ميل صعودي`
+        : `السعر في النصف السفلي لبولينجر — ميل هبوطي`);
+    }
+    if ((bb.upper - bb.lower) / bb.middle < 0.02) notes.push(`نطاق بولينجر ضيق جداً — تذبذب محتمل قريب`);
+  }
+
+  // ══════════ طبقة الارتداد (StochRSI و Williams %R — دائمًا من فريم 15 دقيقة الثابت) ══════════
+
+  if (stochRsi) {
+    if      (stochRsi.crossUp)   { bull += 2; rawScore += 10; notes.push(`StochRSI (15د) عبور صاعد من منطقة التشبع البيعي — إشارة ارتداد صعودي`); }
+    else if (stochRsi.crossDown) { bear += 2; rawScore -= 10; notes.push(`StochRSI (15د) عبور هابط من منطقة التشبع الشرائي — إشارة ارتداد هبوطي`); }
+    else if (stochRsi.zoneUp)    { bull += 1; rawScore += 5;  notes.push(`StochRSI (15د) داخل منطقة تشبع بيعي — احتمال ارتداد قريب`); }
+    else if (stochRsi.zoneDown)  { bear += 1; rawScore -= 5;  notes.push(`StochRSI (15د) داخل منطقة تشبع شرائي — احتمال تصحيح قريب`); }
+  }
+
+  if (williamsR) {
+    if      (williamsR.crossUpFrom80)   { bull += 2; rawScore += 10; notes.push(`Williams %R (15د) خرج من منطقة التشبع البيعي (-80) — زخم ارتدادي صعودي`); }
+    else if (williamsR.crossDownFrom20) { bear += 2; rawScore -= 10; notes.push(`Williams %R (15د) خرج من منطقة التشبع الشرائي (-20) — زخم ارتدادي هبوطي`); }
+    else if (williamsR.zoneUp)          { bull += 1; rawScore += 4;  notes.push(`Williams %R (15د) داخل منطقة تشبع بيعي`); }
+    else if (williamsR.zoneDown)        { bear += 1; rawScore -= 4;  notes.push(`Williams %R (15د) داخل منطقة تشبع شرائي`); }
+  }
+
+  // ══════════ طبقة السيولة (CVD للامتصاص المؤسسي + Accumulation/Distribution) ══════════
+
+  if (cvd) {
+    if      (cvd.signal === 'bullish_divergence') { bull += 2; rawScore += 9; notes.push(`CVD يصعد بينما السعر ينخفض — امتصاص مؤسسي خفي (شراء بصمت)`); }
+    else if (cvd.signal === 'bearish_divergence') { bear += 2; rawScore -= 9; notes.push(`CVD ينخفض بينما السعر يصعد — تصريف مؤسسي خفي (بيع بصمت)`); }
+  }
+
+  if (accDist) {
+    if      (accDist.zone === 'تجميع (Accumulation)')  { bull += 1; rawScore += 6; notes.push(`A/D Line في منطقة تجميع — تدفق سيولة شرائي حقيقي`); }
+    else if (accDist.zone === 'تصريف (Distribution)')  { bear += 1; rawScore -= 6; notes.push(`A/D Line في منطقة تصريف — تدفق سيولة بيعي حقيقي`); }
+  }
+
+  // ══════════ طبقة ثبات الاتجاه (Choppiness Index) ══════════
+
+  let trendStable = null; // true = اتجاه قوي وثابت، false = تذبذب عشوائي
+  if (chop != null) {
+    if      (chop < 38.2) { trendStable = true;  notes.push(`Choppiness Index عند ${chop.toFixed(1)} — السوق في اتجاه ثابت وقوي`); }
+    else if (chop > 61.8) { trendStable = false; notes.push(`Choppiness Index عند ${chop.toFixed(1)} — السوق متذبذب وعشوائي، يستدعي الحذر من الإشارات الحالية`); }
+  }
+
+  // ATR — قياس التذبذب والسيولة اللحظية (بدون تأثير مباشر على نقاط الاتجاه، بل تحذير/سياق)
+  if (atr && atr.percent != null) {
+    if      (atr.percent >= 1.5) notes.push(`ATR عند ${atr.percent.toFixed(2)}% من السعر — تذبذب مرتفع، وسّع وقف الخسارة واحسب المخاطرة جيدًا`);
+    else if (atr.percent <= 0.3) notes.push(`ATR عند ${atr.percent.toFixed(2)}% من السعر — تذبذب منخفض جدًا وسيولة لحظية ضعيفة، حركة السعر بطيئة`);
+  }
+
+  const trend = bull > bear + 1 ? 'صعود' : bear > bull + 1 ? 'هبوط' : 'تذبذب';
+  const score = Math.max(0, Math.min(100, rawScore));
+
+  let action;
+  if      (rsi != null && rsi < 35 && macd && macd.value > macd.signal) action = 'buy zone';
+  else if (rsi != null && rsi > 65 && macd && macd.value < macd.signal) action = 'sell zone';
+  else if (bb && currentPrice < bb.lower)   action = 'buy zone';
+  else if (bb && currentPrice > bb.upper)   action = 'sell zone';
+  else if (trend === 'صعود' && score >= 62) action = 'buy zone';
+  else if (trend === 'هبوط' && score <= 38) action = 'sell zone';
+  else                                       action = 'wait';
+
+  const total = bull + bear;
+  const dominance = total > 0 ? Math.max(bull, bear) / total : 0.5;
+
+  // سوق متذبذب عشوائيًا (Choppiness مرتفع) وإشارة غير حاسمة بما يكفي ← تحويل القرار إلى انتظار
+  if (trendStable === false && action !== 'wait' && dominance < 0.75) {
+    action = 'wait';
+    notes.push(`تم تحويل القرار إلى "انتظار": التذبذب العشوائي المرتفع (Choppiness) يُضعف موثوقية الإشارة الأولية`);
+  }
+
+  let confidence = Math.round(Math.min(100, score * (0.4 + dominance * 0.6)));
+  if (trendStable === true)       confidence = Math.min(100, Math.round(confidence * 1.1)); // اتجاه ثابت يعزز الثقة
+  else if (trendStable === false) confidence = Math.round(confidence * 0.85);                 // تذبذب عشوائي يقلّل الثقة
+
+  const buyZone  = bb ? { from: bb.lower.toFixed(4),                         to: ((bb.lower + bb.middle) / 2).toFixed(4) } : null;
+  const sellZone = bb ? { from: ((bb.upper + bb.middle) / 2).toFixed(4),    to: bb.upper.toFixed(4) } : null;
+
+  return { trend, action, confidence, notes, buyZone, sellZone };
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
+server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));
