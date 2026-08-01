@@ -1363,37 +1363,38 @@
     setPill('p-btc', btcMajority > 0 ? 'up' : btcMajority < 0 ? 'down' : 'neutral',
             btcLayerSign === 0 ? 'محايد' : `${btcMajority > 0 ? 'صعود' : 'هبوط'} (${btcLayerPoints}ن)`);
 
-    // المربع النهائي: 7 قرارات موزونة (اتجاه + توصية + إجماع الزخم + الحجم + الارتداد + الثبات + طبقة البيتكوين)
-    // طبقة البيتكوين وزنها العادي = 1 مثل باقي القرارات؛ لو وصلت نقاطها لـ 4 أو أكثر (هبوط/ارتفاع حاد) يتضاعف وزنها إلى 2
-    // بحيث تشكّل 25% من مجموع الأوزان (2 من أصل 8) بدلًا من ~14% العادية (1 من أصل 7)
+    // المربع النهائي: وزن إجمالي 9 عادةً (اتجاه + توصية + الزخم + الحجم = 1 لكل واحد، الارتداد + الثبات = 2 لكل واحد، طبقة البيتكوين = 1)
+    // رفعنا وزن الارتداد والثبات لأنهم غالبًا يخالفون بقية المؤشرات ويكتشفون التحوّل قبلها — فيستاهلون صوت أقوى من مجرد صوت واحد عادي
+    // طبقة البيتكوين وزنها العادي = 1؛ لو وصلت نقاطها لـ 4 أو أكثر (هبوط/ارتفاع حاد) يتضاعف وزنها إلى 2 (يرفع الإجمالي إلى 10)
     const trendSign = lastTrendSign, actionSign = lastActionSign;
     const btcWeight = btcLayerSign === 0 ? 0 : (btcLayerPoints >= 4 ? 2 : 1);
     const terms = [
       { sign: trendSign, w: 1 }, { sign: actionSign, w: 1 },
       { sign: momentumMajority, w: 1 }, { sign: volumeMajority, w: 1 },
-      { sign: reversalMajority, w: 1 }, { sign: stabilityMajority, w: 1 },
+      { sign: reversalMajority, w: 2 }, { sign: stabilityMajority, w: 2 },
       { sign: btcMajority, w: btcWeight },
     ];
-    const finalScore = terms.reduce((sum, t) => sum + t.sign * t.w, 0); // بحد أقصى نظري ±8 (لو تفعّل الوزن المضاعف)
+    const totalWeight = terms.reduce((sum, t) => sum + t.w, 0); // 8 إلى 10 حسب حالة طبقة البيتكوين
+    const finalScore = terms.reduce((sum, t) => sum + t.sign * t.w, 0); // بحد أقصى نظري ±10
 
     let finalLabel, finalClass;
-    if (finalScore >= 5) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
+    if (finalScore >= 6) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
     else if (finalScore >= 3) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
     else if (finalScore >= 1) { finalLabel = '📈 شراء'; finalClass = 'pos'; }
     else if (finalScore === 0) { finalLabel = '⚪ محايد'; finalClass = 'neutral'; }
-    else if (finalScore >= -1) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
-    else if (finalScore >= -4) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
+    else if (finalScore >= -2) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
+    else if (finalScore >= -5) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
     else { finalLabel = '📉 بيع قوي جدًا'; finalClass = 'neg'; }
 
     const finalEl = document.getElementById('p-final');
     if (finalEl) { finalEl.textContent = finalLabel; finalEl.className = `final-value ${finalClass}`; }
 
-    // تحديث عنوان القرار النهائي ليعكس تفعيل وزن طبقة البيتكوين المضاعف من عدمه
+    // تحديث عنوان القرار النهائي ليعكس الوزن الإجمالي الفعلي الحالي
     const labelEl = document.getElementById('final-label');
     if (labelEl) {
       labelEl.textContent = btcWeight >= 2
-        ? '🎯 القرار النهائي (7 قرارات — طبقة البيتكوين مفعّلة بوزن 25% ⚡)'
-        : '🎯 القرار النهائي (يجمع 7 قرارات)';
+        ? `🎯 القرار النهائي (وزن إجمالي ${totalWeight} — الارتداد والثبات مضاعفان + البيتكوين مفعّل 25% ⚡)`
+        : `🎯 القرار النهائي (وزن إجمالي ${totalWeight} — الارتداد والثبات مضاعفان)`;
     }
   }
 
