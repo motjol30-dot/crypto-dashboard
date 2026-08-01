@@ -181,6 +181,20 @@
   .zone-box.sell .zt { color: var(--red); }
   .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
 
+  #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; }
+  .explosion-box {
+    flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
+    background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
+    transition: transform 0.15s, background 0.15s;
+  }
+  .explosion-box:active { transform: scale(0.97); background: rgba(240,136,62,0.18); }
+  .explosion-box .explosion-rank { font-size: 0.65rem; color: #f0883e; font-weight: 700; }
+  .explosion-box .explosion-symbol { font-size: 0.95rem; font-weight: 800; color: var(--text); margin: 2px 0; }
+  .explosion-box .explosion-meta { font-size: 0.62rem; color: var(--muted); line-height: 1.4; }
+  .explosion-box.dir-up .explosion-symbol { color: var(--green); }
+  .explosion-box.dir-down .explosion-symbol { color: var(--red); }
+  .explosion-box.empty { opacity: 0.5; cursor: default; }
+
   /* ══ Indicators accordion ══ */
   #indicators-list { padding: 4px 10px 10px; }
   .group-header {
@@ -293,6 +307,20 @@
 </div>
 
 
+
+<!-- طبقة البحث عن العملات المرشحة للانفجار: مربعان (يسار/يمين) لأقوى عملتين مرشحتين حاليًا -->
+<div id="explosion-row">
+  <div class="explosion-box" id="explosion-box-1">
+    <div class="explosion-rank">🥇 الأقوى ترشيحًا</div>
+    <div class="explosion-symbol">—</div>
+    <div class="explosion-meta">بانتظار أول فحص…</div>
+  </div>
+  <div class="explosion-box" id="explosion-box-2">
+    <div class="explosion-rank">🥈 الترشيح الثاني</div>
+    <div class="explosion-symbol">—</div>
+    <div class="explosion-meta">بانتظار أول فحص…</div>
+  </div>
+</div>
 
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
@@ -802,6 +830,7 @@
       mainWsLastMsgTime = Date.now();
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'update') handleUpdate(msg);
+      else if (msg.type === 'explosion_scan') handleExplosionScan(msg);
     };
     ws.onclose = (ev) => {
       setDot('disconnected');
@@ -1429,15 +1458,47 @@
   }
 
   // ══ التحكم: كتابة/اختيار العملة ══
+  function switchToSymbol(v) {
+    if (!v || v === currentSymbol) return; // تجنّب إعادة الاشتراك بنفس العملة
+    currentSymbol = v; lastPrice = null; showLoading(true);
+    document.getElementById('symbol-live-price').innerHTML = '— <span class="updated-at"></span>';
+    document.getElementById('symbol-input').value = v;
+    subscribe();
+    loadFuturesZone(); // مناطق الفيوتشر تخص العملة المختارة، لازم تتحدث فورًا
+  }
+
   function applySymbolInput() {
     let v = document.getElementById('symbol-input').value.trim().toUpperCase().replace(/\s+/g, '');
     if (!v) return;
     if (!v.endsWith('USDT')) v += 'USDT';
-    if (v === currentSymbol) return; // تجنّب إعادة الاشتراك بنفس العملة
-    currentSymbol = v; lastPrice = null; showLoading(true);
-    document.getElementById('symbol-live-price').innerHTML = '— <span class="updated-at"></span>';
-    subscribe();
-    loadFuturesZone(); // مناطق الفيوتشر تخص العملة المختارة، لازم تتحدث فورًا
+    switchToSymbol(v);
+  }
+
+  // ══ طبقة العملات المرشحة للانفجار: عرض أقوى مرشّحَين + التبديل الفوري عند الضغط ══
+  const EXPLOSION_DIR_LABEL = { up: '📈 ميل تجميع صاعد', down: '📉 ميل تصريف هابط', neutral: '⚪ غير محدد' };
+
+  function renderExplosionBox(elId, item) {
+    const box = document.getElementById(elId);
+    if (!item) {
+      box.classList.add('empty');
+      box.classList.remove('dir-up', 'dir-down');
+      box.querySelector('.explosion-symbol').textContent = '—';
+      box.querySelector('.explosion-meta').textContent = 'لا توجد بيانات كافية حاليًا';
+      box.onclick = null;
+      return;
+    }
+    box.classList.remove('empty', 'dir-up', 'dir-down');
+    box.classList.add(item.direction === 'up' ? 'dir-up' : item.direction === 'down' ? 'dir-down' : '');
+    box.querySelector('.explosion-symbol').textContent = item.symbol.replace('USDT', '');
+    box.querySelector('.explosion-meta').innerHTML =
+      `🔥 درجة الانضغاط: <b>${item.score}/100</b><br>${EXPLOSION_DIR_LABEL[item.direction] || ''}`;
+    box.onclick = () => switchToSymbol(item.symbol);
+  }
+
+  function handleExplosionScan(msg) {
+    const ranking = msg.ranking || [];
+    renderExplosionBox('explosion-box-1', ranking[0] || null);
+    renderExplosionBox('explosion-box-2', ranking[1] || null);
   }
 
   const KNOWN_SYMBOLS = new Set(['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','PAXGUSDT']);

@@ -5,6 +5,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
+const crypto = require('crypto');
 const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
@@ -24,6 +25,91 @@ const clientSubs = new Map();
 
 const app = express();
 const server = http.createServer(app);
+
+/* ============================================================
+ * الحماية: كلمة مرور (Basic Auth) + حد أقصى لعدد المستخدمين المتزامنين
+ * مصمّمة عشان تشارك رابط التجربة بأمان مع جروب محدود (تليجرام مثلًا)
+ * بدون أي مكتبات خارجية إضافية — فقط env vars + جلسة بسيطة عبر كوكي
+ * ============================================================ */
+const APP_USER = process.env.APP_USER || 'group';
+const APP_PASS = process.env.APP_PASS || 'change-me-1234';
+if (!process.env.APP_PASS) {
+  console.warn('⚠️  تحذير: APP_PASS غير معرّف كمتغير بيئة — يتم استخدام كلمة مرور افتراضية غير آمنة (change-me-1234). عرّف APP_USER و APP_PASS قبل مشاركة الرابط.');
+}
+
+const MAX_USERS = parseInt(process.env.MAX_USERS || '12', 10); // أقصى عدد أشخاص متزامنين (كل شخص = جلسة واحدة بغض النظر عن عدد اتصالات WS)
+const SESSION_TTL_MS = 15 * 60 * 1000; // 15 دقيقة بدون أي نشاط = تحرّر مكان الجلسة تلقائيًا لشخص جديد
+
+const activeSessions = new Map(); // sid -> آخر وقت نشاط
+
+function sweepSessions() {
+  const now = Date.now();
+  for (const [sid, lastSeen] of activeSessions) {
+    if (now - lastSeen > SESSION_TTL_MS) activeSessions.delete(sid);
+  }
+}
+setInterval(sweepSessions, 60 * 1000);
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+}
+
+function checkBasicAuth(req) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Basic ')) return false;
+  let decoded;
+  try { decoded = Buffer.from(header.slice(6), 'base64').toString('utf8'); } catch { return false; }
+  const idx = decoded.indexOf(':');
+  if (idx === -1) return false;
+  const user = decoded.slice(0, idx), pass = decoded.slice(idx + 1);
+  // مقارنة بزمن ثابت لتفادي هجمات قياس التوقيت (timing attack) على كلمة المرور
+  const safeEqual = (a, b) => {
+    const bufA = Buffer.from(a), bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  };
+  return safeEqual(user, APP_USER) && safeEqual(pass, APP_PASS);
+}
+
+// طبقة 1: كلمة المرور — تُطبَّق على كل طلبات HTTP (الصفحة + أي مسار /api)
+function authMiddleware(req, res, next) {
+  if (!checkBasicAuth(req)) {
+    res.set('WWW-Authenticate', 'Basic realm="Crypto Dashboard"');
+    return res.status(401).send('كلمة المرور مطلوبة للدخول إلى هذه اللوحة.');
+  }
+  next();
+}
+
+// طبقة 2: حد أقصى لعدد المستخدمين المتزامنين — تعمل بعد التأكد من كلمة المرور
+function sessionLimitMiddleware(req, res, next) {
+  sweepSessions();
+  const cookies = parseCookies(req);
+  const existingSid = cookies.sid;
+  const isKnown = existingSid && activeSessions.has(existingSid);
+
+  if (!isKnown && activeSessions.size >= MAX_USERS) {
+    return res.status(503).send(`الموقع ممتلئ حاليًا (الحد الأقصى ${MAX_USERS} مستخدم متزامن). حاول مرة أخرى بعد قليل.`);
+  }
+
+  const sid = isKnown ? existingSid : crypto.randomBytes(16).toString('hex');
+  if (!isKnown) {
+    res.cookie('sid', sid, { httpOnly: true, sameSite: 'lax', maxAge: SESSION_TTL_MS });
+  }
+  activeSessions.set(sid, Date.now());
+  req.sid = sid;
+  next();
+}
+
+app.use(authMiddleware);
+app.use(sessionLimitMiddleware);
 
 // ── REST ──────────────────────────────────────────────────────────────────────
 
@@ -176,7 +262,27 @@ app.get('/api/futures-zone', async (req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // نفس حماية كلمة المرور تُطبَّق على اتصال الـ WebSocket (المتصفح يرسل نفس الـ Authorization و Cookie تلقائيًا)
+  if (!checkBasicAuth(req)) {
+    ws.close(4001, 'Unauthorized');
+    return;
+  }
+  sweepSessions();
+  const cookies = parseCookies(req);
+  const sid = cookies.sid;
+  const isKnown = sid && activeSessions.has(sid);
+  if (!isKnown && activeSessions.size >= MAX_USERS) {
+    ws.close(4002, 'SERVER_FULL');
+    return;
+  }
+  if (sid) activeSessions.set(sid, Date.now()); // تجديد نشاط الجلسة (لو ما فيه sid أصلًا نادر جدًا، نسمح مرورًا بلا تتبّع)
+
+  // إرسال آخر نتيجة لماسح "العملات المرشحة للانفجار" فورًا، بدل ما ينتظر العميل دورة الفحص التالية (كل 30 ثانية)
+  if (explosionRanking.length) {
+    ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking.slice(0, 2) }));
+  }
+
   ws.on('message', async (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
@@ -188,6 +294,7 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز أو فترة زمنية غير صحيحة' }));
         return;
       }
+      if (sid) activeSessions.set(sid, Date.now());
       clientSubs.set(ws, { symbol, interval });
       await ensureStream(symbol, interval);
       await ensureStream(symbol, '15m'); // فريم ثابت لمؤشرات الارتداد (لا يتأثر بتغيير فريم العرض)
@@ -198,6 +305,134 @@ wss.on('connection', (ws) => {
   ws.on('close', () => clientSubs.delete(ws));
   ws.on('error', () => clientSubs.delete(ws));
 });
+
+/* ================================================================================
+ * طبقة "البحث عن العملات المرشحة للانفجار" (Pre-Breakout Explosion Scanner)
+ * ================================================================================
+ * الفكرة مبنية على مفهوم معروف في التحليل الفني (TTM Squeeze وما شابه): العملة تكون على
+ * وشك حركة قوية عندما تجتمع هذه العوامل خلال فترة هدوء واضحة:
+ *   1) انضغاط بولينجر (BB width) عند أدنى مستوياته النسبية خلال آخر 100 قيمة — تذبذب مكتوم جدًا
+ *   2) انكماش ATR (تقلب حقيقي منخفض جدًا مقارنة بالفترة الأخيرة)
+ *   3) شرط "السكويز" الكلاسيكي: نطاق بولينجر بالكامل داخل قناة كيلتنر (EMA20 ± 1.5×ATR)
+ *   4) بداية ارتفاع في الحجم مقارنة بمتوسطه الهادئ (نذاق أول إشارة اهتمام مؤسسي/سيولة داخلة)
+ *   5) ميل OBV خلال آخر 20 شمعة لتخمين اتجاه الانفجار المحتمل (تجميع صعودي أو تصريف هابط)
+ * كل هذا يُحسب دائمًا على فريم 15 دقيقة الثابت لكل العملات، لضمان مقارنة عادلة بينها
+ * بغض النظر عن الفريم اللي يشاهده المستخدم حاليًا. عملة الذهب PAXGUSDT مستبعدة من الفحص
+ * لأنها مربوطة بسعر الذهب وطبيعتها الهادئة تجعلها تظهر "مضغوطة" دائمًا بدون معنى حقيقي.
+ * ================================================================================ */
+
+const SCAN_INTERVAL = '15m';
+const SCAN_SYMBOLS = SYMBOLS.filter((s) => s !== 'PAXGUSDT');
+
+function computeExplosionScore(candles) {
+  if (!candles || candles.length < 80) return null;
+  const closes = candles.map((c) => c.close);
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const volumes = candles.map((c) => c.volume);
+  const n = closes.length;
+
+  // ── بولينجر (20، 2) وسلسلة عرضه التاريخية لقياس مدى الانضغاط الحالي نسبيًا ──
+  const bbArr = BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
+  if (bbArr.length < 40) return null;
+  const bbWidths = bbArr.map((b) => (b.middle ? (b.upper - b.lower) / b.middle : 0));
+  const lastBB = bbArr[bbArr.length - 1];
+  const lastWidth = bbWidths[bbWidths.length - 1];
+  const widthWindow = bbWidths.slice(-100);
+  const minWidth = Math.min(...widthWindow), maxWidth = Math.max(...widthWindow);
+  const widthPercentile = maxWidth > minWidth ? (lastWidth - minWidth) / (maxWidth - minWidth) : 0.5; // 0 = أضيق نطاق مؤخرًا
+
+  // ── ATR(14) يدوي + سلسلته التاريخية لقياس انكماش التقلب ──
+  const trArr = [];
+  for (let i = 1; i < n; i++) {
+    trArr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+  }
+  const atrPeriod = 14;
+  if (trArr.length < atrPeriod) return null;
+  const atrSeries = [];
+  let atrVal = trArr.slice(0, atrPeriod).reduce((a, b) => a + b, 0) / atrPeriod;
+  atrSeries.push(atrVal);
+  for (let i = atrPeriod; i < trArr.length; i++) { atrVal = (atrVal * (atrPeriod - 1) + trArr[i]) / atrPeriod; atrSeries.push(atrVal); }
+  const lastAtr = atrSeries[atrSeries.length - 1];
+  const atrWindow = atrSeries.slice(-60);
+  const atrMin = Math.min(...atrWindow), atrMax = Math.max(...atrWindow);
+  const atrPercentile = atrMax > atrMin ? (lastAtr - atrMin) / (atrMax - atrMin) : 0.5;
+
+  // ── قناة كيلتنر (EMA20 ± 1.5×ATR) لشرط السكويز الكلاسيكي ──
+  const ema20Arr = EMA.calculate({ values: closes, period: 20 });
+  const lastEma20 = ema20Arr[ema20Arr.length - 1];
+  const kcUpper = lastEma20 + lastAtr * 1.5;
+  const kcLower = lastEma20 - lastAtr * 1.5;
+  const squeezeOn = lastBB.upper < kcUpper && lastBB.lower > kcLower;
+
+  // ── نسبة الحجم: متوسط آخر 5 شموع مقابل متوسط آخر 50 (أول نبضة اهتمام بعد هدوء) ──
+  const avgVol5 = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const avgVol50 = volumes.slice(-50).reduce((a, b) => a + b, 0) / 50;
+  const volRatio = avgVol50 > 0 ? avgVol5 / avgVol50 : 1;
+
+  // ── OBV وميله خلال آخر 20 شمعة، لتخمين اتجاه الانفجار المحتمل ──
+  let obvVal = 0;
+  const obvArr = [0];
+  for (let i = 1; i < n; i++) {
+    if (closes[i] > closes[i - 1]) obvVal += volumes[i];
+    else if (closes[i] < closes[i - 1]) obvVal -= volumes[i];
+    obvArr.push(obvVal);
+  }
+  const obvSlice = obvArr.slice(-20);
+  const obvSlope = obvSlice[obvSlice.length - 1] - obvSlice[0];
+  const direction = obvSlope > 0 ? 'up' : obvSlope < 0 ? 'down' : 'neutral';
+
+  // ── الدرجة المركّبة (0-100): الانضغاط هو جوهر الفكرة فياخذ أكبر وزن، والباقي عوامل تأكيدية ──
+  let score = 0;
+  score += (1 - Math.max(0, Math.min(1, widthPercentile))) * 35; // انضغاط بولينجر
+  score += (1 - Math.max(0, Math.min(1, atrPercentile))) * 20;   // انكماش ATR
+  score += squeezeOn ? 15 : 0;                                    // شرط السكويز الكلاسيكي محقق فعليًا
+  score += Math.max(0, Math.min(1, (volRatio - 1) * 2)) * 20;    // بداية ارتفاع حجم (لغاية تضاعف الحجم = 20 نقطة كاملة)
+  score += Math.min(1, Math.abs(obvSlope) / (avgVol50 * 20 || 1)) * 10; // وضوح ميل OBV (تجميع/تصريف حقيقي لا ضجيج)
+
+  return {
+    score: Math.round(Math.max(0, Math.min(100, score))),
+    direction,
+    widthPercentile: Math.round(widthPercentile * 100),
+    atrPercentile: Math.round(atrPercentile * 100),
+    squeezeOn,
+    volRatio: Math.round(volRatio * 100) / 100,
+    price: closes[n - 1],
+  };
+}
+
+let explosionRanking = []; // [{ symbol, score, direction, ... }] مرتّبة تنازليًا حسب الدرجة
+
+function runExplosionScan() {
+  const results = [];
+  for (const symbol of SCAN_SYMBOLS) {
+    const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+    const res = computeExplosionScore(candles);
+    if (res) results.push({ symbol, ...res });
+  }
+  results.sort((a, b) => b.score - a.score);
+  explosionRanking = results;
+  broadcastExplosionScan();
+}
+
+function broadcastExplosionScan() {
+  if (!explosionRanking.length) return;
+  const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking.slice(0, 2) });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(payload);
+  }
+}
+
+// عند إقلاع السيرفر: نشغّل تدفق بيانات دائم لكل العملات (باستثناء الذهب) على فريم 15 دقيقة الثابت،
+// بغض النظر عن العملة التي يشاهدها أي مستخدم حاليًا، حتى يبقى الماسح يعمل بدون توقف
+(async () => {
+  for (const symbol of SCAN_SYMBOLS) {
+    await ensureStream(symbol, SCAN_INTERVAL);
+  }
+  setTimeout(runExplosionScan, 5000); // مهلة بسيطة لضمان اكتمال تحميل البيانات التاريخية أولًا
+})();
+
+setInterval(runExplosionScan, 30 * 1000); // إعادة فحص كل 30 ثانية
 
 // ── تسلسل المصادر لكل العملات: Binance أولًا ← MEXC احتياطي ← OKX احتياطي ثالث ──
 
