@@ -410,8 +410,28 @@
     <div class="acc-body" id="b-williamsr">—</div>
   </div>
 
+  <div class="acc-item" data-mirror-of="stab-ichimoku">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">إيشيموكو (عمق الاستقرار) <span style="font-size:0.65rem; color:var(--muted); font-weight:400;">— مشترك مع الثبات</span></span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body">—</div>
+  </div>
+
   <div class="group-header">🔒 ثبات الاتجاه (Trend Stability)</div>
   <div class="group-summary" id="grp-stability">—</div>
+
+  <div class="acc-item" data-mirror-of="williamsr">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Williams %R <span style="font-size:0.65rem; color:var(--muted); font-weight:400;">— مشترك مع الارتداد</span></span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body">—</div>
+  </div>
 
   <div class="acc-item" data-key="stab-adx">
     <div class="acc-head">
@@ -1213,6 +1233,14 @@
     v.textContent = label; v.className = `acc-verdict ${verdict}`;
     document.getElementById(`b-${key}`).innerHTML = bodyHtml;
     consensusTracker[key] = verdict;
+
+    // مرايا العرض: نفس المؤشر (Williams %R أو إيشيموكو) يظهر بصريًا في مجموعتين، فنحدّث كل نسخة معروضة له
+    document.querySelectorAll(`.acc-item[data-mirror-of="${key}"]`).forEach(mirror => {
+      mirror.querySelector('.acc-dot').className = `acc-dot ${verdict}`;
+      const mv = mirror.querySelector('.acc-verdict');
+      mv.textContent = label; mv.className = `acc-verdict ${verdict}`;
+      mirror.querySelector('.acc-body').innerHTML = bodyHtml;
+    });
   }
 
   function groupVerdictCounts(group) {
