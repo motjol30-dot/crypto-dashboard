@@ -1186,11 +1186,22 @@
     obv: 'volume', volprofile: 'volume', accdist: 'volume', cvd: 'volume', openinterest: 'volume',
     bb: 'price', pivot: 'price', candlecmp: 'price',
     btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro',
-    stochrsi: 'reversal', bbpercentb: 'reversal', rsidiv: 'reversal', williamsr: 'reversal',
-    'stab-adx': 'stability', chop: 'stability', 'stab-obv': 'stability', 'stab-ichimoku': 'stability',
+    stochrsi: 'reversal', bbpercentb: 'reversal', rsidiv: 'reversal',
+    'stab-adx': 'stability', chop: 'stability', 'stab-obv': 'stability',
+    // هذان مشتركان بين المجموعتين — لاحظنا أنهما من أكثر المؤشرات فعالية في الطبقتين معًا:
+    // Williams %R يشارك برأيه في "الارتداد" (دوره الأصلي) وأيضًا في "الثبات" (تأكيد إضافي)
+    // إيشيموكو يشارك في "الثبات" (دوره الأصلي) وأيضًا في "الارتداد" (تأكيد إضافي)
+    williamsr: ['reversal', 'stability'],
+    'stab-ichimoku': ['stability', 'reversal'],
     btclayer: 'btc',
   };
   const GROUP_LABELS = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات', btc: 'طبقة البيتكوين' };
+
+  // مؤشر واحد ممكن يتبع أكثر من مجموعة الآن (GROUP_MAP[key] إما نص أو مصفوفة أسماء مجموعات)
+  function inGroup(key, group) {
+    const g = GROUP_MAP[key];
+    return Array.isArray(g) ? g.includes(group) : g === group;
+  }
 
   let consensusTracker = {};
 
@@ -1207,7 +1218,7 @@
   function groupVerdictCounts(group) {
     let bull = 0, bear = 0, neutral = 0;
     for (const [key, verdict] of Object.entries(consensusTracker)) {
-      if (GROUP_MAP[key] !== group) continue;
+      if (!inGroup(key, group)) continue;
       if (verdict === 'bull') bull++; else if (verdict === 'bear') bear++; else neutral++;
     }
     return { bull, bear, neutral, total: bull + bear + neutral };
@@ -1219,7 +1230,7 @@
     const total = verdicts.length;
     if (total === 0) return;
 
-    const REVERSAL_NAMES = { stochrsi: 'Stochastic RSI', bbpercentb: 'Bollinger %B', rsidiv: 'RSI Divergence', williamsr: 'Williams %R' };
+    const REVERSAL_NAMES = { stochrsi: 'Stochastic RSI', bbpercentb: 'Bollinger %B', rsidiv: 'RSI Divergence', williamsr: 'Williams %R', 'stab-ichimoku': 'إيشيموكو' };
 
     // ملخص كل مجموعة على حدة = حكم واحد واضح (مو مجرد عدّ) — يحل تشتت الإشارات بين المؤشرات المتشابهة
     const GROUP_NAMES = { momentum: 'الزخم', trend: 'المتوسطات', volume: 'الحجم', price: 'الأسعار', macro: 'الكلي', reversal: 'الارتداد', stability: 'الثبات', btc: 'طبقة البيتكوين' };
@@ -1231,8 +1242,8 @@
       if (el && c.total > 0) {
         if (group === 'reversal') {
           // طبقتين منفصلتين بنفس المربع: ارتداد الصعود وارتداد الهبوط، كل وحدة توري أسماء المؤشرات النشطة فيها فعليًا
-          const upNames = Object.entries(consensusTracker).filter(([k, v]) => GROUP_MAP[k] === 'reversal' && v === 'bull').map(([k]) => REVERSAL_NAMES[k] || k);
-          const downNames = Object.entries(consensusTracker).filter(([k, v]) => GROUP_MAP[k] === 'reversal' && v === 'bear').map(([k]) => REVERSAL_NAMES[k] || k);
+          const upNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bull').map(([k]) => REVERSAL_NAMES[k] || k);
+          const downNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bear').map(([k]) => REVERSAL_NAMES[k] || k);
           el.innerHTML = `
             <div style="color:var(--green); margin-bottom:3px;">🟢 ارتداد الصعود (${c.bull}): ${upNames.length ? upNames.join('، ') : 'لا يوجد حاليًا'}</div>
             <div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear}): ${downNames.length ? downNames.join('، ') : 'لا يوجد حاليًا'}</div>
