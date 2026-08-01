@@ -40,6 +40,13 @@ if (!process.env.APP_PASS) {
 const MAX_USERS = parseInt(process.env.MAX_USERS || '12', 10); // أقصى عدد أشخاص متزامنين (كل شخص = جلسة واحدة بغض النظر عن عدد اتصالات WS)
 const SESSION_TTL_MS = 15 * 60 * 1000; // 15 دقيقة بدون أي نشاط = تحرّر مكان الجلسة تلقائيًا لشخص جديد
 
+// معطّلة افتراضيًا حاليًا بناءً على طلبك (تأجيل الفكرة). فعّلها لاحقًا بتعيين متغيّر بيئة AUTH_ENABLED=true
+// (وحدد وقتها APP_USER و APP_PASS كمان). طالما معطّلة، الموقع مفتوح للجميع بدون كلمة مرور ولا حد للمستخدمين.
+const AUTH_ENABLED = process.env.AUTH_ENABLED === 'true';
+if (!AUTH_ENABLED) {
+  console.warn('⚠️ الحماية بكلمة المرور معطّلة حاليًا (AUTH_ENABLED غير مفعّل) — الموقع مفتوح لأي شخص لديه الرابط.');
+}
+
 const activeSessions = new Map(); // sid -> آخر وقت نشاط
 
 function sweepSessions() {
@@ -108,8 +115,10 @@ function sessionLimitMiddleware(req, res, next) {
   next();
 }
 
-app.use(authMiddleware);
-app.use(sessionLimitMiddleware);
+if (AUTH_ENABLED) {
+  app.use(authMiddleware);
+  app.use(sessionLimitMiddleware);
+}
 
 // ── REST ──────────────────────────────────────────────────────────────────────
 
@@ -264,7 +273,7 @@ const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws, req) => {
   // نفس حماية كلمة المرور تُطبَّق على اتصال الـ WebSocket (المتصفح يرسل نفس الـ Authorization و Cookie تلقائيًا)
-  if (!checkBasicAuth(req)) {
+  if (AUTH_ENABLED && !checkBasicAuth(req)) {
     ws.close(4001, 'Unauthorized');
     return;
   }
@@ -272,7 +281,7 @@ wss.on('connection', (ws, req) => {
   const cookies = parseCookies(req);
   const sid = cookies.sid;
   const isKnown = sid && activeSessions.has(sid);
-  if (!isKnown && activeSessions.size >= MAX_USERS) {
+  if (AUTH_ENABLED && !isKnown && activeSessions.size >= MAX_USERS) {
     ws.close(4002, 'SERVER_FULL');
     return;
   }
