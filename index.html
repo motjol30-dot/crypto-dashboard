@@ -343,6 +343,9 @@
   </div>
 </div>
 
+<!-- ربط ذكي بين الثبات والارتداد: توافق يعزز الثقة، تباعد ينبّه لاحتمال انعكاس (بدون فرض أحدهما على الآخر) -->
+<div id="stab-reversal-link" style="display:none; text-align:center; font-size:0.78rem; padding:6px 10px; border-radius:8px; margin:6px 0;"></div>
+
 <!-- المربع النهائي: يجمع المربعات السبعة أعلاه بحكم واحد -->
 <div id="final-verdict-row">
   <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 7 قرارات)</div>
@@ -748,6 +751,24 @@
     }).observe(container);
   }
 
+  // ── رسالة حظر واضحة عند رفض الاتصال (كلمة مرور خاطئة/انتهت الجلسة، أو الموقع ممتلئ) ──
+  function showBlockOverlay(message) {
+    let overlay = document.getElementById('block-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'block-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,0.97);z-index:9999;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:#e6edf3;';
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `<div style="max-width:320px;"><div style="font-size:2rem;margin-bottom:10px;">🚫</div><div style="font-size:0.95rem;line-height:1.7;">${message}</div></div>`;
+  }
+  function isBlockingCloseCode(code) { return code === 4001 || code === 4002; }
+  function blockMessageFor(code) {
+    return code === 4002
+      ? `الموقع ممتلئ حاليًا (وصل الحد الأقصى للمستخدمين المتزامنين).<br>حاول مرة أخرى بعد قليل.`
+      : `الجلسة غير صالحة أو كلمة المرور غير صحيحة.<br>أعد تحميل الصفحة وسجّل الدخول من جديد.`;
+  }
+
   // ══ اتصال البيانات الرئيسي (العملة المختارة) ══
   let mainWsLastMsgTime = 0, mainWatchdog = null;
 
@@ -762,7 +783,11 @@
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'update') handleUpdate(msg);
     };
-    ws.onclose = () => { setDot('disconnected'); setTimeout(connect, 3000); };
+    ws.onclose = (ev) => {
+      setDot('disconnected');
+      if (isBlockingCloseCode(ev.code)) { showBlockOverlay(blockMessageFor(ev.code)); return; }
+      setTimeout(connect, 3000);
+    };
     ws.onerror = () => ws.close();
 
     if (mainWatchdog) clearInterval(mainWatchdog);
@@ -793,7 +818,7 @@
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'update' && msg.symbol === 'BTCUSDT') { btcLastMsgTime = Date.now(); updateBtcTicker(msg); }
     };
-    btcWs.onclose = () => setTimeout(connectBtcTicker, 3000);
+    btcWs.onclose = (ev) => { if (isBlockingCloseCode(ev.code)) return; setTimeout(connectBtcTicker, 3000); };
     btcWs.onerror = () => btcWs.close();
 
     // حارس: لو ما وصل أي تحديث خلال 20 ثانية (اتصال معلّق بصمت)، أجبر إعادة الاتصال
@@ -1240,6 +1265,33 @@
             reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
             stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
+
+    // ── ربط ذكي بين "الثبات" و"الارتداد": لاحظنا أن ثبات أخضر غالبًا يترافق مع ارتداد صاعد، وهش مع ارتداد هابط.
+    // بدل ما نفرض توجّه أحدهما على الآخر (وهذا يلغي فايدة الارتداد كمؤشر مستقل يكتشف التحوّلات)، نُبرز العلاقة فقط:
+    // توافق = إشارة أقوى (الاثنين متفقين وهذا أصلاً منعكس في مجموع النقاط تلقائيًا)
+    // تباعد = تنبيه مهم لاحتمال انعكاس مبكر (ثبات ما زال يقول "مستمر" لكن الارتداد بدأ يتحرك عكسه)
+    const linkEl = document.getElementById('stab-reversal-link');
+    if (linkEl) {
+      if (stabilityMajority !== 0 && reversalMajority !== 0) {
+        if (stabilityMajority === reversalMajority) {
+          linkEl.style.display = 'block';
+          linkEl.style.background = 'rgba(63,185,80,0.12)';
+          linkEl.style.color = 'var(--green)';
+          linkEl.textContent = stabilityMajority > 0
+            ? '🔗 توافق: الاتجاه ثابت والارتداد صاعد أيضًا — إشارتان تدعمان بعضهما'
+            : '🔗 توافق: الاتجاه هش والارتداد هابط أيضًا — إشارتان تدعمان بعضهما';
+        } else {
+          linkEl.style.display = 'block';
+          linkEl.style.background = 'rgba(240,136,62,0.12)';
+          linkEl.style.color = '#f0883e';
+          linkEl.textContent = stabilityMajority > 0
+            ? '⚠️ تباعد: الاتجاه لسه يظهر ثابتًا لكن الارتداد بدأ يميل هبوطًا — انتبه لاحتمال انعكاس مبكر'
+            : '⚠️ تباعد: الاتجاه هش لكن الارتداد بدأ يميل صعودًا — انتبه لاحتمال ارتداد مبكر';
+        }
+      } else {
+        linkEl.style.display = 'none';
+      }
+    }
     setPill('p-btc', btcMajority > 0 ? 'up' : btcMajority < 0 ? 'down' : 'neutral',
             btcLayerSign === 0 ? 'محايد' : `${btcMajority > 0 ? 'صعود' : 'هبوط'} (${btcLayerPoints}ن)`);
 
@@ -1520,7 +1572,7 @@
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'update' && msg.symbol === 'PAXGUSDT') { goldLastMsgTime = Date.now(); updateGoldTicker(msg); }
     };
-    goldWs.onclose = () => setTimeout(connectGoldTicker, 3000);
+    goldWs.onclose = (ev) => { if (isBlockingCloseCode(ev.code)) return; setTimeout(connectGoldTicker, 3000); };
     goldWs.onerror = () => goldWs.close();
 
     if (goldWatchdog) clearInterval(goldWatchdog);
