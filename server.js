@@ -379,7 +379,7 @@ function computeExplosionScore(candles) {
   const avgVol50 = volumes.slice(-50).reduce((a, b) => a + b, 0) / 50;
   const volRatio = avgVol50 > 0 ? avgVol5 / avgVol50 : 1;
 
-  // ── OBV وميله خلال آخر 20 شمعة، لتخمين اتجاه الانفجار المحتمل ──
+  // ── OBV وميله خلال آخر 20 شمعة ──
   let obvVal = 0;
   const obvArr = [0];
   for (let i = 1; i < n; i++) {
@@ -389,15 +389,89 @@ function computeExplosionScore(candles) {
   }
   const obvSlice = obvArr.slice(-20);
   const obvSlope = obvSlice[obvSlice.length - 1] - obvSlice[0];
-  const direction = obvSlope > 0 ? 'up' : obvSlope < 0 ? 'down' : 'neutral';
 
-  // ── الدرجة المركّبة (0-100): الانضغاط هو جوهر الفكرة فياخذ أكبر وزن، والباقي عوامل تأكيدية ──
+  // ── RSI(14): مؤشر زخم كلاسيكي — نستخدمه هنا كفلتر تشبّع، مو كإشارة دخول ──
+  const rsiArr = RSI.calculate({ values: closes, period: 14 });
+  const lastRsi = rsiArr.length ? rsiArr[rsiArr.length - 1] : null;
+
+  // ── MFI (Money Flow Index, 14): "RSI موزون بالحجم" — أدق مؤشر سيولة+زخم مع بعض ──
+  let lastMfi = null;
+  {
+    const period = 14;
+    const typicalPrices = closes.map((c, i) => (highs[i] + lows[i] + c) / 3);
+    const rawMF = typicalPrices.map((tp, i) => tp * volumes[i]);
+    if (n > period) {
+      let posMF = 0, negMF = 0;
+      for (let i = n - period; i < n; i++) {
+        if (typicalPrices[i] > typicalPrices[i - 1]) posMF += rawMF[i];
+        else if (typicalPrices[i] < typicalPrices[i - 1]) negMF += rawMF[i];
+      }
+      lastMfi = negMF === 0 ? 100 : 100 - (100 / (1 + posMF / negMF));
+    }
+  }
+
+  // ── CMF (Chaikin Money Flow, 20): تدفق سيولة حقيقي (ضغط شراء/بيع داخل كل شمعة) ──
+  let lastCmf = null;
+  {
+    const period = 20;
+    const win = candles.slice(-period);
+    let mfvSum = 0, volSum = 0;
+    for (const c of win) {
+      const range = c.high - c.low;
+      const mfm = range ? ((c.close - c.low) - (c.high - c.close)) / range : 0;
+      mfvSum += mfm * c.volume;
+      volSum += c.volume;
+    }
+    lastCmf = volSum > 0 ? mfvSum / volSum : 0;
+  }
+
+  // ── فلتر عدم الانتفاخ المسبق: وين موقع السعر داخل نطاق آخر 50 شمعة + كم ارتفع فعليًا خلال آخر 20 شمعة ──
+  // الهدف: نستبعد/نخفّض تصنيف عملة صعدت فعلًا وقاربت قمتها — لأن هذي الحالة انفجارها المحتمل يكون ارتداد
+  // هبوطي (بيع من القمة) مو تفجير صعودي حقيقي، بالضبط الالتباس اللي نبي نتفاداه
+  const rangeHigh = Math.max(...highs.slice(-50));
+  const rangeLow = Math.min(...lows.slice(-50));
+  const pricePosition = rangeHigh > rangeLow ? (closes[n - 1] - rangeLow) / (rangeHigh - rangeLow) : 0.5; // 1 = عند القمة تمامًا
+
+  const priceThen = closes[n - 21] ?? closes[0];
+  const recentGainPct = priceThen ? ((closes[n - 1] - priceThen) / priceThen) * 100 : 0;
+
+  // ── اتجاه الانفجار المرجّح: نتفق فيه OBV مع CMF، لو تعارضوا نخليه "غير واضح" بدل ما نخمّن ──
+  const obvDir = obvSlope > 0 ? 'up' : obvSlope < 0 ? 'down' : 'neutral';
+  const cmfDir = lastCmf > 0.03 ? 'up' : lastCmf < -0.03 ? 'down' : 'neutral';
+  let direction = 'neutral';
+  if (obvDir !== 'neutral' && obvDir === cmfDir) direction = obvDir;
+  else if (obvDir !== 'neutral' && cmfDir === 'neutral') direction = obvDir;
+  else if (cmfDir !== 'neutral' && obvDir === 'neutral') direction = cmfDir;
+
+  // ── الدرجة المركّبة (0-100) ──
   let score = 0;
-  score += (1 - Math.max(0, Math.min(1, widthPercentile))) * 35; // انضغاط بولينجر
-  score += (1 - Math.max(0, Math.min(1, atrPercentile))) * 20;   // انكماش ATR
-  score += squeezeOn ? 15 : 0;                                    // شرط السكويز الكلاسيكي محقق فعليًا
-  score += Math.max(0, Math.min(1, (volRatio - 1) * 2)) * 20;    // بداية ارتفاع حجم (لغاية تضاعف الحجم = 20 نقطة كاملة)
-  score += Math.min(1, Math.abs(obvSlope) / (avgVol50 * 20 || 1)) * 10; // وضوح ميل OBV (تجميع/تصريف حقيقي لا ضجيج)
+  score += (1 - Math.max(0, Math.min(1, widthPercentile))) * 25; // انضغاط بولينجر (جوهر الفكرة)
+  score += (1 - Math.max(0, Math.min(1, atrPercentile))) * 15;   // انكماش ATR
+  score += squeezeOn ? 10 : 0;                                    // شرط السكويز الكلاسيكي محقق فعليًا
+  score += Math.max(0, Math.min(1, (volRatio - 1) * 2)) * 15;    // بداية ارتفاع حجم (سيولة داخلة)
+  score += Math.min(1, Math.abs(obvSlope) / (avgVol50 * 20 || 1)) * 10; // وضوح ميل OBV
+
+  // مكافأة منطقة MFI الصحية (سيولة تتحرك بدون تشبّع شرائي بعد)
+  if (lastMfi != null) {
+    if (lastMfi >= 40 && lastMfi <= 65) score += 10;
+    else if (lastMfi > 85) score -= 15; // سيولة متشبعة تمامًا — خطر ارتداد قريب
+  }
+  // مكافأة توافق CMF مع اتجاه OBV (تأكيد سيولة حقيقية للاتجاه المرجّح)
+  if (direction !== 'neutral' && cmfDir === direction) score += 8;
+
+  // عقوبة الاقتراب من قمة/قاع آخر 50 شمعة — كل ما اقترب أكثر، قلّت مصداقية "الانفجار الصاعد الحقيقي"
+  const overextPenalty = pricePosition > 0.8 ? ((pricePosition - 0.8) / 0.2) * 30 : 0;
+  score -= overextPenalty;
+
+  // عقوبة الارتفاع الحاد المسبق (يعني العملة فعلًا انفجرت، مو على وشك الانفجار)
+  const gainPenalty = recentGainPct > 10 ? Math.min(1, (recentGainPct - 10) / 15) * 20 : 0;
+  score -= gainPenalty;
+
+  // عقوبة تشبّع RSI الكلاسيكي (زخم مفرط = قرب من نهاية الحركة مو بدايتها)
+  const rsiPenalty = lastRsi != null && lastRsi > 70 ? Math.min(1, (lastRsi - 70) / 15) * 15 : 0;
+  score -= rsiPenalty;
+
+  const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
 
   return {
     score: Math.round(Math.max(0, Math.min(100, score))),
@@ -406,6 +480,12 @@ function computeExplosionScore(candles) {
     atrPercentile: Math.round(atrPercentile * 100),
     squeezeOn,
     volRatio: Math.round(volRatio * 100) / 100,
+    rsi: lastRsi != null ? Math.round(lastRsi) : null,
+    mfi: lastMfi != null ? Math.round(lastMfi) : null,
+    cmf: Math.round(lastCmf * 1000) / 1000,
+    pricePosition: Math.round(pricePosition * 100), // % موقع السعر داخل نطاق آخر 50 شمعة (100 = عند القمة)
+    recentGainPct: Math.round(recentGainPct * 10) / 10,
+    overextended, // true = العملة صعدت فعلًا وقريبة من قمتها، احتمال ارتداد هبوط أكبر من تفجير حقيقي
     price: closes[n - 1],
   };
 }
@@ -441,7 +521,7 @@ function broadcastExplosionScan() {
   setTimeout(runExplosionScan, 5000); // مهلة بسيطة لضمان اكتمال تحميل البيانات التاريخية أولًا
 })();
 
-setInterval(runExplosionScan, 30 * 1000); // إعادة فحص كل 30 ثانية
+setInterval(runExplosionScan, 5 * 60 * 1000); // إعادة فحص كل 5 دقائق (بدل 30 ثانية) — العملة على فريم 15د ما تتغيّر كل هذي المدة أصلًا
 
 // ── تسلسل المصادر لكل العملات: Binance أولًا ← MEXC احتياطي ← OKX احتياطي ثالث ──
 
