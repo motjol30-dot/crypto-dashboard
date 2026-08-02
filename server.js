@@ -1089,14 +1089,16 @@ function computeIndicators(candles) {
     };
   }
 
-  // دايفرجنز RSI — مقارنة قاع السعر بقاع RSI خلال آخر 10 شمعات
+  // دايفرجنز RSI — مقارنة السعر بـ RSI خلال آخر 10 شمعات، بشرط أن يكون RSI فعليًا قرب طرف متشبع
+  // (فوق 60 لتوزيع محتمل، تحت 40 لتجميع محتمل). بدون هذا الشرط، أي انخفاض بسيط بـ RSI وسط رالي
+  // صحي (RSI بين 55-75 مثلًا) كان يُقرأ خطأً كـ"تباعد هابط" رغم إنه لا يعني انعكاس فعلي غالبًا
   let rsiDivergence = null;
   if (rsiArr.length >= 11 && n >= 11) {
     const priceNow = closes[n - 1], priceBefore = closes[n - 11];
     const rsiNow = rsiArr[rsiArr.length - 1], rsiBefore = rsiArr[rsiArr.length - 11];
     let type = 'none';
-    if (priceNow < priceBefore && rsiNow > rsiBefore) type = 'bullish'; // تجميع خفي
-    else if (priceNow > priceBefore && rsiNow < rsiBefore) type = 'bearish'; // توزيع خفي
+    if (priceNow < priceBefore && rsiNow > rsiBefore && rsiNow < 40) type = 'bullish'; // تجميع خفي قرب تشبع بيعي حقيقي
+    else if (priceNow > priceBefore && rsiNow < rsiBefore && rsiNow > 60) type = 'bearish'; // توزيع خفي قرب تشبع شرائي حقيقي
     rsiDivergence = { type, priceNow, priceBefore, rsiNow, rsiBefore };
   }
 

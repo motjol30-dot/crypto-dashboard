@@ -1332,6 +1332,16 @@
       if (group === 'btc') btcMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
     }
 
+    // ربط الارتداد بالاتجاه العام نسبيًا: لو الاتجاه قوي ومؤكَّد (الثبات متفق معه) وعارضه الارتداد
+    // بفارق بسيط جدًا (صوت واحد بس وسط 5 مؤشرات)، الأغلب يكون ضجيج (مثل تباعد RSI خلال رالي صحي)
+    // فنحيّده لمحايد بدل ما يناقض كل شيء بثقة كاملة. لو الارتداد قوي وواضح (فارق صوتين فأكثر) نخليه
+    // يمر زي ما هو — يمكن يكون فعلًا يمسك انعكاس حقيقي حتى وسط اتجاه قوي، وهذا بالضبط دوره.
+    const trendConfirmedStrong = lastTrendSign !== 0 && lastTrendSign === stabilityMajority;
+    if (trendConfirmedStrong && reversalMajority !== 0 && reversalMajority !== lastTrendSign) {
+      const margin = Math.abs(reversalBullCount - reversalBearCount);
+      if (margin < 2) reversalMajority = 0;
+    }
+
     // مربعات الإجماع الخمسة (زخم / حجم / ارتداد / ثبات / طبقة البيتكوين)
     setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral',
             momentumMajority > 0 ? 'شراء' : momentumMajority < 0 ? 'بيع' : 'محايد');
