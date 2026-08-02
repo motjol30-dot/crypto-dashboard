@@ -11,10 +11,14 @@ const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 const PORT = process.env.PORT || 3000;
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'PAXGUSDT'];
-const INTERVALS = ['5m', '15m', '30m', '2h', '4h'];
+// ملاحظة: طلب المستخدم فريم 20 دقيقة أيضًا، لكنه غير مدعوم أصلًا من أي مصدر بيانات (Binance/MEXC/OKX)
+// كشمعة حقيقية — أقرب فريمين متوفرين فعليًا هما 15m و30m، فاستبعدناه بدل تركيب شموع اصطناعية هشة.
+const INTERVALS = ['3m', '5m', '15m', '30m', '1h', '2h', '4h'];
 
 // MEXC WebSocket interval codes
-const MEXC_WS_INTERVAL = { '5m': 'Min5', '15m': 'Min15', '30m': 'Min30', '2h': 'Hour2', '4h': 'Hour4' };
+const MEXC_WS_INTERVAL = { '3m': 'Min3', '5m': 'Min5', '15m': 'Min15', '30m': 'Min30', '1h': 'Hour1', '2h': 'Hour2', '4h': 'Hour4' };
+// OKX يستخدم صيغة مختلفة للساعات وما فوق (حرف H كبير) بعكس باقي المصادر
+const OKX_BAR = { '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '2h': '2H', '4h': '4H' };
 
 // candleStore[key] = [{ time, open, high, low, close, volume }]
 const candleStore = {};
@@ -308,6 +312,12 @@ wss.on('connection', (ws, req) => {
       await ensureStream(symbol, interval);
       await ensureStream(symbol, '15m'); // فريم ثابت لمؤشرات الارتداد (لا يتأثر بتغيير فريم العرض)
       sendSnapshot(ws, symbol, interval);
+
+      // شريط الفريمات: نشغّل بيانات كل الفريمات السبعة لنفس العملة (بالخلفية) عشان تتلوّن مربعاتها كلها فورًا
+      for (const iv of INTERVALS) {
+        if (iv !== interval && iv !== '15m') ensureStream(symbol, iv).then(() => broadcastMtfUpdate(symbol, true));
+      }
+      broadcastMtfUpdate(symbol, true);
     }
   });
 
@@ -547,7 +557,8 @@ async function fetchHistoricalMexc(symbol, interval, limit = 300) {
 
 async function fetchHistoricalOkx(symbol, interval, limit = 300) {
   const instId = symbol.replace(/USDT$/, '-USDT'); // BTCUSDT → BTC-USDT
-  const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${interval}&limit=${limit}`;
+  const bar = OKX_BAR[interval] || interval;
+  const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=${limit}`;
   const { data } = await axios.get(url, { timeout: 10000 });
   const rows = data.data || [];
   // OKX يرجّع الأحدث أولًا — نعكس الترتيب عشان يصير الأقدم أولًا مثل باقي المصادر
@@ -718,7 +729,7 @@ function connectMexcStream(symbol, interval, onFail) {
 function connectOkxStream(symbol, interval) {
   const key = `${symbol}_${interval}`;
   const instId = symbol.replace(/USDT$/, '-USDT');
-  const channel = `candle${interval}`;
+  const channel = `candle${OKX_BAR[interval] || interval}`;
   const ws = new WebSocket('wss://ws.okx.com:8443/public');
   streamWs[key] = ws;
 
@@ -791,6 +802,8 @@ function broadcastUpdate(symbol, interval) {
       client.send(payload);
     }
   }
+
+  broadcastMtfUpdate(symbol); // أي فريم من فريمات هذي العملة يتحدّث، نحدّث شريط الفريمات كامل (مع throttle داخلي)
 }
 
 function sendSnapshot(ws, symbol, interval) {
@@ -801,6 +814,32 @@ function sendSnapshot(ws, symbol, interval) {
   const decision = makeDecision(indicators);
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision }));
+  }
+}
+
+// ── شريط الفريمات: يحسب قرار كل فريم (من الـ 7) لنفس العملة، لتلوين مربعاتها الصغيرة أخضر/أحمر/أصفر ──
+function computeMtfSnapshot(symbol) {
+  const out = {};
+  for (const iv of INTERVALS) {
+    const candles = candleStore[`${symbol}_${iv}`];
+    if (!candles || candles.length < 30) { out[iv] = null; continue; }
+    const indicators = computeIndicatorsFixedReversal(symbol, iv, candles);
+    const decision = indicators ? makeDecision(indicators) : null;
+    out[iv] = decision ? { action: decision.action, confidence: decision.confidence, trend: decision.trend } : null;
+  }
+  return out;
+}
+
+const lastMtfBroadcast = {}; // symbol -> آخر وقت بُث فيه (throttle بسيط، فريم واحد يبعث ~عدة مرات بالثانية أحيانًا)
+function broadcastMtfUpdate(symbol, force = false) {
+  const now = Date.now();
+  if (!force && lastMtfBroadcast[symbol] && now - lastMtfBroadcast[symbol] < 3000) return; // كل 3 ثوانٍ كحد أقصى
+  lastMtfBroadcast[symbol] = now;
+
+  const snapshot = computeMtfSnapshot(symbol);
+  const payload = JSON.stringify({ type: 'mtf_update', symbol, snapshot });
+  for (const [client, sub] of clientSubs) {
+    if (client.readyState === WebSocket.OPEN && sub.symbol === symbol) client.send(payload);
   }
 }
 
