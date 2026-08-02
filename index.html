@@ -954,11 +954,11 @@
     if (!ind) return;
     consensusTracker = {}; // تصفير قبل كل تحديث عشان الإجماع يحسب من أحدث القيم فقط
 
-    // RSI
+    // RSI — هنا كزخم اتجاهي (فوق/تحت 50) يتناسق مع باقي مؤشرات الاتجاه، مو كإشارة ارتداد (تلك مهمة طبقة الارتداد المخصصة أصلًا)
     if (ind.rsi != null) {
-      const verdict = ind.rsi < 30 ? 'bull' : ind.rsi > 70 ? 'bear' : 'neutral';
-      const label = ind.rsi < 30 ? 'شراء (تشبع بيعي)' : ind.rsi > 70 ? 'بيع (تشبع شرائي)' : 'محايد';
-      setAcc('rsi', verdict, label, `القيمة الحالية: <b>${ind.rsi.toFixed(1)}</b><br>أقل من 30 = تشبع بيعي (فرصة شراء) — أكثر من 70 = تشبع شرائي (احتمال تصحيح)`);
+      const verdict = ind.rsi > 55 ? 'bull' : ind.rsi < 45 ? 'bear' : 'neutral';
+      const label = ind.rsi > 55 ? 'زخم صاعد' : ind.rsi < 45 ? 'زخم هابط' : 'زخم محايد';
+      setAcc('rsi', verdict, label, `القيمة الحالية: <b>${ind.rsi.toFixed(1)}</b><br>فوق 55 = زخم صاعد — تحت 45 = زخم هابط (تفاصيل التشبع الشرائي/البيعي موجودة في طبقة الارتداد)`);
     }
     // MACD
     if (ind.macd && ind.macd.value != null && ind.macd.signal != null) {
@@ -1004,12 +1004,12 @@
       setAcc('vwap', verdict, label, `القيمة: <b>${fmt(ind.vwap)}</b><br>مرجع السعر العادل الموزون بالحجم`);
     }
 
-    // Stochastic
+    // Stochastic — نفس المنطق: زخم اتجاهي هنا، مو إشارة ارتداد (تلك مسؤولية طبقة الارتداد المخصصة)
     if (ind.stochastic) {
-      const k = ind.stochastic.k;
-      const verdict = k < 20 ? 'bull' : k > 80 ? 'bear' : 'neutral';
-      const label = k < 20 ? 'تشبع بيعي' : k > 80 ? 'تشبع شرائي' : 'محايد';
-      setAcc('stochastic', verdict, label, `K: <b>${k.toFixed(1)}</b> — D: <b>${ind.stochastic.d.toFixed(1)}</b><br>أقل من 20 = تشبع بيعي — أكثر من 80 = تشبع شرائي`);
+      const k = ind.stochastic.k, d = ind.stochastic.d;
+      const verdict = (k > 55 && k >= d) ? 'bull' : (k < 45 && k <= d) ? 'bear' : 'neutral';
+      const label = verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'زخم محايد';
+      setAcc('stochastic', verdict, label, `K: <b>${k.toFixed(1)}</b> — D: <b>${d.toFixed(1)}</b><br>زخم اتجاهي (تفاصيل التشبع الشرائي/البيعي موجودة في طبقة الارتداد)`);
     }
 
     // ADX (قوة الاتجاه، مو اتجاهه)
@@ -1020,11 +1020,14 @@
       setAcc('adx', verdict, label, `ADX: <b>${ind.adx.adx.toFixed(1)}</b> (فوق 25 = اتجاه قوي)<br>+DI: <b>${ind.adx.pdi.toFixed(1)}</b> — -DI: <b>${ind.adx.mdi.toFixed(1)}</b>`);
     }
 
-    // OBV
-    if (ind.obv != null && ind.obvPrev != null) {
-      const verdict = ind.obv > ind.obvPrev ? 'bull' : ind.obv < ind.obvPrev ? 'bear' : 'neutral';
-      const label = verdict === 'bull' ? 'تدفق شرائي' : verdict === 'bear' ? 'تدفق بيعي' : 'مستقر';
-      setAcc('obv', verdict, label, `القيمة: <b>${fmtBig(ind.obv)}</b><br>يقيس هل الحجم يدعم حركة السعر الحالية`);
+    // OBV — نقارن بميل آخر ~14 شمعة (obvTrendRef) بدل شمعة وحدة، لأن مقارنة شمعة بشمعة كانت ضجيج بحت
+    if (ind.obv != null) {
+      const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev;
+      if (ref != null) {
+        const verdict = ind.obv > ref ? 'bull' : ind.obv < ref ? 'bear' : 'neutral';
+        const label = verdict === 'bull' ? 'تدفق شرائي' : verdict === 'bear' ? 'تدفق بيعي' : 'مستقر';
+        setAcc('obv', verdict, label, `القيمة: <b>${fmtBig(ind.obv)}</b><br>يقارن اتجاه آخر ~14 شمعة (بدل شمعة واحدة) لتفادي الضجيج قصير المدى`);
+      }
     }
 
     // SMA 20
@@ -1153,17 +1156,20 @@
       setAcc('chop', verdict, label, `القيمة: <b>${ind.chop.toFixed(1)}</b> (تحت 38.2 = ثبات، فوق 61.8 = تذبذب عشوائي)`);
     }
 
-    // OBV (كثبات مدعوم بالسيولة)
-    if (ind.obv != null && ind.obvPrev != null) {
-      const obvUp = ind.obv > ind.obvPrev;
-      const priceUp = ind.candleCompare?.consecutiveUp;
-      const priceDown = ind.candleCompare?.consecutiveDown;
-      let verdict = 'neutral', label = 'محايد';
-      if (priceUp && obvUp) { verdict = 'bull'; label = 'ثبات صاعد مدعوم بالسيولة 💸'; }
-      else if (priceUp && !obvUp) { verdict = 'bear'; label = 'ثبات وهمي/تصريف ⚠️'; }
-      else if (priceDown && !obvUp) { verdict = 'bear'; label = 'ثبات هابط مدعوم بالسيولة 💸'; }
-      else if (priceDown && obvUp) { verdict = 'neutral'; label = 'ثبات هبوط وهمي ⚠️'; }
-      setAcc('stab-obv', verdict, label, `يقارن اتجاه السعر مع اتجاه OBV للتأكد هل الثبات حقيقي أو وهمي`);
+    // OBV (كثبات مدعوم بالسيولة) — نفس التصحيح: ميل ~14 شمعة بدل شمعة وحدة
+    {
+      const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev;
+      if (ind.obv != null && ref != null) {
+        const obvUp = ind.obv > ref;
+        const priceUp = ind.candleCompare?.consecutiveUp;
+        const priceDown = ind.candleCompare?.consecutiveDown;
+        let verdict = 'neutral', label = 'محايد';
+        if (priceUp && obvUp) { verdict = 'bull'; label = 'ثبات صاعد مدعوم بالسيولة 💸'; }
+        else if (priceUp && !obvUp) { verdict = 'bear'; label = 'ثبات وهمي/تصريف ⚠️'; }
+        else if (priceDown && !obvUp) { verdict = 'bear'; label = 'ثبات هابط مدعوم بالسيولة 💸'; }
+        else if (priceDown && obvUp) { verdict = 'neutral'; label = 'ثبات هبوط وهمي ⚠️'; }
+        setAcc('stab-obv', verdict, label, `يقارن اتجاه السعر مع ميل OBV لآخر ~14 شمعة للتأكد هل الثبات حقيقي أو وهمي`);
+      }
     }
 
     // إيشيموكو (كعمق استقرار)

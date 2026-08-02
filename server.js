@@ -943,8 +943,8 @@ function computeIndicators(candles) {
     }
   }
 
-  // OBV (يدوي)
-  let obv = null, obvPrev = null;
+  // OBV (يدوي) + مرجع ميل أطول (14 شمعة) بدل المقارنة اللحظية شمعة بشمعة (كانت مصدر ضجيج كبير في إجماع الحجم والثبات)
+  let obv = null, obvPrev = null, obvTrendRef = null;
   {
     let val = 0;
     const arr = [0];
@@ -955,6 +955,8 @@ function computeIndicators(candles) {
     }
     obv = arr[arr.length - 1];
     obvPrev = arr.length > 1 ? arr[arr.length - 2] : null;
+    const lookback = Math.min(14, arr.length - 1);
+    obvTrendRef = lookback > 0 ? arr[arr.length - 1 - lookback] : null;
   }
 
   // Supertrend (يدوي، مبني على ATR يدوي)
@@ -1156,7 +1158,7 @@ function computeIndicators(candles) {
 
   return {
     rsi, macd, bb, ema50, ema200,
-    sma20, vwap, stochastic, adx, obv, obvPrev, supertrend, ichimoku, volumeProfile,
+    sma20, vwap, stochastic, adx, obv, obvPrev, obvTrendRef, supertrend, ichimoku, volumeProfile,
     pivot, candleCompare, accDist, cvd,
     stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr,
     currentPrice: closes[closes.length - 1],
