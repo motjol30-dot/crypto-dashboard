@@ -356,7 +356,14 @@
     <div class="pill-label">طبقة البيتكوين</div>
     <div class="pill-value neutral" id="p-btc">—</div>
   </div>
+  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;">
+    <div class="pill-label">⏰ طبقة الساعة</div>
+    <div class="pill-value neutral" id="p-hourly">—</div>
+  </div>
 </div>
+
+<!-- تفاصيل طبقة الساعة: لا علاقة لها بالقرار النهائي إطلاقًا — عرض معلوماتي مستقل فقط، اضغط المربع لعرضها -->
+<div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم، والأقوى (الأخضر الأعلى ثقة) يتقدّم تلقائيًا -->
 <div id="tf-bar-wrap">
@@ -949,10 +956,26 @@
     renderDecision(msg.decision);
   }
 
+  // ══ طبقة الساعة: عرض مستقل تمامًا، لا تلمس consensusTracker ولا تدخل بأي شكل في القرار النهائي ══
+  function renderHourlyLayer(hl) {
+    const pillEl = document.getElementById('p-hourly');
+    const detailEl = document.getElementById('hourly-detail');
+    if (!hl) {
+      pillEl.textContent = '—'; pillEl.className = 'pill-value neutral';
+      detailEl.textContent = 'بيانات فريم الساعة غير كافية بعد';
+      return;
+    }
+    const cls = hl.verdict === 'bull' ? 'up' : hl.verdict === 'bear' ? 'down' : 'neutral';
+    const label = hl.verdict === 'bull' ? 'صاعد' : hl.verdict === 'bear' ? 'هابط' : 'محايد';
+    pillEl.textContent = label; pillEl.className = `pill-value ${cls}`;
+    detailEl.innerHTML = hl.notes.map((n) => `• ${n}`).join('<br>');
+  }
+
   // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
   function renderIndicators(ind) {
     if (!ind) return;
     consensusTracker = {}; // تصفير قبل كل تحديث عشان الإجماع يحسب من أحدث القيم فقط
+    renderHourlyLayer(ind.hourlyLayer);
 
     // RSI — هنا كزخم اتجاهي (فوق/تحت 50) يتناسق مع باقي مؤشرات الاتجاه، مو كإشارة ارتداد (تلك مهمة طبقة الارتداد المخصصة أصلًا)
     if (ind.rsi != null) {
@@ -1536,6 +1559,11 @@
     else { tfAutoToggleEl.textContent = '🔄 تلقائي: يتبع الأقوى'; tfAutoToggleEl.classList.remove('paused'); }
   }
   updateAutoToggleLabel();
+
+  document.getElementById('p-hourly-wrap').addEventListener('click', () => {
+    const el = document.getElementById('hourly-detail');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  });
 
   tfAutoToggleEl.addEventListener('click', () => {
     tfAutoMode = !tfAutoMode;

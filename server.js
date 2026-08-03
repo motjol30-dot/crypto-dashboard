@@ -785,7 +785,55 @@ function computeIndicatorsFixedReversal(symbol, interval, candles) {
       }
     }
   }
+
+  // طبقة الساعة: تحليل مستقل تمامًا (لا علاقة له بالقرار النهائي إطلاقًا) دائمًا من فريم الساعة الثابت
+  // بغض النظر عن الفريم المعروض — مصمّمة لإعطاء صورة أعمق قليلًا من الزخم قصير المدى (3د-4س)
+  indicators.hourlyLayer = computeHourlyLayer(symbol);
+
   return indicators;
+}
+
+// ── طبقة الساعة (مستقلة تمامًا، لا تدخل في حساب القرار النهائي) ──────────────
+// فكرتها: بدل مؤشرات الزخم اللحظي، نستخدم مؤشرات هيكلية أبطأ على فريم الساعة الثابت
+// (EMA50/200 + ADX + Supertrend + إيشيموكو) — تعطي انحياز اتجاه متوسط المدى بدل الزخم اللحظي
+function computeHourlyLayer(symbol) {
+  const candles1h = candleStore[`${symbol}_1h`];
+  if (!candles1h || candles1h.length < 60) return null;
+  const ind = computeIndicators(candles1h);
+  if (!ind) return null;
+
+  let bull = 0, bear = 0;
+  const notes = [];
+
+  if (ind.ema50 != null && ind.ema200 != null) {
+    if (ind.ema50 > ind.ema200) { bull++; notes.push('EMA50 فوق EMA200 (فريم الساعة) — انحياز صاعد متوسط المدى'); }
+    else { bear++; notes.push('EMA50 تحت EMA200 (فريم الساعة) — انحياز هابط متوسط المدى'); }
+  }
+
+  if (ind.adx) {
+    if (ind.adx.adx >= 20) {
+      if (ind.adx.pdi > ind.adx.mdi) { bull++; notes.push(`ADX قوي وصاعد على فريم الساعة (${ind.adx.adx.toFixed(1)})`); }
+      else { bear++; notes.push(`ADX قوي وهابط على فريم الساعة (${ind.adx.adx.toFixed(1)})`); }
+    } else {
+      notes.push(`ADX ضعيف على فريم الساعة (${ind.adx.adx.toFixed(1)}) — لا اتجاه هيكلي واضح بعد`);
+    }
+  }
+
+  if (ind.supertrend) {
+    if (ind.supertrend.trendUp) { bull++; notes.push('Supertrend صاعد على فريم الساعة'); }
+    else { bear++; notes.push('Supertrend هابط على فريم الساعة'); }
+  }
+
+  if (ind.ichimoku && ind.currentPrice != null) {
+    const cloudTop = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB);
+    const cloudBottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB);
+    if (ind.currentPrice > cloudTop) { bull++; notes.push('السعر فوق سحابة إيشيموكو (فريم الساعة)'); }
+    else if (ind.currentPrice < cloudBottom) { bear++; notes.push('السعر تحت سحابة إيشيموكو (فريم الساعة)'); }
+    else notes.push('السعر داخل سحابة إيشيموكو (فريم الساعة) — منطقة تردد هيكلي');
+  }
+
+  const verdict = bull > bear ? 'bull' : bear > bull ? 'bear' : 'neutral';
+  return { verdict, bull, bear, notes };
 }
 
 function broadcastUpdate(symbol, interval) {
