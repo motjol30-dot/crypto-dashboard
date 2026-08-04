@@ -53,6 +53,16 @@ if (!AUTH_ENABLED) {
 
 const activeSessions = new Map(); // sid -> آخر وقت نشاط
 
+/* ============================================================
+ * بوت التداول التلقائي: مفاتيح API لكل منصة — تُقرأ من متغيرات البيئة فقط
+ * ولا تُرسَل أبدًا للواجهة الأمامية. البوت يبدأ دائمًا معطّلاً (enabled=false)
+ * بغض النظر عن وجود المفاتيح — لازم المستخدم يفعّله يدويًا من اللوحة كل مرة.
+ * ============================================================ */
+const BINANCE_API_KEY = process.env.BINANCE_API_KEY || '';
+const BINANCE_API_SECRET = process.env.BINANCE_API_SECRET || '';
+const MEXC_API_KEY = process.env.MEXC_API_KEY || '';
+const MEXC_API_SECRET = process.env.MEXC_API_SECRET || '';
+
 function sweepSessions() {
   const now = Date.now();
   for (const [sid, lastSeen] of activeSessions) {
@@ -295,6 +305,7 @@ wss.on('connection', (ws, req) => {
   if (explosionRanking.length) {
     ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking.slice(0, 2) }));
   }
+  ws.send(botStatusPayload());
 
   ws.on('message', async (raw) => {
     let msg;
@@ -318,6 +329,54 @@ wss.on('connection', (ws, req) => {
         if (iv !== interval && iv !== '15m') ensureStream(symbol, iv).then(() => broadcastMtfUpdate(symbol, true));
       }
       broadcastMtfUpdate(symbol, true);
+    }
+
+    // ══ رسائل التحكم في بوت التداول ══
+    else if (msg.type === 'bot_toggle') {
+      if (msg.enabled) {
+        const hasKeys = botState.exchange === 'binance'
+          ? (BINANCE_API_KEY && BINANCE_API_SECRET)
+          : (MEXC_API_KEY && MEXC_API_SECRET);
+        if (!hasKeys) {
+          ws.send(JSON.stringify({ type: 'error', message: `لا يوجد مفتاح API معرّف لمنصة ${botState.exchange === 'binance' ? 'Binance' : 'MEXC'} — أضِف متغيرات البيئة أولاً (BINANCE_API_KEY/SECRET أو MEXC_API_KEY/SECRET)` }));
+          return;
+        }
+      }
+      botState.enabled = !!msg.enabled;
+      broadcastBotStatus();
+    }
+    else if (msg.type === 'bot_set_exchange') {
+      if (msg.exchange === 'mexc' || msg.exchange === 'binance') {
+        botState.exchange = msg.exchange;
+        broadcastBotStatus();
+      }
+    }
+    else if (msg.type === 'bot_set_trade_size') {
+      const v = parseFloat(msg.tradeSizeUsdt);
+      if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_manual_buy') {
+      const { symbol } = msg;
+      if (SCAN_SYMBOLS.includes(symbol) && !botState.positions[symbol]) {
+        const sig = evaluateBotSignal(symbol) || { dashboardSignal: 0, botOwnSignal: 0, composite: 0 };
+        executeBotBuy(symbol, sig, 'شراء يدوي من المستخدم').catch((err) => {
+          const detail = err.response?.data?.msg || err.message;
+          ws.send(JSON.stringify({ type: 'error', message: 'فشل تنفيذ الشراء: ' + detail }));
+          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
+          broadcastBotStatus();
+        });
+      }
+    }
+    else if (msg.type === 'bot_manual_close') {
+      const { symbol } = msg;
+      if (botState.positions[symbol]) {
+        executeBotSell(symbol, null, 'إغلاق يدوي من المستخدم').catch((err) => {
+          const detail = err.response?.data?.msg || err.message;
+          ws.send(JSON.stringify({ type: 'error', message: 'فشل إغلاق الصفقة: ' + detail }));
+          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
+          broadcastBotStatus();
+        });
+      }
     }
   });
 
@@ -1408,6 +1467,226 @@ function makeDecision(indicators) {
 
   return { trend, action, confidence, notes, buyZone, sellZone };
 }
+
+/* ================================================================================
+ * بوت التداول التلقائي (Auto-Trading Bot)
+ * ================================================================================
+ * يعمل دائمًا على فريم 15 دقيقة الثابت لكل عملات SCAN_SYMBOLS (نفس بيانات ماسح الانفجار).
+ * القرار = 75% من نفس تحليلات اللوحة (نفس أوزان مربعات الإجماع: اتجاه/توصية/زخم/حجم/ارتداد
+ * وزن 1 لكل واحد، الثبات وزن 2) + 25% من تحليل خاص بالبوت وحده (تسارع RSI + انحراف VWAP
+ * + اتجاه ATR) — مؤشرات إضافية ما تدخل في قرار اللوحة الأصلي أصلًا.
+ * تنفيذ تلقائي بالكامل عند التفعيل، بدون أي وقف خسارة/جني أرباح أو حد مخاطرة تلقائي —
+ * حسب طلبك الصريح، حجم كل صفقة والتحكم بالمخاطر بالكامل بيدك عبر لوحة التحكم.
+ * ================================================================================ */
+
+let botState = {
+  enabled: false,                 // يبدأ دائمًا معطّلاً عند إقلاع السيرفر — تفعيل يدوي مطلوب كل مرة
+  exchange: 'mexc',               // 'mexc' | 'binance' — قابل للتبديل من اللوحة
+  tradeSizeUsdt: 50,              // مبلغ كل صفقة بالـ USDT — يحدده المستخدم يدويًا، لا حساب تلقائي كنسبة من رأس المال
+  positions: {},                  // symbol -> { qty, entryPrice, entryTime }
+  tradeLog: [],                   // آخر الصفقات المنفذة (وأي أخطاء تنفيذ)
+  lastSignals: {},                // symbol -> آخر تقييم للإشارة المركّبة
+};
+
+const BOT_BUY_THRESHOLD = 0.35;   // نطاق -1..+1 — فوق هذا = شراء
+const BOT_SELL_THRESHOLD = -0.35; // تحت هذا = بيع/إغلاق
+
+// ── 75%: نفس منطق أوزان مربعات إجماع اللوحة (اتجاه/توصية/زخم/حجم/ارتداد = وزن 1، الثبات = وزن 2) ──
+function computeDashboardScore(indicators, decision) {
+  if (!indicators) return 0;
+  const { currentPrice, ema200, rsi, macd, cvd, accDist, chop, stochRsi, williamsR } = indicators;
+  const terms = [];
+
+  if (ema200 != null && currentPrice != null) terms.push({ sign: currentPrice > ema200 ? 1 : -1, w: 1 });
+
+  if (decision) {
+    if (decision.action === 'buy zone') terms.push({ sign: 1, w: 1 });
+    else if (decision.action === 'sell zone') terms.push({ sign: -1, w: 1 });
+    else terms.push({ sign: 0, w: 1 });
+  }
+
+  let mBull = 0, mBear = 0;
+  if (rsi != null) { if (rsi > 55) mBull++; else if (rsi < 45) mBear++; }
+  if (macd) { if (macd.value > macd.signal) mBull++; else mBear++; }
+  terms.push({ sign: mBull > mBear ? 1 : mBull < mBear ? -1 : 0, w: 1 });
+
+  let vBull = 0, vBear = 0;
+  if (cvd && cvd.signal === 'bullish_divergence') vBull++;
+  if (cvd && cvd.signal === 'bearish_divergence') vBear++;
+  if (accDist && accDist.zone === 'تجميع (Accumulation)') vBull++;
+  if (accDist && accDist.zone === 'تصريف (Distribution)') vBear++;
+  terms.push({ sign: vBull > vBear ? 1 : vBull < vBear ? -1 : 0, w: 1 });
+
+  let rBull = 0, rBear = 0;
+  if (stochRsi) { if (stochRsi.crossUp || stochRsi.zoneUp) rBull++; if (stochRsi.crossDown || stochRsi.zoneDown) rBear++; }
+  if (williamsR) { if (williamsR.crossUpFrom80 || williamsR.zoneUp) rBull++; if (williamsR.crossDownFrom20 || williamsR.zoneDown) rBear++; }
+  terms.push({ sign: rBull > rBear ? 1 : rBull < rBear ? -1 : 0, w: 1 });
+
+  const majoritySign = Math.sign(terms.reduce((s, t) => s + t.sign * t.w, 0)) || 0;
+  if (chop != null) {
+    if (chop < 38.2) terms.push({ sign: majoritySign, w: 2 });      // اتجاه ثابت — يعزز نفس ميل بقية المؤشرات
+    else if (chop > 61.8) terms.push({ sign: 0, w: 2 });            // تذبذب عشوائي — يمتص الوزن بدون ميل واضح
+  }
+
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0; // نطاق -1..+1
+}
+
+// ── 25%: تحليل خاص بالبوت وحده — مؤشرات ما تدخل في قرار اللوحة الأصلي إطلاقًا ──
+function computeBotOwnSignal(indicators, candles) {
+  if (!indicators || !candles || candles.length < 20) return 0;
+  const terms = [];
+
+  // 1) تسارع RSI: هل الزخم نفسه يتسارع صعودًا/هبوطًا خلال آخر 5 شمعات (زخم الزخم، غير موجود في اللوحة)
+  const closes = candles.map((c) => c.close);
+  const rsiSeries = RSI.calculate({ values: closes, period: 14 });
+  if (rsiSeries.length >= 5) {
+    const recent = rsiSeries.slice(-5);
+    const slope = recent[recent.length - 1] - recent[0];
+    terms.push({ sign: Math.abs(slope) > 3 ? (slope > 0 ? 1 : -1) : 0, w: 1 });
+  }
+
+  // 2) انحراف السعر عن VWAP: ابتعاد واضح = ضغط اتجاهي حقيقي (مو مستخدم في قرار اللوحة الرئيسي)
+  if (indicators.vwap != null && indicators.currentPrice != null) {
+    const dev = (indicators.currentPrice - indicators.vwap) / indicators.vwap;
+    terms.push({ sign: Math.abs(dev) > 0.004 ? (dev > 0 ? 1 : -1) : 0, w: 1 });
+  }
+
+  // 3) اتجاه مصحوب بتقلب حقيقي (ATR مرتفع نسبيًا) = زخم دخول/خروج حقيقي مو ضجيج
+  if (indicators.atr && indicators.atr.percent != null && indicators.ema50 != null && indicators.currentPrice != null) {
+    const trendDir = indicators.currentPrice > indicators.ema50 ? 1 : -1;
+    terms.push({ sign: indicators.atr.percent >= 0.5 ? trendDir : 0, w: 1 });
+  }
+
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0; // نطاق -1..+1
+}
+
+function evaluateBotSignal(symbol) {
+  const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+  if (!candles || candles.length < 60) return null;
+  const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+  if (!indicators) return null;
+  const decision = makeDecision(indicators);
+  const dashboardSignal = computeDashboardScore(indicators, decision);
+  const botOwnSignal = computeBotOwnSignal(indicators, candles);
+  const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
+  let action = 'hold';
+  if (composite >= BOT_BUY_THRESHOLD) action = 'buy';
+  else if (composite <= BOT_SELL_THRESHOLD) action = 'sell';
+  return { symbol, dashboardSignal, botOwnSignal, composite, action, price: indicators.currentPrice };
+}
+
+// ── تنفيذ الأوامر: MEXC و Binance (Spot، توقيع HMAC-SHA256) ──
+function mexcSignedQuery(params) {
+  const qs = new URLSearchParams(params).toString();
+  const sig = crypto.createHmac('sha256', MEXC_API_SECRET).update(qs).digest('hex');
+  return `${qs}&signature=${sig}`;
+}
+function binanceSignedQuery(params) {
+  const qs = new URLSearchParams(params).toString();
+  const sig = crypto.createHmac('sha256', BINANCE_API_SECRET).update(qs).digest('hex');
+  return `${qs}&signature=${sig}`;
+}
+
+async function placeMexcOrder(symbol, side, quoteOrderQty, quantity) {
+  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
+  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
+  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, {
+    headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000,
+  });
+  return data;
+}
+async function placeBinanceOrder(symbol, side, quoteOrderQty, quantity) {
+  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
+  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, {
+    headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000,
+  });
+  return data;
+}
+function placeOrder(exchange, symbol, side, quoteOrderQty, quantity) {
+  return exchange === 'binance'
+    ? placeBinanceOrder(symbol, side, quoteOrderQty, quantity)
+    : placeMexcOrder(symbol, side, quoteOrderQty, quantity);
+}
+
+async function executeBotBuy(symbol, sig, reasonOverride) {
+  const data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
+  const executedQty = parseFloat(data.executedQty || 0);
+  const quoteSpent = parseFloat(data.cummulativeQuoteQty || botState.tradeSizeUsdt);
+  if (!executedQty) return;
+  const entryPrice = quoteSpent / executedQty;
+  botState.positions[symbol] = { qty: executedQty, entryPrice, entryTime: Date.now() };
+  const reason = reasonOverride || `إشارة شراء آلية — لوحة ${(sig.dashboardSignal * 100).toFixed(0)}% × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% = مركّب ${(sig.composite * 100).toFixed(0)}%`;
+  botState.tradeLog.unshift({
+    time: Date.now(), symbol, side: 'BUY', price: entryPrice, qty: executedQty,
+    quoteAmount: quoteSpent, exchange: botState.exchange, reason,
+  });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  broadcastBotStatus();
+}
+
+async function executeBotSell(symbol, sig, reasonOverride) {
+  const pos = botState.positions[symbol];
+  if (!pos) return;
+  const data = await placeOrder(botState.exchange, symbol, 'SELL', null, pos.qty);
+  const executedQty = parseFloat(data.executedQty || pos.qty);
+  const quoteReceived = parseFloat(data.cummulativeQuoteQty || 0);
+  const exitPrice = executedQty ? quoteReceived / executedQty : pos.entryPrice;
+  const pnl = quoteReceived - (pos.qty * pos.entryPrice);
+  const pnlPct = pos.entryPrice ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+  delete botState.positions[symbol];
+  const reason = reasonOverride || `إشارة بيع آلية — لوحة ${sig ? (sig.dashboardSignal * 100).toFixed(0) : '?'}% × بوت ${sig ? (sig.botOwnSignal * 100).toFixed(0) : '?'}%`;
+  botState.tradeLog.unshift({
+    time: Date.now(), symbol, side: 'SELL', price: exitPrice, qty: executedQty,
+    quoteAmount: quoteReceived, exchange: botState.exchange, reason, pnl, pnlPct,
+  });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  broadcastBotStatus();
+}
+
+async function runBotCycle() {
+  if (!botState.enabled) return;
+  for (const symbol of SCAN_SYMBOLS) {
+    try {
+      const sig = evaluateBotSignal(symbol);
+      if (!sig) continue;
+      botState.lastSignals[symbol] = sig;
+      const pos = botState.positions[symbol];
+      if (!pos && sig.action === 'buy') await executeBotBuy(symbol, sig);
+      else if (pos && sig.action === 'sell') await executeBotSell(symbol, sig);
+    } catch (err) {
+      const detail = err.response?.data?.msg || err.message;
+      console.error(`[BOT] خطأ أثناء تقييم/تنفيذ ${symbol}:`, detail);
+      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
+    }
+  }
+  broadcastBotStatus();
+}
+
+function botStatusPayload() {
+  return JSON.stringify({
+    type: 'bot_status',
+    enabled: botState.enabled,
+    exchange: botState.exchange,
+    tradeSizeUsdt: botState.tradeSizeUsdt,
+    positions: botState.positions,
+    tradeLog: botState.tradeLog.slice(0, 20),
+    lastSignals: botState.lastSignals,
+  });
+}
+function broadcastBotStatus() {
+  const payload = botStatusPayload();
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(payload);
+  }
+}
+
+setInterval(runBotCycle, 60 * 1000); // تقييم وتنفيذ كل دقيقة لكل عملات SCAN_SYMBOLS
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
