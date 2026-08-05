@@ -355,6 +355,10 @@ wss.on('connection', (ws, req) => {
       const v = parseFloat(msg.tradeSizeUsdt);
       if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
     }
+    else if (msg.type === 'bot_set_take_profit') {
+      const v = parseFloat(msg.takeProfitPercent);
+      if (v > 0 && v <= 100) { botState.takeProfitPercent = v; broadcastBotStatus(); }
+    }
     else if (msg.type === 'bot_manual_buy') {
       const { symbol } = msg;
       if (SCAN_SYMBOLS.includes(symbol) && !botState.positions[symbol]) {
@@ -1475,14 +1479,17 @@ function makeDecision(indicators) {
  * القرار = 75% من نفس تحليلات اللوحة (نفس أوزان مربعات الإجماع: اتجاه/توصية/زخم/حجم/ارتداد
  * وزن 1 لكل واحد، الثبات وزن 2) + 25% من تحليل خاص بالبوت وحده (تسارع RSI + انحراف VWAP
  * + اتجاه ATR) — مؤشرات إضافية ما تدخل في قرار اللوحة الأصلي أصلًا.
- * تنفيذ تلقائي بالكامل عند التفعيل، بدون أي وقف خسارة/جني أرباح أو حد مخاطرة تلقائي —
- * حسب طلبك الصريح، حجم كل صفقة والتحكم بالمخاطر بالكامل بيدك عبر لوحة التحكم.
+ * تنفيذ تلقائي بالكامل عند التفعيل، بدون وقف خسارة تلقائي أو حد مخاطرة أقصى —
+ * حجم كل صفقة بيدك عبر لوحة التحكم. أُضيف لاحقًا جني ربح تلقائي (Take-Profit) بناءً
+ * على طلبك: لما صفقة توصل نسبة ربح بسيطة معيّنة، يبيعها البوت فورًا بغض النظر عن رأي
+ * التحليل، بدل ما ينتظر انقلاب الإشارة بالكامل.
  * ================================================================================ */
 
 let botState = {
   enabled: false,                 // يبدأ دائمًا معطّلاً عند إقلاع السيرفر — تفعيل يدوي مطلوب كل مرة
   exchange: 'mexc',               // 'mexc' | 'binance' — قابل للتبديل من اللوحة
   tradeSizeUsdt: 50,              // مبلغ كل صفقة بالـ USDT — يحدده المستخدم يدويًا، لا حساب تلقائي كنسبة من رأس المال
+  takeProfitPercent: 1,           // % ربح بسيط — عند الوصول له يُغلق البوت الصفقة تلقائيًا فورًا
   positions: {},                  // symbol -> { qty, entryPrice, entryTime }
   tradeLog: [],                   // آخر الصفقات المنفذة (وأي أخطاء تنفيذ)
   lastSignals: {},                // symbol -> آخر تقييم للإشارة المركّبة
@@ -1656,6 +1663,16 @@ async function runBotCycle() {
       if (!sig) continue;
       botState.lastSignals[symbol] = sig;
       const pos = botState.positions[symbol];
+
+      // جني الربح التلقائي أولوية قبل أي شي — لو الصفقة وصلت نسبة الربح المستهدفة يبيعها فورًا
+      if (pos && sig.price != null && pos.entryPrice) {
+        const profitPct = ((sig.price - pos.entryPrice) / pos.entryPrice) * 100;
+        if (profitPct >= botState.takeProfitPercent) {
+          await executeBotSell(symbol, sig, `جني ربح تلقائي — الصفقة حققت +${profitPct.toFixed(2)}% (الهدف ${botState.takeProfitPercent}%)`);
+          continue;
+        }
+      }
+
       if (!pos && sig.action === 'buy') await executeBotBuy(symbol, sig);
       else if (pos && sig.action === 'sell') await executeBotSell(symbol, sig);
     } catch (err) {
@@ -1674,6 +1691,7 @@ function botStatusPayload() {
     enabled: botState.enabled,
     exchange: botState.exchange,
     tradeSizeUsdt: botState.tradeSizeUsdt,
+    takeProfitPercent: botState.takeProfitPercent,
     positions: botState.positions,
     tradeLog: botState.tradeLog.slice(0, 20),
     lastSignals: botState.lastSignals,

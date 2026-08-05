@@ -449,6 +449,11 @@
       <input type="number" id="bot-trade-size-input" min="1" step="1" value="50">
       <button id="bot-save-size-btn">حفظ</button>
     </div>
+    <div class="bot-control">
+      <span>جني ربح تلقائي (%)</span>
+      <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
+      <button id="bot-save-tp-btn">حفظ</button>
+    </div>
   </div>
 
   <div id="bot-signal-box">
@@ -1660,6 +1665,7 @@
 
     document.getElementById('bot-exchange-select').value = msg.exchange;
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
+    if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
 
     // إشارة العملة المعروضة حاليًا
     const sig = msg.lastSignals ? msg.lastSignals[currentSymbol] : null;
@@ -1718,6 +1724,10 @@
   document.getElementById('bot-save-size-btn').addEventListener('click', () => {
     const v = parseFloat(document.getElementById('bot-trade-size-input').value);
     if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: v }));
+  });
+  document.getElementById('bot-save-tp-btn').addEventListener('click', () => {
+    const v = parseFloat(document.getElementById('bot-take-profit-input').value);
+    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
   });
   document.getElementById('bot-manual-buy-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_buy', symbol: currentSymbol }));
