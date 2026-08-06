@@ -760,6 +760,16 @@
     <div class="acc-body" id="b-openinterest">—</div>
   </div>
 
+  <div class="acc-item" data-key="longshort">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">نسبة الشراء/البيع (متعدد المنصات)</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="acc-verdict neutral" id="v-longshort">—</span><span class="acc-arrow">▾</span>
+      </div>
+    </div>
+    <div class="acc-body" id="b-longshort">—</div>
+  </div>
+
   <div class="group-header">📉 الزخم والتذبذب</div>
   <div class="group-summary" id="grp-momentum">—</div>
 
@@ -1346,7 +1356,7 @@
     ema50: 'trend', ema200: 'trend', sma20: 'trend', supertrend: 'trend', vwap: 'trend', ichimoku: 'trend',
     obv: 'volume', volprofile: 'volume', accdist: 'volume', cvd: 'volume', openinterest: 'volume',
     bb: 'price', pivot: 'price', candlecmp: 'price',
-    btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro',
+    btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro', longshort: 'macro',
     stochrsi: 'reversal', bbpercentb: 'reversal', rsidiv: 'reversal',
     'stab-adx': 'stability', chop: 'stability', 'stab-obv': 'stability',
     // هذان مشتركان بين المجموعتين — لاحظنا أنهما من أكثر المؤشرات فعالية في الطبقتين معًا:
@@ -1846,23 +1856,41 @@
   // ── مناطق الفيوتشر للعملة المختارة حاليًا ──
   let prevOI = null, prevOIPrice = null;
 
+  function exchangeLabel(k) { return k === 'binance' ? 'بايننس' : k === 'okx' ? 'OKX' : k === 'mexc' ? 'MEXC' : k; }
+
   async function loadFuturesZone() {
     try {
       const r = await fetch(`/api/futures-zone?symbol=${currentSymbol}`);
       const d = await r.json();
+      const exCount = d.aggregate?.exchangeCount || 0;
+
       if (d.fundingRate != null) {
         // تفسير عكسي تقليدي: تمويل موجب كبير = ازدحام شراء (حذر) — سالب كبير = ازدحام بيع (فرصة)
+        // القيمة الآن متوسط مجمّع من عدة منصات (بايننس/OKX/MEXC) بدل الاعتماد على منصة وحدة
         const fr = d.fundingRate;
         const verdict = fr > 0.02 ? 'bear' : fr < -0.02 ? 'bull' : 'neutral';
         const label = fr > 0.02 ? 'ازدحام شراء (حذر)' : fr < -0.02 ? 'ازدحام بيع (فرصة)' : 'متوازن';
-        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>`);
+        const perExchange = Object.entries(d.exchanges || {})
+          .filter(([, v]) => v.fundingRate != null)
+          .map(([name, v]) => `${exchangeLabel(name)}: ${v.fundingRate >= 0 ? '+' : ''}${v.fundingRate.toFixed(4)}%`)
+          .join(' | ');
+        const spreadWarning = d.aggregate?.fundingRateSpread != null && d.aggregate.fundingRateSpread > 0.03
+          ? `<br>⚠️ فرق ملحوظ بين المنصات (${d.aggregate.fundingRateSpread.toFixed(4)}%) — راقب بحذر، احتمال بيانات غير مستقرة`
+          : '';
+        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`,
+          `متوسط معدل التمويل (${exCount} منصات): <b>${fr.toFixed(4)}%</b><br>${perExchange}${spreadWarning}`);
       } else {
-        setAcc('futures', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة على المنصة، أو فشل الطلب');
+        setAcc('futures', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة على أي من المنصات المتاحة (بايننس/OKX/MEXC)، أو فشلت كل الطلبات');
       }
 
       // الفائدة المفتوحة كمؤشر مستقل: يقارن اتجاهها مع اتجاه السعر (توسع حقيقي / تغطية شورت)
+      // القيمة الآن إجمالي مجمّع من كل المنصات المتاحة بدل منصة وحدة — صورة أوسع لحجم السوق الفعلي
       if (d.openInterest != null) {
         const currentPrice = lastPrice;
+        const perExchangeOI = Object.entries(d.exchanges || {})
+          .filter(([, v]) => v.openInterest != null)
+          .map(([name, v]) => `${exchangeLabel(name)}: ${fmtBig(v.openInterest)}`)
+          .join(' | ');
         if (prevOI !== null && prevOIPrice !== null && currentPrice != null) {
           const oiUp = d.openInterest > prevOI, oiDown = d.openInterest < prevOI;
           const priceUp = currentPrice > prevOIPrice, priceDown = currentPrice < prevOIPrice;
@@ -1871,13 +1899,29 @@
           else if (priceUp && oiDown) { verdict = 'neutral'; label = 'تغطية شورت (صعود هش)'; }
           else if (priceDown && oiUp) { verdict = 'bear'; label = 'توسع هبوطي حقيقي'; }
           else if (priceDown && oiDown) { verdict = 'neutral'; label = 'إغلاق مراكز (هبوط قد يهدأ)'; }
-          setAcc('openinterest', verdict, label, `الفائدة المفتوحة الحالية: <b>${fmtBig(d.openInterest)}</b><br>يقارن اتجاه الفائدة المفتوحة مع اتجاه السعر لتمييز الصعود المدعوم بأموال حقيقية عن مجرد تغطية مراكز`);
+          setAcc('openinterest', verdict, label, `إجمالي الفائدة المفتوحة (${exCount} منصات): <b>${fmtBig(d.openInterest)}</b><br>${perExchangeOI}<br>يقارن اتجاه الفائدة المفتوحة مع اتجاه السعر لتمييز الصعود المدعوم بأموال حقيقية عن مجرد تغطية مراكز`);
         } else {
-          setAcc('openinterest', 'neutral', 'يتحمّل...', `الفائدة المفتوحة الحالية: <b>${fmtBig(d.openInterest)}</b><br>يحتاج قراءتين على الأقل للمقارنة`);
+          setAcc('openinterest', 'neutral', 'يتحمّل...', `إجمالي الفائدة المفتوحة (${exCount} منصات): <b>${fmtBig(d.openInterest)}</b><br>${perExchangeOI}<br>يحتاج قراءتين على الأقل للمقارنة`);
         }
         prevOI = d.openInterest; prevOIPrice = currentPrice;
       } else {
-        setAcc('openinterest', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة، أو فشل الطلب');
+        setAcc('openinterest', 'neutral', 'غير متاح', 'لا يوجد عقد فيوتشر لهذي العملة على أي من المنصات، أو فشلت كل الطلبات');
+      }
+
+      // نسبة حسابات الشراء/البيع: مؤشر إحساس السوق الفعلي (Sentiment) — من بايننس وOKX (المتاح منهم)
+      // نفس منطق التمويل: ازدحام شديد بجهة وحدة غالبًا إشارة عكسية (تصحيح محتمل)
+      if (d.aggregate?.avgLongShortRatio != null) {
+        const ratio = d.aggregate.avgLongShortRatio;
+        const verdict = ratio > 2 ? 'bear' : ratio < 0.5 ? 'bull' : 'neutral';
+        const label = ratio > 2 ? 'ازدحام شراء (حذر — احتمال تصحيح)' : ratio < 0.5 ? 'ازدحام بيع (فرصة — احتمال ارتداد)' : 'متوازن';
+        const perExchangeLS = Object.entries(d.exchanges || {})
+          .filter(([, v]) => v.longShortRatio != null)
+          .map(([name, v]) => `${exchangeLabel(name)}: ${v.longShortRatio.toFixed(2)}`)
+          .join(' | ');
+        setAcc('longshort', verdict, `${ratio.toFixed(2)} — ${label}`,
+          `متوسط نسبة (حسابات شراء ÷ حسابات بيع): <b>${ratio.toFixed(2)}</b><br>${perExchangeLS}<br>نسبة أعلى من 1 = حسابات شراء أكثر من بيع، وأعلى من 2 عادة إشارة ازدحام شراء زائد`);
+      } else {
+        setAcc('longshort', 'neutral', 'غير متاح', 'لا تتوفر بيانات نسبة الشراء/البيع لهذي العملة حاليًا من المنصات المدعومة');
       }
 
       renderConsensus();
