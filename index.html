@@ -315,6 +315,8 @@
       <option value="DOGEUSDT">
       <option value="ADAUSDT">
       <option value="AVAXUSDT">
+      <option value="SHIBUSDT">
+      <option value="PEPEUSDT">
       <option value="PAXGUSDT">
     </datalist>
   </div>
@@ -462,12 +464,11 @@
   </div>
 
   <div id="bot-signal-box">
-    <div id="bot-signal-line">إشارة العملة الحالية: <span id="bot-signal-value">—</span></div>
+    <div id="bot-signal-line">إشارة العملة الحالية (البوت يقرر وينفّذ لحاله): <span id="bot-signal-value">—</span></div>
     <div id="bot-signal-breakdown">لوحة التحليل (75%): <span id="bot-dash-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
   </div>
 
   <div id="bot-action-row">
-    <button id="bot-manual-buy-btn">🟢 شراء يدوي الآن</button>
     <button id="bot-manual-close-btn" style="display:none;">🔴 إغلاق صفقة العملة الحالية</button>
     <button id="bot-cancel-pending-btn" style="display:none;">❌ إلغاء الأمر المعلّق</button>
   </div>
@@ -1631,7 +1632,7 @@
     renderExplosionBox('explosion-box-2', ranking[1] || null);
   }
 
-  const KNOWN_SYMBOLS = new Set(['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','PAXGUSDT']);
+  const KNOWN_SYMBOLS = new Set(['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','SHIBUSDT','PEPEUSDT','PAXGUSDT']);
   let symbolInputDebounce = null;
   const symbolInputEl = document.getElementById('symbol-input');
 
@@ -1760,9 +1761,6 @@
   document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
     const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
     if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
-  });
-  document.getElementById('bot-manual-buy-btn').addEventListener('click', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_buy', symbol: currentSymbol }));
   });
   document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: currentSymbol }));

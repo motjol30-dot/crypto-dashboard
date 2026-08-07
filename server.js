@@ -10,7 +10,7 @@ const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
-const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'PAXGUSDT'];
+const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'SHIBUSDT', 'PEPEUSDT', 'PAXGUSDT'];
 // ملاحظة: طلب المستخدم فريم 20 دقيقة أيضًا، لكنه غير مدعوم أصلًا من أي مصدر بيانات (Binance/MEXC/OKX)
 // كشمعة حقيقية — أقرب فريمين متوفرين فعليًا هما 15m و30m، فاستبعدناه بدل تركيب شموع اصطناعية هشة.
 const INTERVALS = ['3m', '5m', '15m', '30m', '1h', '2h', '4h'];
@@ -441,22 +441,6 @@ wss.on('connection', (ws, req) => {
     else if (msg.type === 'bot_set_max_positions') {
       const v = parseInt(msg.maxConcurrentPositions, 10);
       if (v >= 1 && v <= SCAN_SYMBOLS.length) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
-    }
-    else if (msg.type === 'bot_manual_buy') {
-      const { symbol } = msg;
-      if (SCAN_SYMBOLS.includes(symbol) && !botState.positions[symbol] && !botState.pendingOrders[symbol]) {
-        (async () => {
-          try {
-            const sig = (await evaluateBotSignal(symbol)) || { dashboardSignal: 0, botOwnSignal: 0, composite: 0 };
-            await executeBotBuy(symbol, sig, 'شراء يدوي من المستخدم');
-          } catch (err) {
-            const detail = err.response?.data?.msg || err.message;
-            ws.send(JSON.stringify({ type: 'error', message: 'فشل تنفيذ الشراء: ' + detail }));
-            botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
-            broadcastBotStatus();
-          }
-        })();
-      }
     }
     else if (msg.type === 'bot_manual_close') {
       const { symbol } = msg;
@@ -1851,24 +1835,6 @@ async function cancelBinanceOrder(symbol, orderId) {
 }
 function cancelOrder(exchange, symbol, orderId) {
   return exchange === 'binance' ? cancelBinanceOrder(symbol, orderId) : cancelMexcOrder(symbol, orderId);
-}
-
-// ملاحظة: هذي شراء فوري (Market) — يُستخدم فقط لزر "شراء يدوي" بلوحة التحكم (قرار مباشر من المستخدم).
-// البوت التلقائي لا يستخدمها إطلاقًا — يستخدم placeBotLimitBuy بدلها (أمر محدّد السعر).
-async function executeBotBuy(symbol, sig, reasonOverride) {
-  const data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
-  const executedQty = parseFloat(data.executedQty || 0);
-  const quoteSpent = parseFloat(data.cummulativeQuoteQty || botState.tradeSizeUsdt);
-  if (!executedQty) return;
-  const entryPrice = quoteSpent / executedQty;
-  botState.positions[symbol] = { qty: executedQty, entryPrice, entryTime: Date.now() };
-  const reason = reasonOverride || `شراء يدوي فوري — لوحة ${(sig.dashboardSignal * 100).toFixed(0)}% × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% = مركّب ${(sig.composite * 100).toFixed(0)}%`;
-  botState.tradeLog.unshift({
-    time: Date.now(), symbol, side: 'BUY', price: entryPrice, qty: executedQty,
-    quoteAmount: quoteSpent, exchange: botState.exchange, reason,
-  });
-  botState.tradeLog = botState.tradeLog.slice(0, 50);
-  broadcastBotStatus();
 }
 
 // ملاحظة: بيع فوري (Market) — لزر "إغلاق يدوي" فقط. يلغي أي أمر جني ربح معلّق أولًا إذا وجد.
