@@ -198,6 +198,7 @@
   #bot-action-row button { flex: 1; border-radius: 8px; padding: 8px; font-size: 0.72rem; font-weight: 800; cursor: pointer; border: 1px solid; }
   #bot-manual-buy-btn { background: var(--buy-bg); border-color: rgba(63,185,80,0.4); color: var(--green); }
   #bot-manual-close-btn { background: var(--sell-bg); border-color: rgba(248,81,73,0.4); color: var(--red); }
+  #bot-cancel-pending-btn { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: var(--muted); }
   #bot-error-line { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,79,0.35); color: var(--red); font-size: 0.66rem; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
   .bot-subheader { font-size: 0.66rem; font-weight: 800; color: var(--muted); margin: 6px 0 4px; }
   #bot-positions-list, #bot-trade-log { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
@@ -391,11 +392,10 @@
 <!-- تفاصيل طبقة الساعة: لا علاقة لها بالقرار النهائي إطلاقًا — عرض معلوماتي مستقل فقط، اضغط المربع لعرضها -->
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
-<!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم، والأقوى (الأخضر الأعلى ثقة) يتقدّم تلقائيًا -->
+<!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم — اختيار الفريم يدوي بالكامل الآن -->
 <div id="tf-bar-wrap">
   <div id="tf-bar-label">
     <span>⏱️ الفريمات</span>
-    <span id="tf-auto-toggle" data-auto="1">🔄 تلقائي: يتبع الأقوى</span>
   </div>
   <div id="tf-bar">
     <div class="tf-box" data-interval="3m"><span class="tf-name">3د</span></div>
@@ -454,6 +454,11 @@
       <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
       <button id="bot-save-tp-btn">حفظ</button>
     </div>
+    <div class="bot-control">
+      <span>أقصى عدد صفقات بنفس الوقت</span>
+      <input type="number" id="bot-max-positions-input" min="1" step="1" value="1">
+      <button id="bot-save-maxpos-btn">حفظ</button>
+    </div>
   </div>
 
   <div id="bot-signal-box">
@@ -464,6 +469,7 @@
   <div id="bot-action-row">
     <button id="bot-manual-buy-btn">🟢 شراء يدوي الآن</button>
     <button id="bot-manual-close-btn" style="display:none;">🔴 إغلاق صفقة العملة الحالية</button>
+    <button id="bot-cancel-pending-btn" style="display:none;">❌ إلغاء الأمر المعلّق</button>
   </div>
 
   <div id="bot-error-line" style="display:none;"></div>
@@ -471,6 +477,11 @@
   <div id="bot-positions-wrap">
     <div class="bot-subheader">الصفقات المفتوحة</div>
     <div id="bot-positions-list">لا توجد صفقات مفتوحة حاليًا</div>
+  </div>
+
+  <div id="bot-pending-wrap">
+    <div class="bot-subheader">الأوامر المعلّقة (Limit)</div>
+    <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
   </div>
 
   <div id="bot-log-wrap">
@@ -1580,6 +1591,12 @@
   function applySymbolInput() {
     let v = document.getElementById('symbol-input').value.trim().toUpperCase().replace(/\s+/g, '');
     if (!v) return;
+    // إصلاح وقائي: بعض لوحات مفاتيح الجوال تكرر النص المكتوب مرتين (مثلاً BTCUSDTBTCUSDT) —
+    // لو النص بالكامل عبارة عن نصف مكرر مرتين، نرجعه للنصف الأول فقط
+    if (v.length % 2 === 0) {
+      const half = v.length / 2;
+      if (v.slice(0, half) === v.slice(half)) v = v.slice(0, half);
+    }
     if (!v.endsWith('USDT')) v += 'USDT';
     switchToSymbol(v);
   }
@@ -1619,7 +1636,7 @@
   const symbolInputEl = document.getElementById('symbol-input');
 
   symbolInputEl.addEventListener('change', applySymbolInput);
-  symbolInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); applySymbolInput(); } });
+  symbolInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.blur(); } }); // blur وحده يكفي — يُطلق 'change' أعلاه؛ استدعاء إضافي هنا كان يسبب تكرار التطبيق مرتين
 
   // بعض متصفحات الجوال لا تُطلق change عند اختيار عنصر من القائمة المقترحة (datalist) — نراقب input مباشرة كحل احتياطي
   symbolInputEl.addEventListener('input', () => {
@@ -1632,25 +1649,13 @@
     symbolInputDebounce = setTimeout(applySymbolInput, 900); // كتابة يدوية → طبّق بعد توقف قصير
   });
 
-  // ══ شريط الفريمات: تبديل يدوي + تلوين حسب قرار كل فريم + تبديل تلقائي للفريم الأقوى (الأخضر الأعلى ثقة) ══
-  let tfAutoMode = true;
-  let tfAutoPausedUntil = 0;
-
+  // ══ شريط الفريمات: تبديل يدوي بالكامل — أُلغي التبديل التلقائي حسب طلبك ══
   function switchInterval(iv) {
     if (!iv || iv === currentInterval) return;
     currentInterval = iv; lastPrice = null; showLoading(true);
     document.querySelectorAll('.tf-box').forEach((b) => b.classList.toggle('active', b.dataset.interval === iv));
     subscribe();
   }
-
-  const tfAutoToggleEl = document.getElementById('tf-auto-toggle');
-  function updateAutoToggleLabel() {
-    const paused = tfAutoMode && Date.now() < tfAutoPausedUntil;
-    if (!tfAutoMode) { tfAutoToggleEl.textContent = '⏸️ تلقائي: متوقف'; tfAutoToggleEl.classList.add('paused'); }
-    else if (paused) { tfAutoToggleEl.textContent = '⏸️ مؤجل بضع دقائق'; tfAutoToggleEl.classList.add('paused'); }
-    else { tfAutoToggleEl.textContent = '🔄 تلقائي: يتبع الأقوى'; tfAutoToggleEl.classList.remove('paused'); }
-  }
-  updateAutoToggleLabel();
 
   document.getElementById('p-hourly-wrap').addEventListener('click', () => {
     const el = document.getElementById('hourly-detail');
@@ -1676,6 +1681,7 @@
     document.getElementById('bot-exchange-select').value = msg.exchange;
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
     if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
+    if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
 
     // إشارة العملة المعروضة حاليًا
     const sig = msg.lastSignals ? msg.lastSignals[currentSymbol] : null;
@@ -1684,7 +1690,8 @@
     const ownPctEl = document.getElementById('bot-own-pct');
     if (sig) {
       const actionLabel = sig.action === 'buy' ? '🟢 شراء' : sig.action === 'sell' ? '🔴 بيع' : '⚪ انتظار';
-      sigValEl.textContent = `${actionLabel} (مركّب ${(sig.composite * 100).toFixed(0)}%)`;
+      const filterNote = sig.action === 'buy' && !sig.passesFilters ? ' — لم يجتز شروط الدخول' : '';
+      sigValEl.textContent = `${actionLabel} (مركّب ${(sig.composite * 100).toFixed(0)}%)${filterNote}`;
       dashPctEl.textContent = `${(sig.dashboardSignal * 100).toFixed(0)}%`;
       ownPctEl.textContent = `${(sig.botOwnSignal * 100).toFixed(0)}%`;
     } else {
@@ -1692,17 +1699,27 @@
       dashPctEl.textContent = '—'; ownPctEl.textContent = '—';
     }
 
-    // زر إغلاق الصفقة يظهر فقط لو فيه صفقة مفتوحة على العملة المعروضة حاليًا
+    // زر إغلاق الصفقة يظهر فقط لو فيه صفقة مفتوحة (منفّذة فعليًا) على العملة المعروضة حاليًا
     const closeBtn = document.getElementById('bot-manual-close-btn');
-    const hasOpenPos = msg.positions && msg.positions[currentSymbol];
-    closeBtn.style.display = hasOpenPos ? 'block' : 'none';
+    closeBtn.style.display = msg.positions && msg.positions[currentSymbol] ? 'block' : 'none';
 
-    // قائمة الصفقات المفتوحة
+    // زر إلغاء الأمر المعلّق يظهر لو فيه أمر شراء/بيع لسا ما تنفذ على العملة الحالية
+    const cancelBtn = document.getElementById('bot-cancel-pending-btn');
+    cancelBtn.style.display = msg.pendingOrders && msg.pendingOrders[currentSymbol] ? 'block' : 'none';
+
+    // قائمة الصفقات المفتوحة (منفّذة فعليًا)
     const posListEl = document.getElementById('bot-positions-list');
     const posEntries = Object.entries(msg.positions || {});
     posListEl.innerHTML = posEntries.length
       ? posEntries.map(([sym, p]) => `<div class="bot-pos-row"><span>${sym}</span><span>${p.qty.toFixed(5)} @ ${p.entryPrice.toFixed(4)}</span></div>`).join('')
       : 'لا توجد صفقات مفتوحة حاليًا';
+
+    // قائمة الأوامر المعلّقة (شراء بانتظار الوصول لمنطقة الشراء، أو بيع بانتظار هدف الربح)
+    const pendListEl = document.getElementById('bot-pending-list');
+    const pendEntries = Object.entries(msg.pendingOrders || {});
+    pendListEl.innerHTML = pendEntries.length
+      ? pendEntries.map(([sym, o]) => `<div class="bot-pos-row"><span>${o.side === 'BUY' ? '🟡 شراء معلّق' : '🎯 بيع معلّق'} ${sym}</span><span>${o.qty.toFixed(5)} @ ${o.price}</span></div>`).join('')
+      : 'لا توجد أوامر معلّقة حاليًا';
 
     // سجل آخر الصفقات
     const logEl = document.getElementById('bot-trade-log');
@@ -1711,7 +1728,8 @@
           if (t.type === 'error') return `<div class="bot-log-row error-row"><span>⚠️ ${t.symbol}</span><span>${t.message}</span></div>`;
           const rowCls = t.side === 'BUY' ? 'buy-row' : 'sell-row';
           const pnlTxt = t.pnl != null ? ` (${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}$ / ${t.pnlPct.toFixed(2)}%)` : '';
-          return `<div class="bot-log-row ${rowCls}"><span>${fmtBotTime(t.time)} ${t.side === 'BUY' ? '🟢' : '🔴'} ${t.symbol}</span><span>${t.price.toFixed(4)}${pnlTxt}</span></div>`;
+          const tag = t.type === 'order' ? '📝 أمر معلّق' : (t.side === 'BUY' ? '🟢 تنفيذ شراء' : '🔴 تنفيذ بيع');
+          return `<div class="bot-log-row ${rowCls}"><span>${fmtBotTime(t.time)} ${tag} ${t.symbol}</span><span>${t.price.toFixed(4)}${pnlTxt}</span></div>`;
         }).join('')
       : 'لا يوجد سجل بعد';
   }
@@ -1739,30 +1757,26 @@
     const v = parseFloat(document.getElementById('bot-take-profit-input').value);
     if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
   });
+  document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
+    const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
+    if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
+  });
   document.getElementById('bot-manual-buy-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_buy', symbol: currentSymbol }));
   });
   document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: currentSymbol }));
   });
-
-  tfAutoToggleEl.addEventListener('click', () => {
-    tfAutoMode = !tfAutoMode;
-    tfAutoPausedUntil = 0;
-    updateAutoToggleLabel();
+  document.getElementById('bot-cancel-pending-btn').addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_cancel_pending', symbol: currentSymbol }));
   });
 
   document.querySelectorAll('.tf-box').forEach((box) => {
-    box.addEventListener('click', () => {
-      // اختيار يدوي = تأجيل التبديل التلقائي 5 دقائق حتى ما "يسحب" الفريم من تحت يد المستخدم فورًا
-      if (tfAutoMode) { tfAutoPausedUntil = Date.now() + 5 * 60 * 1000; updateAutoToggleLabel(); }
-      switchInterval(box.dataset.interval);
-    });
+    box.addEventListener('click', () => switchInterval(box.dataset.interval));
   });
 
   function handleMtfUpdate(msg) {
     if (msg.symbol !== currentSymbol) return; // احتياطًا، بيانات فريمات عملة غير المعروضة حاليًا
-    let bestGreen = null;
     document.querySelectorAll('.tf-box').forEach((box) => {
       const iv = box.dataset.interval;
       const info = msg.snapshot[iv];
@@ -1771,14 +1785,7 @@
       const colorClass = info.action === 'buy zone' ? 'green' : info.action === 'sell zone' ? 'red' : 'yellow';
       box.classList.add(colorClass);
       box.title = `${info.trend} — ثقة ${info.confidence}%`;
-      if (info.action === 'buy zone' && (!bestGreen || info.confidence > bestGreen.confidence)) {
-        bestGreen = { interval: iv, confidence: info.confidence };
-      }
     });
-    // تبديل تلقائي للفريم الأقوى (الأخضر الأعلى ثقة) — فقط لو الوضع التلقائي مفعّل وغير مؤجل حاليًا
-    if (tfAutoMode && Date.now() >= tfAutoPausedUntil && bestGreen && bestGreen.interval !== currentInterval) {
-      switchInterval(bestGreen.interval);
-    }
   }
 
   // ══ التحكم: طي/فتح كل مؤشر ══
