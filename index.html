@@ -389,10 +389,17 @@
     <div class="pill-label">⏰ طبقة الساعة</div>
     <div class="pill-value neutral" id="p-hourly">—</div>
   </div>
+  <div class="pill" id="p-fourbox-wrap" style="cursor:pointer;">
+    <div class="pill-label">🎯 قرار الثبات+الارتداد+الساعة+الزخم</div>
+    <div class="pill-value neutral" id="p-fourbox">—</div>
+  </div>
 </div>
 
 <!-- تفاصيل طبقة الساعة: لا علاقة لها بالقرار النهائي إطلاقًا — عرض معلوماتي مستقل فقط، اضغط المربع لعرضها -->
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
+
+<!-- تفاصيل مربع القرار المركّب (ثبات+ارتداد+ساعة+زخم) — مربع منفصل بقراره الخاص، لا يدخل في القرار النهائي السبعة -->
+<div id="fourbox-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم — اختيار الفريم يدوي بالكامل الآن -->
 <div id="tf-bar-wrap">
@@ -1060,7 +1067,9 @@
   }
 
   // ══ طبقة الساعة: عرض مستقل تمامًا، لا تلمس consensusTracker ولا تدخل بأي شكل في القرار النهائي ══
+  let lastHourlyLayer = null;
   function renderHourlyLayer(hl) {
+    lastHourlyLayer = hl;
     const pillEl = document.getElementById('p-hourly');
     const detailEl = document.getElementById('hourly-detail');
     if (!hl) {
@@ -1072,6 +1081,44 @@
     const label = hl.verdict === 'bull' ? 'صاعد' : hl.verdict === 'bear' ? 'هابط' : 'محايد';
     pillEl.textContent = label; pillEl.className = `pill-value ${cls}`;
     detailEl.innerHTML = hl.notes.map((n) => `• ${n}`).join('<br>');
+  }
+
+  // ══ مربع مركّب جديد بطلب المستخدم: يجمع 4 مربعات محددة بقرار واحد (ثبات + ارتداد + طبقة الساعة + إجماع الزخم) ══
+  // مستقل تمامًا عن القرار النهائي السباعي — قراره الخاص فقط، مبني على نفس القراءات المعروضة بمربعاتها الأصلية
+  function renderFourBoxDecision() {
+    const pillEl = document.getElementById('p-fourbox');
+    const detailEl = document.getElementById('fourbox-detail');
+
+    const stability = groupVerdictCounts('stability');
+    const reversal = groupVerdictCounts('reversal');
+    const momentum = groupVerdictCounts('momentum');
+    const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
+
+    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0); // من -1 (بيع كامل) إلى +1 (شراء كامل)
+
+    const leans = [leanOf(stability), leanOf(reversal), leanOf(momentum), leanOf(hourly)];
+    const avgLean = leans.reduce((a, b) => a + b, 0) / leans.length;
+    const pct = Math.round(Math.abs(avgLean) * 100);
+
+    let verdictClass, label;
+    if (avgLean > 0.15) { verdictClass = 'up'; label = `شراء ${pct}%`; }
+    else if (avgLean < -0.15) { verdictClass = 'down'; label = `بيع ${pct}%`; }
+    else { verdictClass = 'neutral'; label = `محايد ${pct}%`; }
+
+    pillEl.textContent = label; pillEl.className = `pill-value ${verdictClass}`;
+
+    const rowLabel = (name, g) => {
+      const l = leanOf(g);
+      const dir = l > 0.15 ? 'شراء' : l < -0.15 ? 'بيع' : 'محايد';
+      return `${name}: ${dir} (${Math.round(l * 100)}%)`;
+    };
+    detailEl.innerHTML = [
+      rowLabel('الثبات', stability),
+      rowLabel('الارتداد', reversal),
+      rowLabel('إجماع الزخم', momentum),
+      rowLabel('طبقة الساعة', hourly),
+      `<b>القرار المركّب: ${label}</b> — متوسط ميل المربعات الأربعة`,
+    ].join('<br>');
   }
 
   // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
@@ -1515,6 +1562,8 @@
         ? `🎯 القرار النهائي (وزن إجمالي ${totalWeight} — الثبات مضاعف + البيتكوين مفعّل 25% ⚡)`
         : `🎯 القرار النهائي (وزن إجمالي ${totalWeight} — الثبات مضاعف)`;
     }
+
+    renderFourBoxDecision(); // مربع القرار المركّب المستقل (ثبات+ارتداد+ساعة+زخم) — يُحدَّث بعد اكتمال كل المؤشرات
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
@@ -1660,6 +1709,11 @@
 
   document.getElementById('p-hourly-wrap').addEventListener('click', () => {
     const el = document.getElementById('hourly-detail');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.getElementById('p-fourbox-wrap').addEventListener('click', () => {
+    const el = document.getElementById('fourbox-detail');
     el.style.display = el.style.display === 'none' ? 'block' : 'none';
   });
 
