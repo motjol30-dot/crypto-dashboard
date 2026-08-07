@@ -145,7 +145,7 @@
   #loading p { color: var(--muted); font-size: 0.85rem; }
 
   /* ══ Status pills row (الاتجاه / التوصية / الثقة / التحليل) ══ */
-  #status-row, .status-row-like {
+  #status-row, #status-row-lower, .status-row-like {
     display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
@@ -347,58 +347,29 @@
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
 </div>
 
-<!-- حالة مختصرة: الاتجاه / التوصية / الثقة / التحليل الإجمالي -->
+<!-- حالة مختصرة: 4 مربعات فقط بالأعلى — الباقي انتقل لأسفل البوت -->
 <div id="status-row">
-  <div class="pill">
-    <div class="pill-label">الاتجاه</div>
-    <div class="pill-value neutral" id="p-trend">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">التوصية</div>
-    <div class="pill-value neutral" id="p-action">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">الثقة</div>
-    <div class="pill-value neutral" id="p-conf">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">التحليل</div>
-    <div class="pill-value neutral" id="p-overall">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">إجماع الزخم</div>
-    <div class="pill-value neutral" id="p-momentum">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">إجماع الحجم</div>
-    <div class="pill-value neutral" id="p-volume">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">إجماع الارتداد</div>
-    <div class="pill-value neutral" id="p-reversal">—</div>
-  </div>
-  <div class="pill">
-    <div class="pill-label">إجماع الثبات</div>
-    <div class="pill-value neutral" id="p-stability">—</div>
-  </div>
   <div class="pill">
     <div class="pill-label">طبقة البيتكوين</div>
     <div class="pill-value neutral" id="p-btc">—</div>
   </div>
-  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;">
-    <div class="pill-label">⏰ طبقة الساعة</div>
-    <div class="pill-value neutral" id="p-hourly">—</div>
+  <div class="pill" id="p-tfagree-wrap">
+    <div class="pill-label">⏱️ توافق الفريمات (3د/5د/15د)</div>
+    <div class="pill-value neutral" id="p-tfagree">—</div>
   </div>
   <div class="pill" id="p-fourbox-wrap" style="cursor:pointer;">
     <div class="pill-value neutral" id="p-fourbox" style="font-size:1rem;">—</div>
   </div>
+  <div class="pill" id="p-secondary-wrap" style="cursor:pointer;">
+    <div class="pill-value neutral" id="p-secondary" style="font-size:1rem;">—</div>
+  </div>
 </div>
-
-<!-- تفاصيل طبقة الساعة: لا علاقة لها بالقرار النهائي إطلاقًا — عرض معلوماتي مستقل فقط، اضغط المربع لعرضها -->
-<div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <!-- تفاصيل مربع القرار المركّب (ثبات+ارتداد+ساعة+زخم) — مربع منفصل بقراره الخاص، لا يدخل في القرار النهائي السبعة -->
 <div id="fourbox-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
+
+<!-- تفاصيل المربع الثانوي (اتجاه+توصية+تحليل+حجم+ثقة) -->
+<div id="secondary-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم — اختيار الفريم يدوي بالكامل الآن -->
 <div id="tf-bar-wrap">
@@ -496,6 +467,50 @@
     <div id="bot-trade-log">لا يوجد سجل بعد</div>
   </div>
 </div>
+
+<!-- باقي المربعات (نُقلت هنا أسفل البوت بطلبك) -->
+<div style="padding:8px 10px 0; font-size:0.68rem; color:var(--muted); font-weight:800;">📋 بقية المربعات التفصيلية</div>
+<div id="status-row-lower">
+  <div class="pill">
+    <div class="pill-label">الاتجاه</div>
+    <div class="pill-value neutral" id="p-trend">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">التوصية</div>
+    <div class="pill-value neutral" id="p-action">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">الثقة</div>
+    <div class="pill-value neutral" id="p-conf">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">التحليل</div>
+    <div class="pill-value neutral" id="p-overall">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الزخم</div>
+    <div class="pill-value neutral" id="p-momentum">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الحجم</div>
+    <div class="pill-value neutral" id="p-volume">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الارتداد</div>
+    <div class="pill-value neutral" id="p-reversal">—</div>
+  </div>
+  <div class="pill">
+    <div class="pill-label">إجماع الثبات</div>
+    <div class="pill-value neutral" id="p-stability">—</div>
+  </div>
+  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;">
+    <div class="pill-label">⏰ طبقة الساعة</div>
+    <div class="pill-value neutral" id="p-hourly">—</div>
+  </div>
+</div>
+
+<!-- تفاصيل طبقة الساعة: لا علاقة لها بالقرار النهائي إطلاقًا — عرض معلوماتي مستقل فقط، اضغط المربع لعرضها -->
+<div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <!-- المؤشرات: أكورديون -->
 <div id="indicators-list">
@@ -889,6 +904,8 @@
   let btcLayerRefPrice = null;
   let btcLayerPoints = 0;  // آخر عدد نقاط مسجّل (1 إلى 5+)
   let btcLayerSign = 0;    // 1 = صعود، -1 = هبوط، 0 = لا توجد إشارة بعد
+  let btcLayerLastDiff = 0; // آخر فرق $ مسجّل — يُستخدم لحساب النسبة (25$ = 100%)
+  const BTC_LAYER_PCT_CAP = 25; // دولار — عنده تعتبر الحركة بأقصى قوتها (100%)
 
   // ══ الشارت ══
   function initChart() {
@@ -1118,6 +1135,64 @@
       rowLabel('طبقة الساعة', hourly),
       `<b>القرار المركّب: ${label}</b> — متوسط ميل المربعات الأربعة`,
     ].join('<br>');
+  }
+
+  // ══ المربع الثانوي: يجمع الاتجاه + التوصية + التحليل + إجماع الحجم + الثقة بمربع واحد بالنسبة ══
+  function renderSecondaryBox() {
+    const pillEl = document.getElementById('p-secondary');
+    const detailEl = document.getElementById('secondary-detail');
+
+    const volume = groupVerdictCounts('volume');
+    const volumeLean = volume.total > 0 ? (volume.bull - volume.bear) / volume.total : 0;
+    const confWeight = lastConfidence / 100; // الثقة تُستخدم كوزن قوة لا كصوت مستقل
+
+    const leans = [lastTrendSign, lastActionSign * confWeight, volumeLean, lastTrendSign /* التحليل العام = نفس اتجاه الاتجاه */];
+    const avgLean = leans.reduce((a, b) => a + b, 0) / leans.length;
+    const pct = Math.round(Math.abs(avgLean) * 100);
+
+    let verdictClass, label;
+    if (avgLean > 0.15) { verdictClass = 'up'; label = `شراء ${pct}%`; }
+    else if (avgLean < -0.15) { verdictClass = 'down'; label = `بيع ${pct}%`; }
+    else { verdictClass = 'neutral'; label = `محايد ${pct}%`; }
+
+    pillEl.textContent = label; pillEl.className = `pill-value ${verdictClass}`;
+
+    const dirWord = (s) => s > 0 ? 'شراء' : s < 0 ? 'بيع' : 'محايد';
+    detailEl.innerHTML = [
+      `الاتجاه: ${dirWord(lastTrendSign)}`,
+      `التوصية: ${dirWord(lastActionSign)}`,
+      `الثقة: ${lastConfidence}%`,
+      `إجماع الحجم: ${dirWord(volumeLean)} (${Math.round(volumeLean * 100)}%)`,
+      `التحليل العام: ${dirWord(lastTrendSign)}`,
+      `<b>القرار المركّب: ${label}</b>`,
+    ].join('<br>');
+  }
+
+  // ══ مربع توافق الفريمات: يفحص فريمات 3د/5د/15د تحديدًا — لو اتفق 2 منها فأكثر بنفس الاتجاه يعطي نسبة ══
+  function renderTfAgreementBox() {
+    const pillEl = document.getElementById('p-tfagree');
+    if (!pillEl) return;
+    const watched = ['3m', '5m', '15m'];
+    let greenCount = 0, redCount = 0, yellowCount = 0;
+    watched.forEach((iv) => {
+      const box = document.querySelector(`.tf-box[data-interval="${iv}"]`);
+      if (!box) return;
+      if (box.classList.contains('green')) greenCount++;
+      else if (box.classList.contains('red')) redCount++;
+      else if (box.classList.contains('yellow')) yellowCount++;
+    });
+
+    const total = watched.length;
+    if (greenCount >= 2) {
+      pillEl.textContent = `صاعد ${Math.round((greenCount / total) * 100)}%`;
+      pillEl.className = 'pill-value up';
+    } else if (redCount >= 2) {
+      pillEl.textContent = `هابط ${Math.round((redCount / total) * 100)}%`;
+      pillEl.className = 'pill-value down';
+    } else {
+      pillEl.textContent = 'غير متوافق';
+      pillEl.className = 'pill-value neutral';
+    }
   }
 
   // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
@@ -1386,6 +1461,7 @@
   function updateBtcLayerIndicator(price) {
     if (btcLayerRefPrice === null) { btcLayerRefPrice = price; return; }
     const diff = price - btcLayerRefPrice;
+    btcLayerLastDiff = diff;
     const steps = Math.floor(Math.abs(diff) / BTC_LAYER_STEP);
     if (steps < 1) return; // لسه ما تحرك خطوة كاملة (70$)
 
@@ -1524,8 +1600,12 @@
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
             stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
 
+    const btcPct = Math.min(100, Math.round((Math.abs(btcLayerLastDiff) / BTC_LAYER_PCT_CAP) * 100));
+    const btcMaxed = btcPct >= 100;
     setPill('p-btc', btcMajority > 0 ? 'up' : btcMajority < 0 ? 'down' : 'neutral',
-            btcLayerSign === 0 ? 'محايد' : `${btcMajority > 0 ? 'صعود' : 'هبوط'} (${btcLayerPoints}ن)`);
+            btcLayerSign === 0 ? 'محايد 0%'
+              : btcMaxed ? `${btcMajority > 0 ? 'صاعد إلى ما لا نهاية 🚀' : 'هابط إلى ما لا نهاية 🔻'} 100%`
+              : `${btcMajority > 0 ? 'صعود' : 'هبوط'} ${btcPct}%`);
 
     // المربع النهائي: وزن إجمالي 8 عادةً (اتجاه + توصية + الزخم + الحجم + الارتداد = 1 لكل واحد، الثبات = 2، طبقة البيتكوين = 1)
     // الثبات وحده مضاعف (يجمع ADX + Choppiness + OBV + إيشيموكو + Williams%R = قراءة أعمق لصلابة الاتجاه ككل)
@@ -1541,15 +1621,12 @@
     ];
     const totalWeight = terms.reduce((sum, t) => sum + t.w, 0); // 7 إلى 9 حسب حالة طبقة البيتكوين
     const finalScore = terms.reduce((sum, t) => sum + t.sign * t.w, 0); // بحد أقصى نظري ±9
+    const finalPct = totalWeight > 0 ? Math.round((Math.abs(finalScore) / totalWeight) * 100) : 0;
 
     let finalLabel, finalClass;
-    if (finalScore >= 5) { finalLabel = '📈 شراء قوي جدًا'; finalClass = 'pos'; }
-    else if (finalScore >= 3) { finalLabel = '📈 شراء قوي'; finalClass = 'pos'; }
-    else if (finalScore >= 1) { finalLabel = '📈 شراء'; finalClass = 'pos'; }
-    else if (finalScore === 0) { finalLabel = '⚪ محايد'; finalClass = 'neutral'; }
-    else if (finalScore >= -2) { finalLabel = '📉 بيع'; finalClass = 'neg'; }
-    else if (finalScore >= -4) { finalLabel = '📉 بيع قوي'; finalClass = 'neg'; }
-    else { finalLabel = '📉 بيع قوي جدًا'; finalClass = 'neg'; }
+    if (finalScore > 0) { finalLabel = `📈 شراء ${finalPct}%`; finalClass = 'pos'; }
+    else if (finalScore < 0) { finalLabel = `📉 بيع ${finalPct}%`; finalClass = 'neg'; }
+    else { finalLabel = `⚪ محايد ${finalPct}%`; finalClass = 'neutral'; }
 
     const finalEl = document.getElementById('p-final');
     if (finalEl) { finalEl.textContent = finalLabel; finalEl.className = `final-value ${finalClass}`; }
@@ -1563,10 +1640,11 @@
     }
 
     renderFourBoxDecision(); // مربع القرار المركّب المستقل (ثبات+ارتداد+ساعة+زخم) — يُحدَّث بعد اكتمال كل المؤشرات
+    renderSecondaryBox();    // المربع الثانوي (اتجاه+توصية+تحليل+حجم+ثقة) — نفس التوقيت
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
-  let lastTrendSign = 0, lastActionSign = 0;
+  let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
 
   function renderDecision(d) {
     if (!d) return;
@@ -1583,6 +1661,7 @@
 
     const conf = Math.min(100, Math.max(0, d.confidence));
     setPill('p-conf', conf >= 50 ? 'up' : 'down', `${conf}%`);
+    lastConfidence = conf;
 
     // التحليل الإجمالي = إجماع كل الملاحظات في كلمة واحدة (مبني على نفس اتجاه القرار)
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
@@ -1716,6 +1795,11 @@
     el.style.display = el.style.display === 'none' ? 'block' : 'none';
   });
 
+  document.getElementById('p-secondary-wrap').addEventListener('click', () => {
+    const el = document.getElementById('secondary-detail');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  });
+
   // ══ بوت التداول الآلي: عرض الحالة + عناصر التحكم ══
   let lastBotStatus = null;
 
@@ -1839,6 +1923,7 @@
       box.classList.add(colorClass);
       box.title = `${info.trend} — ثقة ${info.confidence}%`;
     });
+    renderTfAgreementBox();
   }
 
   // ══ التحكم: طي/فتح كل مؤشر ══
