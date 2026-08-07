@@ -390,8 +390,7 @@
     <div class="pill-value neutral" id="p-hourly">—</div>
   </div>
   <div class="pill" id="p-fourbox-wrap" style="cursor:pointer;">
-    <div class="pill-label">🎯 قرار الثبات+الارتداد+الساعة+الزخم</div>
-    <div class="pill-value neutral" id="p-fourbox">—</div>
+    <div class="pill-value neutral" id="p-fourbox" style="font-size:1rem;">—</div>
   </div>
 </div>
 
@@ -472,7 +471,7 @@
 
   <div id="bot-signal-box">
     <div id="bot-signal-line">إشارة العملة الحالية (البوت يقرر وينفّذ لحاله): <span id="bot-signal-value">—</span></div>
-    <div id="bot-signal-breakdown">لوحة التحليل (75%): <span id="bot-dash-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
+    <div id="bot-signal-breakdown">المربع الرباعي (60%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الحجم+التوصية+الثقة (15%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
   </div>
 
   <div id="bot-action-row">
@@ -1741,17 +1740,19 @@
     // إشارة العملة المعروضة حاليًا
     const sig = msg.lastSignals ? msg.lastSignals[currentSymbol] : null;
     const sigValEl = document.getElementById('bot-signal-value');
-    const dashPctEl = document.getElementById('bot-dash-pct');
+    const fourBoxPctEl = document.getElementById('bot-fourbox-pct');
+    const secondaryPctEl = document.getElementById('bot-secondary-pct');
     const ownPctEl = document.getElementById('bot-own-pct');
     if (sig) {
       const actionLabel = sig.action === 'buy' ? '🟢 شراء' : sig.action === 'sell' ? '🔴 بيع' : '⚪ انتظار';
       const filterNote = sig.action === 'buy' && !sig.passesFilters ? ' — لم يجتز شروط الدخول' : '';
       sigValEl.textContent = `${actionLabel} (مركّب ${(sig.composite * 100).toFixed(0)}%)${filterNote}`;
-      dashPctEl.textContent = `${(sig.dashboardSignal * 100).toFixed(0)}%`;
+      fourBoxPctEl.textContent = `${(sig.fourBoxSignal * 100).toFixed(0)}%`;
+      secondaryPctEl.textContent = `${(sig.secondarySignal * 100).toFixed(0)}%`;
       ownPctEl.textContent = `${(sig.botOwnSignal * 100).toFixed(0)}%`;
     } else {
       sigValEl.textContent = 'بانتظار أول دورة تقييم (كل دقيقة)';
-      dashPctEl.textContent = '—'; ownPctEl.textContent = '—';
+      fourBoxPctEl.textContent = '—'; secondaryPctEl.textContent = '—'; ownPctEl.textContent = '—';
     }
 
     // زر إغلاق الصفقة يظهر فقط لو فيه صفقة مفتوحة (منفّذة فعليًا) على العملة المعروضة حاليًا
