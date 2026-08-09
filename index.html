@@ -354,11 +354,11 @@
     <div class="pill-value neutral" id="p-decision">—</div>
   </div>
   <div class="pill" id="p-fourbox-wrap" style="cursor:pointer;">
-    <div class="pill-label">التحليل</div>
+    <div class="pill-label">الارتداد</div>
     <div class="pill-value neutral" id="p-fourbox">—</div>
   </div>
   <div class="pill" id="p-secondary-wrap" style="cursor:pointer;">
-    <div class="pill-label">الارتداد</div>
+    <div class="pill-label">التحليل</div>
     <div class="pill-value neutral" id="p-secondary">—</div>
   </div>
   <div class="pill" id="p-frame-wrap" style="cursor:pointer;">
@@ -447,7 +447,7 @@
 
   <div id="bot-signal-box">
     <div id="bot-signal-line">إشارة العملة الحالية (البوت يقرر وينفّذ لحاله): <span id="bot-signal-value">—</span></div>
-    <div id="bot-signal-breakdown">القرار (25%×75%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%×75%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الارتداد (35%×75%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الفريم (20%×75%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
+    <div id="bot-signal-breakdown">القرار (30%×75%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%×75%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الارتداد (45%×75%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الفريم (5%×75%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
   </div>
 
   <div id="bot-action-row">
@@ -1104,9 +1104,16 @@
     detailEl.innerHTML = hl.notes.map((n) => `• ${n}`).join('<br>');
   }
 
-  // ══ مربع "التحليل": يجمع 4 مربعات محددة بقرار واحد بأوزان مخصصة (ثبات 35% + ارتداد 25% + زخم 25% + ساعة 15%) ══
+  // ══ مربع "الارتداد" (تصحيح تسمية): يجمع 4 مربعات بأوزان مخصصة (ثبات 45% + ارتداد 30% + زخم 20% + ساعة 5%) ══
   // مستقل تمامًا عن القرار النهائي — قراره الخاص فقط، مبني على نفس القراءات المعروضة بمربعاتها الأصلية
-  let lastFourBoxLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي من 3 مربعات
+  // بطلبك: بدون كلمة "محايد" في هذا المربع — عند التعادل يتحول لصعود لكن بنفس النسبة الفعلية المحسوبة
+  // (مو تثبيت عند 50%). الاستثناء الوحيد: صف "طبقة الساعة" بالتفاصيل يحتفظ بكلمة "محايد" الحقيقية.
+  function neutralToUpPct(lean, threshold = 0.15) {
+    if (lean > threshold) return { dir: 'up', pct: Math.round(lean * 100) };
+    if (lean < -threshold) return { dir: 'down', pct: Math.round(Math.abs(lean) * 100) };
+    return { dir: 'up', pct: Math.round(Math.abs(lean) * 100) }; // "محايد" تتحول لصعود بنفس نسبتها الحقيقية
+  }
+  let lastFourBoxLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
   function renderFourBoxDecision() {
     const pillEl = document.getElementById('p-fourbox');
     const detailEl = document.getElementById('fourbox-detail');
@@ -1116,36 +1123,32 @@
     const momentum = groupVerdictCounts('momentum');
     const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
 
-    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0); // من -1 (بيع كامل) إلى +1 (شراء كامل)
+    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0); // من -1 (هبوط كامل) إلى +1 (صعود كامل)
 
-    const W = { stability: 0.35, reversal: 0.25, momentum: 0.25, hourly: 0.15 }; // بطلبك: الثبات أكبر نسبة، ثم الارتداد
-    const avgLean = leanOf(stability) * W.stability + leanOf(reversal) * W.reversal
-                   + leanOf(momentum) * W.momentum + leanOf(hourly) * W.hourly;
+    const W = { stability: 0.45, reversal: 0.30, momentum: 0.20, hourly: 0.05 };
+    const stabilityLean = leanOf(stability), reversalLean = leanOf(reversal), momentumLean = leanOf(momentum), hourlyLean = leanOf(hourly);
+    const avgLean = stabilityLean * W.stability + reversalLean * W.reversal + momentumLean * W.momentum + hourlyLean * W.hourly;
     lastFourBoxLean = avgLean;
-    const pct = Math.round(Math.abs(avgLean) * 100);
 
-    let verdictClass, label;
-    if (avgLean > 0.15) { verdictClass = 'up'; label = `شراء ${pct}%`; }
-    else if (avgLean < -0.15) { verdictClass = 'down'; label = `بيع ${pct}%`; }
-    else { verdictClass = 'neutral'; label = `محايد ${pct}%`; }
+    const main = neutralToUpPct(avgLean);
+    pillEl.textContent = `${main.dir === 'up' ? 'صعود' : 'هبوط'} ${main.pct}%`;
+    pillEl.className = `pill-value ${main.dir}`;
 
-    pillEl.textContent = label; pillEl.className = `pill-value ${verdictClass}`;
+    const stabRow = neutralToUpPct(stabilityLean);
+    const revRow = neutralToUpPct(reversalLean);
+    const momRow = neutralToUpPct(momentumLean);
+    const hourlyDir = hourlyLean > 0.15 ? 'صعود' : hourlyLean < -0.15 ? 'هبوط' : 'محايد'; // الاستثناء الوحيد اللي يحتفظ بكلمة محايد
 
-    const rowLabel = (name, g, w) => {
-      const l = leanOf(g);
-      const dir = l > 0.15 ? 'شراء' : l < -0.15 ? 'بيع' : 'محايد';
-      return `${name} (وزن ${Math.round(w * 100)}%): ${dir} (${Math.round(l * 100)}%)`;
-    };
     detailEl.innerHTML = [
-      rowLabel('الثبات', stability, W.stability),
-      rowLabel('الارتداد', reversal, W.reversal),
-      rowLabel('إجماع الزخم', momentum, W.momentum),
-      rowLabel('طبقة الساعة', hourly, W.hourly),
-      `<b>قرار مربع التحليل: ${label}</b>`,
+      `الثبات (وزن ${Math.round(W.stability * 100)}%): ${stabRow.dir === 'up' ? 'صعود' : 'هبوط'} (${stabRow.pct}%)`,
+      `الارتداد (وزن ${Math.round(W.reversal * 100)}%): ${revRow.dir === 'up' ? 'صعود' : 'هبوط'} (${revRow.pct}%)`,
+      `إجماع الزخم (وزن ${Math.round(W.momentum * 100)}%): ${momRow.dir === 'up' ? 'صعود' : 'هبوط'} (${momRow.pct}%)`,
+      `طبقة الساعة (وزن ${Math.round(W.hourly * 100)}%): ${hourlyDir} (${Math.round(hourlyLean * 100)}%)`,
+      `<b>قرار مربع الارتداد: ${main.dir === 'up' ? 'صعود' : 'هبوط'} ${main.pct}%</b>`,
     ].join('<br>');
   }
 
-  // ══ المربع الثانوي (يُعرض تحت تسمية "الارتداد"): يجمع الاتجاه + التوصية + التحليل + إجماع الحجم + الثقة بمربع واحد بالنسبة ══
+  // ══ مربع "التحليل" (تصحيح تسمية): يجمع الاتجاه + التوصيات + إجماع الحجم + الثقة + التحليل بأوزان مخصصة ══
   let lastSecondaryLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
   function renderSecondaryBox() {
     const pillEl = document.getElementById('p-secondary');
@@ -1153,57 +1156,63 @@
 
     const volume = groupVerdictCounts('volume');
     const volumeLean = volume.total > 0 ? (volume.bull - volume.bear) / volume.total : 0;
-    const confWeight = lastConfidence / 100; // الثقة تُستخدم كوزن قوة لا كصوت مستقل
+    const confWeight = lastConfidence / 100; // الثقة تُستخدم كوزن قوة لاتجاه التوصية
+    const confidenceLean = lastActionSign * confWeight;
 
-    const leans = [lastTrendSign, lastActionSign * confWeight, volumeLean, lastTrendSign /* التحليل العام = نفس اتجاه الاتجاه */];
-    const avgLean = leans.reduce((a, b) => a + b, 0) / leans.length;
+    const W = { trend: 0.20, action: 0.10, volume: 0.30, confidence: 0.20, analysis: 0.20 };
+    const avgLean = lastTrendSign * W.trend + lastActionSign * W.action + volumeLean * W.volume
+                   + confidenceLean * W.confidence + lastTrendSign * W.analysis;
     lastSecondaryLean = avgLean;
     const pct = Math.round(Math.abs(avgLean) * 100);
 
     let verdictClass, label;
-    if (avgLean > 0.15) { verdictClass = 'up'; label = `شراء ${pct}%`; }
-    else if (avgLean < -0.15) { verdictClass = 'down'; label = `بيع ${pct}%`; }
+    if (avgLean > 0.15) { verdictClass = 'up'; label = `صعود ${pct}%`; }
+    else if (avgLean < -0.15) { verdictClass = 'down'; label = `هبوط ${pct}%`; }
     else { verdictClass = 'neutral'; label = `محايد ${pct}%`; }
 
     pillEl.textContent = label; pillEl.className = `pill-value ${verdictClass}`;
 
-    const dirWord = (s) => s > 0 ? 'شراء' : s < 0 ? 'بيع' : 'محايد';
+    // بطلبك: بدون كلمة "محايد" لصف إجماع الحجم تحديدًا — يبقى أخضر (صعود) عند التعادل لحد ما ينقلب فعليًا لهابط
+    const volRow = neutralToUpPct(volumeLean);
+    const dirWord = (s) => s > 0 ? 'صعود' : s < 0 ? 'هبوط' : 'محايد';
     detailEl.innerHTML = [
-      `الاتجاه: ${dirWord(lastTrendSign)}`,
-      `التوصية: ${dirWord(lastActionSign)}`,
-      `الثقة: ${lastConfidence}%`,
-      `إجماع الحجم: ${dirWord(volumeLean)} (${Math.round(volumeLean * 100)}%)`,
-      `التحليل العام: ${dirWord(lastTrendSign)}`,
-      `<b>القرار المركّب: ${label}</b>`,
+      `الاتجاه (وزن ${Math.round(W.trend * 100)}%): ${dirWord(lastTrendSign)}`,
+      `التوصيات (وزن ${Math.round(W.action * 100)}%): ${dirWord(lastActionSign)}`,
+      `إجماع الحجم (وزن ${Math.round(W.volume * 100)}%): ${volRow.dir === 'up' ? 'صعود' : 'هبوط'} (${volRow.pct}%)`,
+      `الثقة (وزن ${Math.round(W.confidence * 100)}%): ${lastConfidence}%`,
+      `التحليل (وزن ${Math.round(W.analysis * 100)}%): ${dirWord(lastTrendSign)}`,
+      `<b>قرار مربع التحليل: ${label}</b>`,
     ].join('<br>');
   }
 
-  // ══ مربع "الفريم": يجمع فريمات 3د+5د+15د+30د بمربع واحد بالنسبة (اتجاه كل فريم × ثقته) ══
+  // ══ مربع "الفريم": يجمع فريمات 5د+15د+30د+1س + الاتجاه بمربع واحد بالنسبة (كل واحد وزن 20%) ══
   let lastMtfSnapshot = null;
   let lastFrameLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
   function renderFrameBox() {
     const pillEl = document.getElementById('p-frame');
     const detailEl = document.getElementById('frame-detail');
     if (!pillEl) return;
-    const watched = ['3m', '5m', '15m', '30m'];
+    const watched = ['5m', '15m', '30m', '1h'];
     const rows = [];
-    const leans = [];
+    let sumLean = 0;
     watched.forEach((iv) => {
       const info = lastMtfSnapshot ? lastMtfSnapshot[iv] : null;
-      if (!info) { rows.push(`${iv}: بيانات غير كافية`); return; }
+      if (!info) { rows.push(`${iv} (وزن 20%): بيانات غير كافية`); return; }
       const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
-      leans.push(sign * (info.confidence / 100));
-      const dirWord = sign > 0 ? 'شراء' : sign < 0 ? 'بيع' : 'انتظار';
-      rows.push(`${iv}: ${dirWord} (ثقة ${info.confidence}%)`);
+      sumLean += (sign * (info.confidence / 100)) * 0.20;
+      const dirWord = sign > 0 ? 'صعود' : sign < 0 ? 'هبوط' : 'انتظار';
+      rows.push(`${iv} (وزن 20%): ${dirWord} (ثقة ${info.confidence}%)`);
     });
+    sumLean += lastTrendSign * 0.20; // الاتجاه، وزن 20% إضافي
+    rows.push(`الاتجاه (وزن 20%): ${lastTrendSign > 0 ? 'صعود' : lastTrendSign < 0 ? 'هبوط' : 'محايد'}`);
 
-    const avgLean = leans.length ? leans.reduce((a, b) => a + b, 0) / leans.length : 0;
+    const avgLean = sumLean;
     lastFrameLean = avgLean;
     const pct = Math.round(Math.abs(avgLean) * 100);
 
     let verdictClass, label;
-    if (avgLean > 0.15) { verdictClass = 'up'; label = `شراء ${pct}%`; }
-    else if (avgLean < -0.15) { verdictClass = 'down'; label = `بيع ${pct}%`; }
+    if (avgLean > 0.15) { verdictClass = 'up'; label = `صعود ${pct}%`; }
+    else if (avgLean < -0.15) { verdictClass = 'down'; label = `هبوط ${pct}%`; }
     else { verdictClass = 'neutral'; label = `محايد ${pct}%`; }
 
     pillEl.textContent = label; pillEl.className = `pill-value ${verdictClass}`;
@@ -1225,7 +1234,7 @@
     // MACD
     if (ind.macd && ind.macd.value != null && ind.macd.signal != null) {
       const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear';
-      const label = verdict === 'bull' ? 'شراء' : 'بيع';
+      const label = verdict === 'bull' ? 'صعود' : 'هبوط';
       setAcc('macd', verdict, label, `القيمة: <b>${ind.macd.value.toFixed(4)}</b> / الإشارة: <b>${ind.macd.signal.toFixed(4)}</b><br>الهيستوغرام: <b>${(ind.macd.histogram ?? 0).toFixed(4)}</b>`);
     }
     // EMA50
@@ -1583,7 +1592,7 @@
           el.textContent = `${verdictWord} — ${btcLayerPoints} نقطة${boosted ? ' ⚡ (وزن مضاعف: 25% من القرار النهائي)' : ''}`;
           el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
         } else {
-          const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: شراء' : c.bear > c.bull ? '📉 قرار المجموعة: بيع' : '⚪ قرار المجموعة: محايد';
+          const verdictWord = c.bull > c.bear ? '📈 قرار المجموعة: صعود' : c.bear > c.bull ? '📉 قرار المجموعة: هبوط' : '⚪ قرار المجموعة: محايد';
           el.textContent = `${verdictWord}  (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
           el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
         }
@@ -1607,9 +1616,9 @@
 
     // مربعات الإجماع الخمسة (زخم / حجم / ارتداد / ثبات / طبقة البيتكوين)
     setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral',
-            momentumMajority > 0 ? 'شراء' : momentumMajority < 0 ? 'بيع' : 'محايد');
+            momentumMajority > 0 ? 'صعود' : momentumMajority < 0 ? 'هبوط' : 'محايد');
     setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
-            volumeMajority > 0 ? 'شراء' : volumeMajority < 0 ? 'بيع' : 'محايد');
+            volumeMajority > 0 ? 'صعود' : volumeMajority < 0 ? 'هبوط' : 'محايد');
     setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral',
             reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
@@ -1633,20 +1642,20 @@
     const decision7Base = totalWeight > 0 ? finalScore / totalWeight : 0; // -1..+1 قبل تعزيز البيتكوين
     const decision7Lean = Math.max(-1, Math.min(1, decision7Base + btcBoost)); // بعد دمج تأثير البيتكوين
     const decision7Pct = Math.round(Math.abs(decision7Lean) * 100);
-    const decision7Label = decision7Lean > 0 ? `شراء ${decision7Pct}%` : decision7Lean < 0 ? `بيع ${decision7Pct}%` : `محايد ${decision7Pct}%`;
+    const decision7Label = decision7Lean > 0 ? `صعود ${decision7Pct}%` : decision7Lean < 0 ? `هبوط ${decision7Pct}%` : `محايد ${decision7Pct}%`;
     const decision7Class = decision7Lean > 0 ? 'up' : decision7Lean < 0 ? 'down' : 'neutral';
     setPill('p-decision', decision7Class, decision7Label);
 
     renderFourBoxDecision(); // مربع "التحليل" (ثبات 35%+ارتداد 25%+زخم 25%+ساعة 15%) — يُحدَّث بعد اكتمال كل المؤشرات
-    renderSecondaryBox();    // مربع "الارتداد" (اتجاه+توصية+تحليل+حجم+ثقة) — نفس التوقيت
-    renderFrameBox();        // مربع "الفريم" (3د+5د+15د+30د) — نفس التوقيت
+    renderSecondaryBox();    // مربع "التحليل" (اتجاه+توصيات+حجم+ثقة+تحليل) — نفس التوقيت
+    renderFrameBox();        // مربع "الفريم" (5د+15د+30د+1س+الاتجاه) — نفس التوقيت
 
-    // القرار النهائي المعروض بأعلى الصفحة = تجميع المربعات الأربعة (القرار 25% + التحليل 20% + الارتداد 35% + الفريم 20%)
-    const combinedLean = 0.25 * decision7Lean + 0.20 * lastFourBoxLean + 0.35 * lastSecondaryLean + 0.20 * lastFrameLean;
+    // القرار النهائي المعروض بأعلى الصفحة = تجميع المربعات الأربعة (القرار 30% + التحليل 20% + الارتداد 45% + الفريم 5%)
+    const combinedLean = 0.30 * decision7Lean + 0.20 * lastSecondaryLean + 0.45 * lastFourBoxLean + 0.05 * lastFrameLean;
     const combinedPct = Math.round(Math.abs(combinedLean) * 100);
     let finalLabel, finalClass;
-    if (combinedLean > 0) { finalLabel = `📈 شراء ${combinedPct}%`; finalClass = 'pos'; }
-    else if (combinedLean < 0) { finalLabel = `📉 بيع ${combinedPct}%`; finalClass = 'neg'; }
+    if (combinedLean > 0) { finalLabel = `📈 صعود ${combinedPct}%`; finalClass = 'pos'; }
+    else if (combinedLean < 0) { finalLabel = `📉 هبوط ${combinedPct}%`; finalClass = 'neg'; }
     else { finalLabel = `⚪ محايد ${combinedPct}%`; finalClass = 'neutral'; }
 
     const finalEl = document.getElementById('p-final');
@@ -1654,7 +1663,7 @@
 
     // تحديث عنوان القرار النهائي ليعكس طريقة التجميع الجديدة
     const labelEl = document.getElementById('final-label');
-    if (labelEl) labelEl.textContent = '🎯 القرار النهائي (القرار 25% + التحليل 20% + الارتداد 35% + الفريم 20%)';
+    if (labelEl) labelEl.textContent = '🎯 القرار النهائي (القرار 30% + التحليل 20% + الارتداد 45% + الفريم 5%)';
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
@@ -1668,7 +1677,7 @@
     setPill('p-trend', tc, tl);
     lastTrendSign = d.trend === 'صعود' ? 1 : d.trend === 'هبوط' ? -1 : 0;
 
-    const actionMap = { 'buy zone': ['up', 'شراء'], 'sell zone': ['down', 'بيع'], 'wait': ['neutral', 'انتظر'] };
+    const actionMap = { 'buy zone': ['up', 'صعود'], 'sell zone': ['down', 'هبوط'], 'wait': ['neutral', 'انتظر'] };
     const [ac, al] = actionMap[d.action] || ['neutral', d.action];
     setPill('p-action', ac, al);
     lastActionSign = d.action === 'buy zone' ? 1 : d.action === 'sell zone' ? -1 : 0;
