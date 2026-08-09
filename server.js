@@ -1595,10 +1595,11 @@ const BOT_BUY_THRESHOLD = 0.35;    // نطاق -1..+1 — فوق هذا = مرش
 const BOT_SELL_THRESHOLD = -0.35;  // تحت هذا = مرشّح بيع (احترازي، البيع الفعلي عبر أمر جني الربح المعلّق)
 const MAX_PENDING_BUY_MINUTES = 45; // إلغاء أمر الشراء المعلّق لو ما تنفذ خلال هالمدة والسعر رجع فوق منطقة الشراء
 
-// ── مربع "التحليل": نفس مربع اللوحة — أوزان مخصصة (ثبات 35% + ارتداد 25% + زخم 25% + ساعة 15%)
+// ── 60%: نفس مربع "قرار الثبات+الارتداد+الساعة+الزخم" المعروض باللوحة — بطلبك صار هذا المربع
+// الوزن الأكبر بقرار البوت (متوسط ميل 4 مجموعات: الثبات، الارتداد، إجماع الزخم، طبقة الساعة)
 function computeFourBoxScore(indicators) {
   if (!indicators) return 0;
-  const leanOf = { stability: 0, reversal: 0, momentum: 0, hourly: 0 };
+  const leans = [];
 
   // الثبات: ADX اتجاهي (لو قوي) + Williams%R + موقع السعر من سحابة إيشيموكو + OBV مقابل مرجعه
   {
@@ -1612,7 +1613,7 @@ function computeFourBoxScore(indicators) {
     }
     if (indicators.obv != null && indicators.obvTrendRef != null) { if (indicators.obv > indicators.obvTrendRef) bull++; else bear++; }
     const total = bull + bear;
-    leanOf.stability = total > 0 ? (bull - bear) / total : 0;
+    leans.push(total > 0 ? (bull - bear) / total : 0);
   }
 
   // الارتداد: StochRSI + Williams%R + Bollinger %B + RSI Divergence
@@ -1623,7 +1624,7 @@ function computeFourBoxScore(indicators) {
     if (indicators.bbPercentB) { if (indicators.bbPercentB.zoneUp) bull++; if (indicators.bbPercentB.zoneDown) bear++; }
     if (indicators.rsiDivergence) { if (indicators.rsiDivergence.type === 'bullish') bull++; else if (indicators.rsiDivergence.type === 'bearish') bear++; }
     const total = bull + bear;
-    leanOf.reversal = total > 0 ? (bull - bear) / total : 0;
+    leans.push(total > 0 ? (bull - bear) / total : 0);
   }
 
   // إجماع الزخم: RSI + MACD + Stochastic + ADX اتجاهي
@@ -1634,52 +1635,17 @@ function computeFourBoxScore(indicators) {
     if (indicators.stochastic) { if (indicators.stochastic.k > 55 && indicators.stochastic.k >= indicators.stochastic.d) bull++; else if (indicators.stochastic.k < 45 && indicators.stochastic.k <= indicators.stochastic.d) bear++; }
     if (indicators.adx && indicators.adx.adx >= 20) { if (indicators.adx.pdi > indicators.adx.mdi) bull++; else bear++; }
     const total = bull + bear;
-    leanOf.momentum = total > 0 ? (bull - bear) / total : 0;
+    leans.push(total > 0 ? (bull - bear) / total : 0);
   }
 
   // طبقة الساعة (مستقلة، محسوبة أصلًا بـ computeHourlyLayer ومرفقة داخل indicators.hourlyLayer)
   {
     const hl = indicators.hourlyLayer;
     const total = hl ? hl.bull + hl.bear : 0;
-    leanOf.hourly = total > 0 ? (hl.bull - hl.bear) / total : 0;
+    leans.push(total > 0 ? (hl.bull - hl.bear) / total : 0);
   }
 
-  return leanOf.stability * 0.35 + leanOf.reversal * 0.25 + leanOf.momentum * 0.25 + leanOf.hourly * 0.15; // نطاق -1..+1
-}
-
-// ── مربع "القرار": نفس منطق القرار النهائي القديم بأعلى اللوحة (اتجاه+توصية+زخم+حجم+ارتداد وزن 1، الثبات وزن 2)
-function computeDecision7Score(indicators, decision) {
-  if (!indicators || !decision) return 0;
-  const terms = [];
-  if (indicators.ema200 != null && indicators.currentPrice != null) terms.push({ sign: indicators.currentPrice > indicators.ema200 ? 1 : -1, w: 1 });
-  terms.push({ sign: decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0, w: 1 });
-
-  let mBull = 0, mBear = 0;
-  if (indicators.rsi != null) { if (indicators.rsi > 55) mBull++; else if (indicators.rsi < 45) mBear++; }
-  if (indicators.macd) { if (indicators.macd.value > indicators.macd.signal) mBull++; else mBear++; }
-  terms.push({ sign: mBull > mBear ? 1 : mBull < mBear ? -1 : 0, w: 1 });
-
-  let vBull = 0, vBear = 0;
-  if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') vBull++;
-  if (indicators.cvd && indicators.cvd.signal === 'bearish_divergence') vBear++;
-  if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') vBull++;
-  if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') vBear++;
-  terms.push({ sign: vBull > vBear ? 1 : vBull < vBear ? -1 : 0, w: 1 });
-
-  let rBull = 0, rBear = 0;
-  if (indicators.stochRsi) { if (indicators.stochRsi.crossUp || indicators.stochRsi.zoneUp) rBull++; if (indicators.stochRsi.crossDown || indicators.stochRsi.zoneDown) rBear++; }
-  if (indicators.williamsR) { if (indicators.williamsR.crossUpFrom80 || indicators.williamsR.zoneUp) rBull++; if (indicators.williamsR.crossDownFrom20 || indicators.williamsR.zoneDown) rBear++; }
-  terms.push({ sign: rBull > rBear ? 1 : rBull < rBear ? -1 : 0, w: 1 });
-
-  if (indicators.chop != null) {
-    const majoritySign = Math.sign(terms.reduce((s, t) => s + t.sign * t.w, 0)) || 0;
-    if (indicators.chop < 38.2) terms.push({ sign: majoritySign, w: 2 });
-    else if (indicators.chop > 61.8) terms.push({ sign: 0, w: 2 });
-  }
-
-  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
-  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
-  return totalWeight > 0 ? rawScore / totalWeight : 0; // نطاق -1..+1
+  return leans.reduce((a, b) => a + b, 0) / leans.length; // نطاق -1..+1
 }
 
 // ── 15%: مربعات الحجم + التوصية + الثقة + التحليل العام (نفس ما تعرضه اللوحة بأعلاها)
@@ -1793,12 +1759,10 @@ async function evaluateBotSignal(symbol) {
   const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
   if (!indicators) return null;
   const decision = makeDecision(indicators);
-  const decision7Signal = computeDecision7Score(indicators, decision);
   const fourBoxSignal = computeFourBoxScore(indicators);
   const secondarySignal = computeSecondaryScore(indicators, decision);
-  const dashboardSignal = 0.40 * decision7Signal + 0.30 * fourBoxSignal + 0.30 * secondarySignal; // نفس تجميع اللوحة (القرار+التحليل+الارتداد)
   const botOwnSignal = await computeBotOwnSignal(indicators, candles, symbol);
-  const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
+  const composite = 0.60 * fourBoxSignal + 0.15 * secondarySignal + 0.25 * botOwnSignal;
   let action = 'hold';
   if (composite >= BOT_BUY_THRESHOLD) action = 'buy';
   else if (composite <= BOT_SELL_THRESHOLD) action = 'sell';
@@ -1806,7 +1770,7 @@ async function evaluateBotSignal(symbol) {
   const filter = passesEntryFilters(candles);
 
   return {
-    symbol, decision7Signal, fourBoxSignal, secondarySignal, dashboardSignal, botOwnSignal, composite, action,
+    symbol, fourBoxSignal, secondarySignal, botOwnSignal, composite, action,
     price: indicators.currentPrice,
     buyZone: decision.buyZone, sellZone: decision.sellZone,
     passesFilters: filter.ok, filterReason: filter.reason,
@@ -1967,7 +1931,7 @@ async function placeBotLimitBuy(sig) {
   botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
   botState.tradeLog.unshift({
     time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange,
-    reason: `أمر شراء محدّد السعر عند ${buyPrice} — ${sig.filterReason} | قرار ${(sig.decision7Signal * 100).toFixed(0)}% (40%) × تحليل ${(sig.fourBoxSignal * 100).toFixed(0)}% (30%) × ارتداد ${(sig.secondarySignal * 100).toFixed(0)}% (30%) [إجمالي 75%] × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% (25%)`,
+    reason: `أمر شراء محدّد السعر عند ${buyPrice} — ${sig.filterReason} | مربع رباعي ${(sig.fourBoxSignal * 100).toFixed(0)}% (60%) × ثانوي ${(sig.secondarySignal * 100).toFixed(0)}% (15%) × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% (25%)`,
   });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
