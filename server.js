@@ -1644,7 +1644,7 @@ function computeFourBoxScore(indicators) {
     leanOf.hourly = total > 0 ? (hl.bull - hl.bear) / total : 0;
   }
 
-  return leanOf.stability * 0.40 + leanOf.reversal * 0.30 + leanOf.momentum * 0.20 + leanOf.hourly * 0.10; // نطاق -1..+1
+  return leanOf.stability * 0.35 + leanOf.reversal * 0.25 + leanOf.momentum * 0.25 + leanOf.hourly * 0.15; // نطاق -1..+1
 }
 
 // ── مربع "القرار": نفس منطق القرار النهائي القديم بأعلى اللوحة (اتجاه+توصية+زخم+حجم+ارتداد وزن 1، الثبات وزن 2)
@@ -1682,46 +1682,12 @@ function computeDecision7Score(indicators, decision) {
   return totalWeight > 0 ? rawScore / totalWeight : 0; // نطاق -1..+1
 }
 
-// ── مربع "الفريم": يجمع فريمات 3د+5د+15د+30د بمربع واحد بالنسبة (نفس منطق اللوحة تمامًا)
-function computeFrameScore(symbol) {
-  const snapshot = computeMtfSnapshot(symbol);
-  const watched = ['3m', '5m', '15m', '30m'];
-  const leans = [];
-  for (const iv of watched) {
-    const info = snapshot[iv];
-    if (!info) continue;
-    const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
-    leans.push(sign * (info.confidence / 100));
-  }
-  return leans.length ? leans.reduce((a, b) => a + b, 0) / leans.length : 0;
-}
-
-// ── طبقة البيتكوين: تدخل ضمن "القرار" بعد تحرك 70$ (نفس منطق اللوحة) — تُتابَع مرة وحدة لكل دورة بوت، مو لكل عملة
-const BTC_LAYER_STEP_SERVER = 70;   // دولار — نفس عتبة الواجهة
-const BTC_LAYER_PCT_CAP_SERVER = 25; // دولار = 100%
-let botBtcRefPrice = null;
-let botBtcLastDiff = 0;
-function updateBotBtcLayer() {
-  const btcCandles = candleStore[`BTCUSDT_${SCAN_INTERVAL}`];
-  if (!btcCandles || !btcCandles.length) return;
-  const price = btcCandles[btcCandles.length - 1].close;
-  if (botBtcRefPrice === null) { botBtcRefPrice = price; return; }
-  botBtcLastDiff = price - botBtcRefPrice;
-}
-function computeBtcBoost() {
-  const moved70 = Math.abs(botBtcLastDiff) >= BTC_LAYER_STEP_SERVER;
-  if (!moved70) return 0;
-  const pct = Math.min(100, (Math.abs(botBtcLastDiff) / BTC_LAYER_PCT_CAP_SERVER) * 100) / 100;
-  const sign = botBtcLastDiff > 0 ? 1 : -1;
-  return sign * pct * 0.3; // نفس وزن التعزيز 30% كحد أقصى بالواجهة
-}
-
-// ── مربع "التحليل" الثانوي: اتجاه 20% + توصيات 10% + إجماع الحجم 30% + ثقة 20% + تحليل عام 20% (نفس أوزان اللوحة)
+// ── 15%: مربعات الحجم + التوصية + الثقة + التحليل العام (نفس ما تعرضه اللوحة بأعلاها)
 function computeSecondaryScore(indicators, decision) {
   if (!indicators) return 0;
+  const leans = [];
 
-  // إجماع الحجم: CVD + تجميع/تصريف
-  let volumeLean = 0;
+  // الحجم: CVD + تجميع/تصريف
   {
     let bull = 0, bear = 0;
     if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') bull++;
@@ -1729,21 +1695,22 @@ function computeSecondaryScore(indicators, decision) {
     if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') bull++;
     if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') bear++;
     const total = bull + bear;
-    volumeLean = total > 0 ? (bull - bear) / total : 0;
+    leans.push(total > 0 ? (bull - bear) / total : 0);
   }
 
-  // الاتجاه العام: موقع السعر من EMA200
-  const trendSign = (indicators.ema200 != null && indicators.currentPrice != null)
-    ? (indicators.currentPrice > indicators.ema200 ? 1 : -1) : 0;
+  // التوصية + الثقة: نفس مربعي "التوصية" و"الثقة" بأعلى اللوحة (من نفس دالة القرار الأصلية)
+  if (decision) {
+    const dirSign = decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0;
+    const confWeight = (decision.confidence || 50) / 100;
+    leans.push(dirSign * confWeight);
+  }
 
-  // التوصيات + الثقة: من نفس دالة القرار الأصلية
-  const actionSign = decision ? (decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0) : 0;
-  const confWeight = decision ? (decision.confidence || 50) / 100 : 0.5;
-  const confidenceLean = actionSign * confWeight;
+  // التحليل العام: نفس مربع "التحليل" (موقع السعر من EMA200)
+  if (indicators.ema200 != null && indicators.currentPrice != null) {
+    leans.push(indicators.currentPrice > indicators.ema200 ? 1 : -1);
+  }
 
-  const W = { trend: 0.20, action: 0.10, volume: 0.30, confidence: 0.20, analysis: 0.20 };
-  return trendSign * W.trend + actionSign * W.action + volumeLean * W.volume
-       + confidenceLean * W.confidence + trendSign * W.analysis; // نطاق -1..+1
+  return leans.length ? leans.reduce((a, b) => a + b, 0) / leans.length : 0;
 }
 
 // ── 25%: تحليل خاص بالبوت وحده — مؤشرات ما تدخل في قرار اللوحة الأصلي، بما فيها نسبة بايننس (فيوتشر) ──
@@ -1826,15 +1793,10 @@ async function evaluateBotSignal(symbol) {
   const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
   if (!indicators) return null;
   const decision = makeDecision(indicators);
-
-  updateBotBtcLayer();
-  const decision7Base = computeDecision7Score(indicators, decision);
-  const decision7Signal = Math.max(-1, Math.min(1, decision7Base + computeBtcBoost())); // القرار بعد دمج تأثير البيتكوين
+  const decision7Signal = computeDecision7Score(indicators, decision);
   const fourBoxSignal = computeFourBoxScore(indicators);
   const secondarySignal = computeSecondaryScore(indicators, decision);
-  const frameSignal = computeFrameScore(symbol);
-  // نفس تجميع اللوحة: القرار 25% + التحليل 20% + الارتداد 35% + الفريم 20%
-  const dashboardSignal = 0.25 * decision7Signal + 0.20 * fourBoxSignal + 0.35 * secondarySignal + 0.20 * frameSignal;
+  const dashboardSignal = 0.40 * decision7Signal + 0.30 * fourBoxSignal + 0.30 * secondarySignal; // نفس تجميع اللوحة (القرار+التحليل+الارتداد)
   const botOwnSignal = await computeBotOwnSignal(indicators, candles, symbol);
   const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
   let action = 'hold';
@@ -1844,7 +1806,7 @@ async function evaluateBotSignal(symbol) {
   const filter = passesEntryFilters(candles);
 
   return {
-    symbol, decision7Signal, fourBoxSignal, secondarySignal, frameSignal, dashboardSignal, botOwnSignal, composite, action,
+    symbol, decision7Signal, fourBoxSignal, secondarySignal, dashboardSignal, botOwnSignal, composite, action,
     price: indicators.currentPrice,
     buyZone: decision.buyZone, sellZone: decision.sellZone,
     passesFilters: filter.ok, filterReason: filter.reason,
@@ -2005,7 +1967,7 @@ async function placeBotLimitBuy(sig) {
   botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
   botState.tradeLog.unshift({
     time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange,
-    reason: `أمر شراء محدّد السعر عند ${buyPrice} — ${sig.filterReason} | قرار ${(sig.decision7Signal * 100).toFixed(0)}% (25%) × تحليل ${(sig.fourBoxSignal * 100).toFixed(0)}% (20%) × ارتداد ${(sig.secondarySignal * 100).toFixed(0)}% (35%) × فريم ${(sig.frameSignal * 100).toFixed(0)}% (20%) [إجمالي 75%] × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% (25%)`,
+    reason: `أمر شراء محدّد السعر عند ${buyPrice} — ${sig.filterReason} | قرار ${(sig.decision7Signal * 100).toFixed(0)}% (40%) × تحليل ${(sig.fourBoxSignal * 100).toFixed(0)}% (30%) × ارتداد ${(sig.secondarySignal * 100).toFixed(0)}% (30%) [إجمالي 75%] × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% (25%)`,
   });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
