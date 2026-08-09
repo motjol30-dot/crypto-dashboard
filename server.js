@@ -1644,7 +1644,7 @@ function computeFourBoxScore(indicators) {
     leanOf.hourly = total > 0 ? (hl.bull - hl.bear) / total : 0;
   }
 
-  return leanOf.stability * 0.35 + leanOf.reversal * 0.25 + leanOf.momentum * 0.25 + leanOf.hourly * 0.15; // نطاق -1..+1
+  return leanOf.stability * 0.45 + leanOf.reversal * 0.30 + leanOf.momentum * 0.20 + leanOf.hourly * 0.05; // نطاق -1..+1
 }
 
 // ── مربع "القرار": نفس منطق القرار النهائي القديم بأعلى اللوحة (اتجاه+توصية+زخم+حجم+ارتداد وزن 1، الثبات وزن 2)
@@ -1682,18 +1682,22 @@ function computeDecision7Score(indicators, decision) {
   return totalWeight > 0 ? rawScore / totalWeight : 0; // نطاق -1..+1
 }
 
-// ── مربع "الفريم": يجمع فريمات 3د+5د+15د+30د بمربع واحد بالنسبة (نفس منطق اللوحة تمامًا)
-function computeFrameScore(symbol) {
+// ── مربع "الفريم": يجمع فريمات 5د+15د+30د+1س + الاتجاه بمربع واحد (كل واحد وزن 20%) — نفس منطق اللوحة تمامًا
+function computeFrameScore(symbol, indicators) {
   const snapshot = computeMtfSnapshot(symbol);
-  const watched = ['3m', '5m', '15m', '30m'];
-  const leans = [];
+  const watched = ['5m', '15m', '30m', '1h'];
+  let sumLean = 0;
   for (const iv of watched) {
     const info = snapshot[iv];
     if (!info) continue;
     const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
-    leans.push(sign * (info.confidence / 100));
+    sumLean += (sign * (info.confidence / 100)) * 0.20;
   }
-  return leans.length ? leans.reduce((a, b) => a + b, 0) / leans.length : 0;
+  if (indicators && indicators.ema200 != null && indicators.currentPrice != null) {
+    const trendSign = indicators.currentPrice > indicators.ema200 ? 1 : -1;
+    sumLean += trendSign * 0.20;
+  }
+  return sumLean; // نطاق تقريبي -1..+1
 }
 
 // ── طبقة البيتكوين: تدخل ضمن "القرار" بعد تحرك 70$ (نفس منطق اللوحة) — تُتابَع مرة وحدة لكل دورة بوت، مو لكل عملة
@@ -1716,12 +1720,12 @@ function computeBtcBoost() {
   return sign * pct * 0.3; // نفس وزن التعزيز 30% كحد أقصى بالواجهة
 }
 
-// ── 15%: مربعات الحجم + التوصية + الثقة + التحليل العام (نفس ما تعرضه اللوحة بأعلاها)
+// ── مربع "التحليل" الثانوي: اتجاه 20% + توصيات 10% + إجماع الحجم 30% + ثقة 20% + تحليل عام 20% (نفس أوزان اللوحة)
 function computeSecondaryScore(indicators, decision) {
   if (!indicators) return 0;
-  const leans = [];
 
-  // الحجم: CVD + تجميع/تصريف
+  // إجماع الحجم: CVD + تجميع/تصريف
+  let volumeLean = 0;
   {
     let bull = 0, bear = 0;
     if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') bull++;
@@ -1729,22 +1733,21 @@ function computeSecondaryScore(indicators, decision) {
     if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') bull++;
     if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') bear++;
     const total = bull + bear;
-    leans.push(total > 0 ? (bull - bear) / total : 0);
+    volumeLean = total > 0 ? (bull - bear) / total : 0;
   }
 
-  // التوصية + الثقة: نفس مربعي "التوصية" و"الثقة" بأعلى اللوحة (من نفس دالة القرار الأصلية)
-  if (decision) {
-    const dirSign = decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0;
-    const confWeight = (decision.confidence || 50) / 100;
-    leans.push(dirSign * confWeight);
-  }
+  // الاتجاه العام: موقع السعر من EMA200
+  const trendSign = (indicators.ema200 != null && indicators.currentPrice != null)
+    ? (indicators.currentPrice > indicators.ema200 ? 1 : -1) : 0;
 
-  // التحليل العام: نفس مربع "التحليل" (موقع السعر من EMA200)
-  if (indicators.ema200 != null && indicators.currentPrice != null) {
-    leans.push(indicators.currentPrice > indicators.ema200 ? 1 : -1);
-  }
+  // التوصيات + الثقة: من نفس دالة القرار الأصلية
+  const actionSign = decision ? (decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0) : 0;
+  const confWeight = decision ? (decision.confidence || 50) / 100 : 0.5;
+  const confidenceLean = actionSign * confWeight;
 
-  return leans.length ? leans.reduce((a, b) => a + b, 0) / leans.length : 0;
+  const W = { trend: 0.20, action: 0.10, volume: 0.30, confidence: 0.20, analysis: 0.20 };
+  return trendSign * W.trend + actionSign * W.action + volumeLean * W.volume
+       + confidenceLean * W.confidence + trendSign * W.analysis; // نطاق -1..+1
 }
 
 // ── 25%: تحليل خاص بالبوت وحده — مؤشرات ما تدخل في قرار اللوحة الأصلي، بما فيها نسبة بايننس (فيوتشر) ──
@@ -1833,9 +1836,9 @@ async function evaluateBotSignal(symbol) {
   const decision7Signal = Math.max(-1, Math.min(1, decision7Base + computeBtcBoost())); // القرار بعد دمج تأثير البيتكوين
   const fourBoxSignal = computeFourBoxScore(indicators);
   const secondarySignal = computeSecondaryScore(indicators, decision);
-  const frameSignal = computeFrameScore(symbol);
-  // نفس تجميع اللوحة: القرار 25% + التحليل 20% + الارتداد 35% + الفريم 20%
-  const dashboardSignal = 0.25 * decision7Signal + 0.20 * fourBoxSignal + 0.35 * secondarySignal + 0.20 * frameSignal;
+  const frameSignal = computeFrameScore(symbol, indicators);
+  // نفس تجميع اللوحة: القرار 30% + التحليل 20% + الارتداد 45% + الفريم 5%
+  const dashboardSignal = 0.30 * decision7Signal + 0.20 * secondarySignal + 0.45 * fourBoxSignal + 0.05 * frameSignal;
   const botOwnSignal = await computeBotOwnSignal(indicators, candles, symbol);
   const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
   let action = 'hold';
@@ -2006,7 +2009,7 @@ async function placeBotLimitBuy(sig) {
   botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
   botState.tradeLog.unshift({
     time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange,
-    reason: `أمر شراء محدّد السعر عند ${buyPrice} — ${sig.filterReason} | قرار ${(sig.decision7Signal * 100).toFixed(0)}% (25%) × تحليل ${(sig.fourBoxSignal * 100).toFixed(0)}% (20%) × ارتداد ${(sig.secondarySignal * 100).toFixed(0)}% (35%) × فريم ${(sig.frameSignal * 100).toFixed(0)}% (20%) [إجمالي 75%] × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% (25%)`,
+    reason: `أمر شراء محدّد السعر عند ${buyPrice} — ${sig.filterReason} | قرار ${(sig.decision7Signal * 100).toFixed(0)}% (30%) × تحليل ${(sig.secondarySignal * 100).toFixed(0)}% (20%) × ارتداد ${(sig.fourBoxSignal * 100).toFixed(0)}% (45%) × فريم ${(sig.frameSignal * 100).toFixed(0)}% (5%) [إجمالي 75%] × بوت ${(sig.botOwnSignal * 100).toFixed(0)}% (25%)`,
   });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
