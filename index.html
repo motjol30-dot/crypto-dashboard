@@ -447,7 +447,7 @@
 
   <div id="bot-signal-box">
     <div id="bot-signal-line">إشارة العملة الحالية (البوت يقرر وينفّذ لحاله): <span id="bot-signal-value">—</span></div>
-    <div id="bot-signal-breakdown">القرار (25%×75%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%×75%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الارتداد (35%×75%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الفريم (20%×75%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
+    <div id="bot-signal-breakdown">القرار (30%×75%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%×75%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الارتداد (45%×75%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الفريم (5%×75%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
   </div>
 
   <div id="bot-action-row">
@@ -1104,14 +1104,14 @@
     detailEl.innerHTML = hl.notes.map((n) => `• ${n}`).join('<br>');
   }
 
-  // ══ مربع "الارتداد" (تصحيح تسمية): يجمع 4 مربعات بأوزان مخصصة (ثبات 40% + ارتداد 30% + زخم 20% + ساعة 10%) ══
+  // ══ مربع "الارتداد" (تصحيح تسمية): يجمع 4 مربعات بأوزان مخصصة (ثبات 45% + ارتداد 30% + زخم 20% + ساعة 5%) ══
   // مستقل تمامًا عن القرار النهائي — قراره الخاص فقط، مبني على نفس القراءات المعروضة بمربعاتها الأصلية
-  // بطلبك: بدون كلمة "محايد" في هذا المربع — عند التعادل يبقى أخضر (صعود) بنسبة 50% لحد ما ينقلب فعليًا لهبوط.
-  // الاستثناء الوحيد: صف "طبقة الساعة" بالتفاصيل يحتفظ بكلمة "محايد" الحقيقية.
-  function upBiasedPct(lean, threshold = 0.15) {
+  // بطلبك: بدون كلمة "محايد" في هذا المربع — عند التعادل يتحول لصعود لكن بنفس النسبة الفعلية المحسوبة
+  // (مو تثبيت عند 50%). الاستثناء الوحيد: صف "طبقة الساعة" بالتفاصيل يحتفظ بكلمة "محايد" الحقيقية.
+  function neutralToUpPct(lean, threshold = 0.15) {
     if (lean > threshold) return { dir: 'up', pct: Math.round(lean * 100) };
     if (lean < -threshold) return { dir: 'down', pct: Math.round(Math.abs(lean) * 100) };
-    return { dir: 'up', pct: 50 }; // يبقى أخضر افتراضيًا بدل "محايد" لحد ما ينقلب فعليًا لهبوط
+    return { dir: 'up', pct: Math.round(Math.abs(lean) * 100) }; // "محايد" تتحول لصعود بنفس نسبتها الحقيقية
   }
   let lastFourBoxLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
   function renderFourBoxDecision() {
@@ -1125,18 +1125,18 @@
 
     const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0); // من -1 (هبوط كامل) إلى +1 (صعود كامل)
 
-    const W = { stability: 0.40, reversal: 0.30, momentum: 0.20, hourly: 0.10 };
+    const W = { stability: 0.45, reversal: 0.30, momentum: 0.20, hourly: 0.05 };
     const stabilityLean = leanOf(stability), reversalLean = leanOf(reversal), momentumLean = leanOf(momentum), hourlyLean = leanOf(hourly);
     const avgLean = stabilityLean * W.stability + reversalLean * W.reversal + momentumLean * W.momentum + hourlyLean * W.hourly;
     lastFourBoxLean = avgLean;
 
-    const main = upBiasedPct(avgLean);
+    const main = neutralToUpPct(avgLean);
     pillEl.textContent = `${main.dir === 'up' ? 'صعود' : 'هبوط'} ${main.pct}%`;
     pillEl.className = `pill-value ${main.dir}`;
 
-    const stabRow = upBiasedPct(stabilityLean);
-    const revRow = upBiasedPct(reversalLean);
-    const momRow = upBiasedPct(momentumLean);
+    const stabRow = neutralToUpPct(stabilityLean);
+    const revRow = neutralToUpPct(reversalLean);
+    const momRow = neutralToUpPct(momentumLean);
     const hourlyDir = hourlyLean > 0.15 ? 'صعود' : hourlyLean < -0.15 ? 'هبوط' : 'محايد'; // الاستثناء الوحيد اللي يحتفظ بكلمة محايد
 
     detailEl.innerHTML = [
@@ -1173,7 +1173,7 @@
     pillEl.textContent = label; pillEl.className = `pill-value ${verdictClass}`;
 
     // بطلبك: بدون كلمة "محايد" لصف إجماع الحجم تحديدًا — يبقى أخضر (صعود) عند التعادل لحد ما ينقلب فعليًا لهابط
-    const volRow = upBiasedPct(volumeLean);
+    const volRow = neutralToUpPct(volumeLean);
     const dirWord = (s) => s > 0 ? 'صعود' : s < 0 ? 'هبوط' : 'محايد';
     detailEl.innerHTML = [
       `الاتجاه (وزن ${Math.round(W.trend * 100)}%): ${dirWord(lastTrendSign)}`,
@@ -1185,26 +1185,28 @@
     ].join('<br>');
   }
 
-  // ══ مربع "الفريم": يجمع فريمات 3د+5د+15د+30د بمربع واحد بالنسبة (اتجاه كل فريم × ثقته) ══
+  // ══ مربع "الفريم": يجمع فريمات 5د+15د+30د+1س + الاتجاه بمربع واحد بالنسبة (كل واحد وزن 20%) ══
   let lastMtfSnapshot = null;
   let lastFrameLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
   function renderFrameBox() {
     const pillEl = document.getElementById('p-frame');
     const detailEl = document.getElementById('frame-detail');
     if (!pillEl) return;
-    const watched = ['3m', '5m', '15m', '30m'];
+    const watched = ['5m', '15m', '30m', '1h'];
     const rows = [];
-    const leans = [];
+    let sumLean = 0;
     watched.forEach((iv) => {
       const info = lastMtfSnapshot ? lastMtfSnapshot[iv] : null;
-      if (!info) { rows.push(`${iv}: بيانات غير كافية`); return; }
+      if (!info) { rows.push(`${iv} (وزن 20%): بيانات غير كافية`); return; }
       const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
-      leans.push(sign * (info.confidence / 100));
+      sumLean += (sign * (info.confidence / 100)) * 0.20;
       const dirWord = sign > 0 ? 'صعود' : sign < 0 ? 'هبوط' : 'انتظار';
-      rows.push(`${iv}: ${dirWord} (ثقة ${info.confidence}%)`);
+      rows.push(`${iv} (وزن 20%): ${dirWord} (ثقة ${info.confidence}%)`);
     });
+    sumLean += lastTrendSign * 0.20; // الاتجاه، وزن 20% إضافي
+    rows.push(`الاتجاه (وزن 20%): ${lastTrendSign > 0 ? 'صعود' : lastTrendSign < 0 ? 'هبوط' : 'محايد'}`);
 
-    const avgLean = leans.length ? leans.reduce((a, b) => a + b, 0) / leans.length : 0;
+    const avgLean = sumLean;
     lastFrameLean = avgLean;
     const pct = Math.round(Math.abs(avgLean) * 100);
 
@@ -1645,11 +1647,11 @@
     setPill('p-decision', decision7Class, decision7Label);
 
     renderFourBoxDecision(); // مربع "التحليل" (ثبات 35%+ارتداد 25%+زخم 25%+ساعة 15%) — يُحدَّث بعد اكتمال كل المؤشرات
-    renderSecondaryBox();    // مربع "الارتداد" (اتجاه+توصية+تحليل+حجم+ثقة) — نفس التوقيت
-    renderFrameBox();        // مربع "الفريم" (3د+5د+15د+30د) — نفس التوقيت
+    renderSecondaryBox();    // مربع "التحليل" (اتجاه+توصيات+حجم+ثقة+تحليل) — نفس التوقيت
+    renderFrameBox();        // مربع "الفريم" (5د+15د+30د+1س+الاتجاه) — نفس التوقيت
 
-    // القرار النهائي المعروض بأعلى الصفحة = تجميع المربعات الأربعة (القرار 25% + التحليل 20% + الارتداد 35% + الفريم 20%)
-    const combinedLean = 0.25 * decision7Lean + 0.20 * lastFourBoxLean + 0.35 * lastSecondaryLean + 0.20 * lastFrameLean;
+    // القرار النهائي المعروض بأعلى الصفحة = تجميع المربعات الأربعة (القرار 30% + التحليل 20% + الارتداد 45% + الفريم 5%)
+    const combinedLean = 0.30 * decision7Lean + 0.20 * lastSecondaryLean + 0.45 * lastFourBoxLean + 0.05 * lastFrameLean;
     const combinedPct = Math.round(Math.abs(combinedLean) * 100);
     let finalLabel, finalClass;
     if (combinedLean > 0) { finalLabel = `📈 صعود ${combinedPct}%`; finalClass = 'pos'; }
@@ -1661,7 +1663,7 @@
 
     // تحديث عنوان القرار النهائي ليعكس طريقة التجميع الجديدة
     const labelEl = document.getElementById('final-label');
-    if (labelEl) labelEl.textContent = '🎯 القرار النهائي (القرار 25% + التحليل 20% + الارتداد 35% + الفريم 20%)';
+    if (labelEl) labelEl.textContent = '🎯 القرار النهائي (القرار 30% + التحليل 20% + الارتداد 45% + الفريم 5%)';
   }
 
   // ══ الحالة العامة: الاتجاه / التوصية / الثقة / التحليل الإجمالي ══
