@@ -174,6 +174,7 @@
     color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
   }
   .cfg-pct-sign { color: var(--muted); }
+  .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
   .cfg-save-btn {
     width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
     color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
@@ -381,9 +382,9 @@
     <div class="pill-label">التحليل</div>
     <div class="pill-value neutral" id="p-secondary">—</div>
   </div>
-  <div class="pill" id="p-frame-wrap" style="cursor:pointer;">
-    <div class="pill-label">الفريم</div>
-    <div class="pill-value neutral" id="p-frame">—</div>
+  <div class="pill" id="p-allind-wrap" style="cursor:pointer;">
+    <div class="pill-label">المؤشرات</div>
+    <div class="pill-value neutral" id="p-allind">—</div>
   </div>
 </div>
 
@@ -391,7 +392,7 @@
 <div id="decision-cfg" class="cfg-dropdown"></div>
 <div id="fourbox-cfg" class="cfg-dropdown"></div>
 <div id="secondary-cfg" class="cfg-dropdown"></div>
-<div id="frame-cfg" class="cfg-dropdown"></div>
+<div id="allind-cfg" class="cfg-dropdown"></div>
 
 <!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم — اختيار الفريم يدوي بالكامل الآن -->
 <div id="tf-bar-wrap">
@@ -1144,18 +1145,45 @@
       { key: 'confidence', name: 'الثقة', checked: true, weight: 20 },
       { key: 'analysisGeneral', name: 'التحليل العام', checked: true, weight: 20 },
     ]},
-    frame: { label: 'الفريم', indicators: [
-      { key: '5m', name: 'فريم 5 دقائق', checked: true, weight: 20 },
-      { key: '15m', name: 'فريم 15 دقيقة', checked: true, weight: 20 },
-      { key: '30m', name: 'فريم 30 دقيقة', checked: true, weight: 20 },
-      { key: '1h', name: 'فريم ساعة', checked: true, weight: 20 },
-      { key: 'trend', name: 'الاتجاه', checked: true, weight: 20 },
+    allind: { label: 'المؤشرات', indicators: [
+      { key: 'rsi', name: 'RSI', checked: true, weight: 1 },
+      { key: 'macd', name: 'MACD', checked: true, weight: 1 },
+      { key: 'ema50', name: 'EMA50', checked: true, weight: 1 },
+      { key: 'ema200', name: 'EMA200', checked: true, weight: 1 },
+      { key: 'sma20', name: 'SMA20', checked: true, weight: 1 },
+      { key: 'vwap', name: 'VWAP', checked: true, weight: 1 },
+      { key: 'bb', name: 'بولينجر باند', checked: true, weight: 1 },
+      { key: 'bbpercentb', name: 'Bollinger %B', checked: true, weight: 1 },
+      { key: 'stochastic', name: 'ستوكاستيك', checked: true, weight: 1 },
+      { key: 'stochrsi', name: 'Stochastic RSI', checked: true, weight: 1 },
+      { key: 'adx', name: 'ADX', checked: true, weight: 1 },
+      { key: 'obv', name: 'OBV', checked: true, weight: 1 },
+      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 1 },
+      { key: 'cvd', name: 'CVD (تدفق الحجم)', checked: true, weight: 1 },
+      { key: 'volprofile', name: 'بروفايل الحجم', checked: true, weight: 1 },
+      { key: 'ichimoku', name: 'إيشيموكو', checked: true, weight: 1 },
+      { key: 'supertrend', name: 'سوبرترند', checked: true, weight: 1 },
+      { key: 'williamsr', name: 'Williams %R', checked: true, weight: 1 },
+      { key: 'rsidiv', name: 'انحراف RSI', checked: true, weight: 1 },
+      { key: 'chop', name: 'مؤشر التذبذب (Choppiness)', checked: true, weight: 1 },
+      { key: 'pivot', name: 'نقاط الارتكاز', checked: true, weight: 1 },
+      { key: 'candlecmp', name: 'مقارنة الشموع', checked: true, weight: 1 },
+      { key: 'btclayer', name: 'طبقة البيتكوين', checked: true, weight: 1 },
+      { key: 'btc120', name: 'بيتكوين 120', checked: true, weight: 1 },
+      { key: 'dominance', name: 'هيمنة البيتكوين', checked: true, weight: 1 },
+      { key: 'feargreed', name: 'الخوف والطمع', checked: true, weight: 1 },
+      { key: 'futures', name: 'مناطق الفيوتشر', checked: true, weight: 1 },
+      { key: 'openinterest', name: 'الفائدة المفتوحة', checked: true, weight: 1 },
+      { key: 'longshort', name: 'نسبة الشراء/البيع', checked: true, weight: 1 },
+      { key: 'stab-adx', name: 'ADX (نسخة الثبات)', checked: false, weight: 1 },
+      { key: 'stab-ichimoku', name: 'إيشيموكو (نسخة الثبات)', checked: false, weight: 1 },
+      { key: 'stab-obv', name: 'OBV (نسخة الثبات)', checked: false, weight: 1 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 30 },
       { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 20 },
       { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 45 },
-      { key: 'frame', name: 'مربع الفريم', checked: true, weight: 5 },
+      { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 5 },
     ]},
   };
 
@@ -1196,6 +1224,13 @@
     return { dir: 'neutral', word: 'محايد' };
   }
 
+  let lastLeanMaps = {}; // آخر قيم حية لكل مؤشر بكل مربع — تُعرض بجانب كل صف بالقائمة عشان توضح سبب أي نتيجة
+  function liveValueLabel(boxKey, key) {
+    const map = lastLeanMaps[boxKey];
+    if (!map || map[key] == null) return 'غير متاح';
+    const v = dirWord3(map[key]);
+    return `${v.word} ${Math.round(Math.abs(map[key]) * 100)}%`;
+  }
   function renderBoxConfigDropdown(boxKey, containerId) {
     const cfg = boxConfigs[boxKey];
     const container = document.getElementById(containerId);
@@ -1203,12 +1238,12 @@
     container.innerHTML = cfg.indicators.map((ind, idx) => `
       <div class="cfg-row">
         <input type="checkbox" class="cfg-check" data-box="${boxKey}" data-idx="${idx}" ${ind.checked ? 'checked' : ''}>
-        <span class="cfg-name">${ind.name}</span>
+        <span class="cfg-name">${ind.name} <span class="cfg-live">(${liveValueLabel(boxKey, ind.key)})</span></span>
         <input type="number" class="cfg-weight" data-box="${boxKey}" data-idx="${idx}" value="${ind.weight}" min="0" step="1">
         <span class="cfg-pct-sign">%</span>
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
-  ['decision', 'fourbox', 'secondary', 'frame', 'final'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'final'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1240,14 +1275,15 @@
     const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
     const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0);
 
-    const avgLean = weightedLean('fourbox', {
-      stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly),
-    });
+    const leanMap = { stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly) };
+    lastLeanMaps.fourbox = leanMap;
+    const avgLean = weightedLean('fourbox', leanMap);
     lastFourBoxLean = avgLean;
 
     const v = dirWord3(avgLean);
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
   }
 
   // ══ مربع "التحليل": يجمع الاتجاه+التوصيات+إجماع الحجم+الثقة+التحليل العام حسب القائمة المختارة ══
@@ -1259,37 +1295,34 @@
     const confWeight = lastConfidence / 100;
     const confidenceLean = lastActionSign * confWeight;
 
-    const avgLean = weightedLean('secondary', {
-      trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign,
-    });
+    const leanMap = { trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign };
+    lastLeanMaps.secondary = leanMap;
+    const avgLean = weightedLean('secondary', leanMap);
     lastSecondaryLean = avgLean;
 
     const v = dirWord3(avgLean);
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('secondary', 'secondary-cfg');
   }
 
-  // ══ مربع "الفريم": يجمع فريمات 5د+15د+30د+1س + الاتجاه حسب القائمة المختارة ══
-  let lastMtfSnapshot = null;
-  let lastFrameLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
-  function renderFrameBox() {
-    const pillEl = document.getElementById('p-frame');
+  // ══ مربع "المؤشرات": يجمع كل المؤشرات الفردية المعروضة أسفل الصفحة (نفس قراءتها هناك) حسب القائمة المختارة ══
+  let lastAllIndLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
+  function renderAllIndicatorsBox() {
+    const pillEl = document.getElementById('p-allind');
     if (!pillEl) return;
     const leanMap = {};
-    ['5m', '15m', '30m', '1h'].forEach((iv) => {
-      const info = lastMtfSnapshot ? lastMtfSnapshot[iv] : null;
-      if (!info) return;
-      const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
-      leanMap[iv] = sign * (info.confidence / 100);
-    });
-    leanMap.trend = lastTrendSign;
-
-    const avgLean = weightedLean('frame', leanMap);
-    lastFrameLean = avgLean;
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
+    }
+    lastLeanMaps.allind = leanMap;
+    const avgLean = weightedLean('allind', leanMap);
+    lastAllIndLean = avgLean;
 
     const v = dirWord3(avgLean);
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('allind', 'allind-cfg');
   }
 
   // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
@@ -1704,22 +1737,25 @@
     const btcBoost = btcMoved70 ? (btcLayerSign * (btcPct / 100) * 0.3) : 0; // وزن تعزيز 30% كحد أقصى
 
     // مربع "القرار": حسب القائمة المختارة (اتجاه/توصية/زخم/حجم/ارتداد/ثبات) — بعدها تعزيز البيتكوين
-    const decision7Base = weightedLean('decision', {
+    const decisionLeanMap = {
       trend: lastTrendSign, action: lastActionSign, momentum: momentumMajority,
       volume: volumeMajority, reversal: reversalMajority, stability: stabilityMajority,
-    });
+    };
+    lastLeanMaps.decision = decisionLeanMap;
+    const decision7Base = weightedLean('decision', decisionLeanMap);
     const decision7Lean = Math.max(-1, Math.min(1, decision7Base + btcBoost)); // بعد دمج تأثير البيتكوين
     const decision7V = dirWord3(decision7Lean);
     setPill('p-decision', decision7V.dir, `${decision7V.word} ${Math.round(Math.abs(decision7Lean) * 100)}%`);
+    renderBoxConfigDropdown('decision', 'decision-cfg');
 
-    renderFourBoxDecision(); // مربع "الارتداد" (ثبات+ارتداد+زخم+ساعة حسب القائمة) — يُحدَّث بعد اكتمال كل المؤشرات
-    renderSecondaryBox();    // مربع "التحليل" (اتجاه+توصيات+حجم+ثقة+تحليل حسب القائمة) — نفس التوقيت
-    renderFrameBox();        // مربع "الفريم" (5د+15د+30د+1س+الاتجاه حسب القائمة) — نفس التوقيت
+    renderFourBoxDecision();   // مربع "الارتداد" (ثبات+ارتداد+زخم+ساعة حسب القائمة) — يُحدَّث بعد اكتمال كل المؤشرات
+    renderSecondaryBox();      // مربع "التحليل" (اتجاه+توصيات+حجم+ثقة+تحليل حسب القائمة) — نفس التوقيت
+    renderAllIndicatorsBox();  // مربع "المؤشرات" (كل المؤشرات الفردية حسب القائمة) — نفس التوقيت
 
     // القرار النهائي المعروض بأعلى الصفحة = تجميع المربعات الأربعة حسب القائمة المختارة
-    const combinedLean = weightedLean('final', {
-      decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, frame: lastFrameLean,
-    });
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean };
+    lastLeanMaps.final = finalLeanMap;
+    const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
     const finalIcon = finalV.dir === 'up' ? '📈' : finalV.dir === 'down' ? '📉' : '⚪';
     const finalLabel = `${finalIcon} ${finalV.word} ${Math.round(Math.abs(combinedLean) * 100)}%`;
@@ -1727,6 +1763,7 @@
 
     const finalEl = document.getElementById('p-final');
     if (finalEl) { finalEl.textContent = finalLabel; finalEl.className = `final-value ${finalClass}`; }
+    renderBoxConfigDropdown('final', 'final-cfg');
 
     // تحديث عنوان القرار النهائي ليعكس الأوزان الحالية المختارة بالقائمة
     const labelEl = document.getElementById('final-label');
@@ -1890,7 +1927,7 @@
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
-  document.getElementById('p-frame-wrap').addEventListener('click', () => toggleCfgDropdown('frame-cfg'));
+  document.getElementById('p-allind-wrap').addEventListener('click', () => toggleCfgDropdown('allind-cfg'));
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
 
   // ══ بوت التداول الآلي: عرض الحالة + عناصر التحكم ══
@@ -2011,14 +2048,12 @@
 
   function handleMtfUpdate(msg) {
     if (msg.symbol !== currentSymbol) return; // احتياطًا، بيانات فريمات عملة غير المعروضة حاليًا
-    lastMtfSnapshot = msg.snapshot;
     document.querySelectorAll('.tf-box').forEach((box) => {
       const iv = box.dataset.interval;
       const info = msg.snapshot[iv];
       if (!info) { box.title = 'بيانات غير كافية بعد'; return; }
       box.title = `${info.trend} — ثقة ${info.confidence}%`;
     });
-    renderFrameBox();
   }
 
   // ══ التحكم: طي/فتح كل مؤشر ══
