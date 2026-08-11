@@ -174,21 +174,30 @@
     color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
   }
   .cfg-pct-sign { color: var(--muted); }
+  .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
   .cfg-save-btn {
     width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
     color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
   }
 
-  /* ══ المربع النهائي البارز ══ */
+  /* ══ المربع النهائي البارز + طبقتي الارتفاع/النزول المبكر جنبه ══ */
+  #final-row-wrap { display: flex; align-items: stretch; background: var(--surface2); border-bottom: 2px solid var(--accent); }
   #final-verdict-row {
-    padding: 10px; background: var(--surface2); border-bottom: 2px solid var(--accent);
-    text-align: center;
+    flex: 1; padding: 10px; text-align: center; cursor: pointer;
   }
   .final-label { font-size: 0.68rem; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
   .final-value { font-size: 1.3rem; font-weight: 900; }
   .final-value.pos { color: var(--green); }
   .final-value.neg { color: var(--red); }
   .final-value.neutral { color: var(--yellow); }
+
+  .early-box {
+    width: 60px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  }
+  .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
+  .early-arrow.up { color: var(--green); }
+  .early-arrow.down { color: var(--red); }
 
   /* ══ Zones ══ */
   #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
@@ -381,9 +390,9 @@
     <div class="pill-label">التحليل</div>
     <div class="pill-value neutral" id="p-secondary">—</div>
   </div>
-  <div class="pill" id="p-frame-wrap" style="cursor:pointer;">
-    <div class="pill-label">الفريم</div>
-    <div class="pill-value neutral" id="p-frame">—</div>
+  <div class="pill" id="p-allind-wrap" style="cursor:pointer;">
+    <div class="pill-label">المؤشرات</div>
+    <div class="pill-value neutral" id="p-allind">—</div>
   </div>
 </div>
 
@@ -391,7 +400,7 @@
 <div id="decision-cfg" class="cfg-dropdown"></div>
 <div id="fourbox-cfg" class="cfg-dropdown"></div>
 <div id="secondary-cfg" class="cfg-dropdown"></div>
-<div id="frame-cfg" class="cfg-dropdown"></div>
+<div id="allind-cfg" class="cfg-dropdown"></div>
 
 <!-- شريط الفريمات: مربعات صغيرة لكل فريم، تتلوّن أخضر/أحمر/أصفر حسب قرار ذلك الفريم — اختيار الفريم يدوي بالكامل الآن -->
 <div id="tf-bar-wrap">
@@ -408,12 +417,22 @@
   </div>
 </div>
 
-<!-- المربع النهائي: يجمع المربعات الأربعة أعلاه بحكم واحد — اضغط لفتح قائمة اختيار المربعات ونسبها -->
-<div id="final-verdict-row" style="cursor:pointer;">
-  <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 4 مربعات)</div>
-  <div class="final-value neutral" id="p-final">—</div>
+<!-- صف القرار النهائي + طبقتي الارتفاع/النزول المبكر: يمين = ارتفاع مبكر، وسط = القرار النهائي، يسار = نزول مبكر -->
+<div id="final-row-wrap">
+  <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
+    <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
+  </div>
+  <div id="final-verdict-row" style="cursor:pointer;">
+    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 4 مربعات)</div>
+    <div class="final-value neutral" id="p-final">—</div>
+  </div>
+  <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
+    <span class="early-arrow down" id="early-down-arrow" style="opacity:0.3;">▼</span>
+  </div>
 </div>
 <div id="final-cfg" class="cfg-dropdown"></div>
+<div id="earlyup-cfg" class="cfg-dropdown"></div>
+<div id="earlydown-cfg" class="cfg-dropdown"></div>
 
 <!-- مناطق الشراء والبيع -->
 <div id="zones-row">
@@ -1144,18 +1163,82 @@
       { key: 'confidence', name: 'الثقة', checked: true, weight: 20 },
       { key: 'analysisGeneral', name: 'التحليل العام', checked: true, weight: 20 },
     ]},
-    frame: { label: 'الفريم', indicators: [
-      { key: '5m', name: 'فريم 5 دقائق', checked: true, weight: 20 },
-      { key: '15m', name: 'فريم 15 دقيقة', checked: true, weight: 20 },
-      { key: '30m', name: 'فريم 30 دقيقة', checked: true, weight: 20 },
-      { key: '1h', name: 'فريم ساعة', checked: true, weight: 20 },
-      { key: 'trend', name: 'الاتجاه', checked: true, weight: 20 },
+    allind: { label: 'المؤشرات', indicators: [
+      { key: 'rsi', name: 'RSI', checked: true, weight: 1 },
+      { key: 'macd', name: 'MACD', checked: true, weight: 1 },
+      { key: 'ema50', name: 'EMA50', checked: true, weight: 1 },
+      { key: 'ema200', name: 'EMA200', checked: true, weight: 1 },
+      { key: 'sma20', name: 'SMA20', checked: true, weight: 1 },
+      { key: 'vwap', name: 'VWAP', checked: true, weight: 1 },
+      { key: 'bb', name: 'بولينجر باند', checked: true, weight: 1 },
+      { key: 'bbpercentb', name: 'Bollinger %B', checked: true, weight: 1 },
+      { key: 'stochastic', name: 'ستوكاستيك', checked: true, weight: 1 },
+      { key: 'stochrsi', name: 'Stochastic RSI', checked: true, weight: 1 },
+      { key: 'adx', name: 'ADX', checked: true, weight: 1 },
+      { key: 'obv', name: 'OBV', checked: true, weight: 1 },
+      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 1 },
+      { key: 'cvd', name: 'CVD (تدفق الحجم)', checked: true, weight: 1 },
+      { key: 'volprofile', name: 'بروفايل الحجم', checked: true, weight: 1 },
+      { key: 'ichimoku', name: 'إيشيموكو', checked: true, weight: 1 },
+      { key: 'supertrend', name: 'سوبرترند', checked: true, weight: 1 },
+      { key: 'williamsr', name: 'Williams %R', checked: true, weight: 1 },
+      { key: 'rsidiv', name: 'انحراف RSI', checked: true, weight: 1 },
+      { key: 'chop', name: 'مؤشر التذبذب (Choppiness)', checked: true, weight: 1 },
+      { key: 'pivot', name: 'نقاط الارتكاز', checked: true, weight: 1 },
+      { key: 'candlecmp', name: 'مقارنة الشموع', checked: true, weight: 1 },
+      { key: 'btclayer', name: 'طبقة البيتكوين', checked: true, weight: 1 },
+      { key: 'btc120', name: 'بيتكوين 120', checked: true, weight: 1 },
+      { key: 'dominance', name: 'هيمنة البيتكوين', checked: true, weight: 1 },
+      { key: 'feargreed', name: 'الخوف والطمع', checked: true, weight: 1 },
+      { key: 'futures', name: 'مناطق الفيوتشر', checked: true, weight: 1 },
+      { key: 'openinterest', name: 'الفائدة المفتوحة', checked: true, weight: 1 },
+      { key: 'longshort', name: 'نسبة الشراء/البيع', checked: true, weight: 1 },
+      { key: 'stab-adx', name: 'ADX (نسخة الثبات)', checked: false, weight: 1 },
+      { key: 'stab-ichimoku', name: 'إيشيموكو (نسخة الثبات)', checked: false, weight: 1 },
+      { key: 'stab-obv', name: 'OBV (نسخة الثبات)', checked: false, weight: 1 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 30 },
       { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 20 },
       { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 45 },
-      { key: 'frame', name: 'مربع الفريم', checked: true, weight: 5 },
+      { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 5 },
+    ]},
+    // طبقة الارتفاع المبكر: كل مؤشر هنا يُحسب فقط لما يعطي إشارة صاعدة فعليًا — ما له علاقة بالهبوط إطلاقًا
+    earlyup: { label: 'الارتفاع المبكر', indicators: [
+      { key: 'rsidiv', name: 'الانحراف الإيجابي (RSI Divergence)', checked: true, weight: 1 },
+      { key: 'rsi', name: 'تشبع بيعي RSI', checked: true, weight: 1 },
+      { key: 'macd', name: 'تقاطع MACD إيجابي', checked: true, weight: 1 },
+      { key: 'stochastic', name: 'تشبع بيعي ستوكاستك', checked: true, weight: 1 },
+      { key: 'williamsr', name: 'اختراق ويليامز للأعلى', checked: true, weight: 1 },
+      { key: 'obv', name: 'اختراق OBV', checked: true, weight: 1 },
+      { key: 'bb', name: 'ارتداد من حد بولينجر السفلي', checked: true, weight: 1 },
+      { key: 'bbpercentb', name: 'بولينجر %B', checked: true, weight: 1 },
+      { key: 'volprofile', name: 'بروفايل الحجم', checked: true, weight: 1 },
+      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 1 },
+    ]},
+    // طبقة النزول المبكر: كل مؤشر هنا يُحسب فقط لما يعطي إشارة هابطة فعليًا — ما له علاقة بالصعود إطلاقًا
+    earlydown: { label: 'النزول المبكر', indicators: [
+      { key: 'rsidiv', name: 'الانحراف السلبي (RSI Divergence)', checked: true, weight: 1 },
+      { key: 'rsi', name: 'تشبع شرائي RSI', checked: true, weight: 1 },
+      { key: 'macd', name: 'تقاطع MACD سلبي', checked: true, weight: 1 },
+      { key: 'stochastic', name: 'تشبع شرائي ستوكاستك', checked: true, weight: 1 },
+      { key: 'williamsr', name: 'كسر ويليامز للأسفل', checked: true, weight: 1 },
+      { key: 'obv', name: 'كسر OBV', checked: true, weight: 1 },
+      { key: 'bb', name: 'رفض من حد بولينجر العلوي', checked: true, weight: 1 },
+      { key: 'vwap', name: 'VWAP', checked: true, weight: 1 },
+      { key: 'ema50', name: 'EMA50', checked: true, weight: 1 },
+      { key: 'ema200', name: 'EMA200', checked: true, weight: 1 },
+      { key: 'sma20', name: 'SMA20', checked: true, weight: 1 },
+      { key: 'ichimoku', name: 'إيشيموكو', checked: true, weight: 1 },
+      { key: 'supertrend', name: 'سوبرترند', checked: true, weight: 1 },
+      { key: 'cvd', name: 'CVD', checked: true, weight: 1 },
+      { key: 'pivot', name: 'نقاط الارتكاز', checked: true, weight: 1 },
+      { key: 'chop', name: 'مؤشر التذبذب', checked: true, weight: 1 },
+      { key: 'adx', name: 'ADX', checked: true, weight: 1 },
+      { key: 'candlecmp', name: 'مقارنة الشموع', checked: true, weight: 1 },
+      { key: 'openinterest', name: 'الفائدة المفتوحة', checked: true, weight: 1 },
+      { key: 'longshort', name: 'نسبة الشراء/البيع', checked: true, weight: 1 },
+      { key: 'futures', name: 'مناطق الفيوتشر', checked: true, weight: 1 },
     ]},
   };
 
@@ -1196,6 +1279,24 @@
     return { dir: 'neutral', word: 'محايد' };
   }
 
+  // متوسط مرجّح لمربعات "الإشارة الواحدة" (ارتفاع مبكر / نزول مبكر) — كل مؤشر يحسب فقط لو "مفعّل" (1) وإلا صفر،
+  // ما يعطي قيمة سالبة إطلاقًا — يخدم اتجاه واحد بس زي ما طلبت
+  function weightedTriggerPct(boxKey, triggerMap) {
+    const cfg = boxConfigs[boxKey];
+    if (!cfg) return 0;
+    const active = cfg.indicators.filter((i) => i.checked && triggerMap[i.key] != null);
+    const totalW = active.reduce((s, i) => s + Number(i.weight || 0), 0);
+    if (totalW <= 0) return 0;
+    return active.reduce((s, i) => s + (triggerMap[i.key] ? 1 : 0) * (Number(i.weight) / totalW), 0); // نطاق 0..1
+  }
+
+  let lastLeanMaps = {}; // آخر قيم حية لكل مؤشر بكل مربع — تُعرض بجانب كل صف بالقائمة عشان توضح سبب أي نتيجة
+  function liveValueLabel(boxKey, key) {
+    const map = lastLeanMaps[boxKey];
+    if (!map || map[key] == null) return 'غير متاح';
+    const v = dirWord3(map[key]);
+    return `${v.word} ${Math.round(Math.abs(map[key]) * 100)}%`;
+  }
   function renderBoxConfigDropdown(boxKey, containerId) {
     const cfg = boxConfigs[boxKey];
     const container = document.getElementById(containerId);
@@ -1203,12 +1304,12 @@
     container.innerHTML = cfg.indicators.map((ind, idx) => `
       <div class="cfg-row">
         <input type="checkbox" class="cfg-check" data-box="${boxKey}" data-idx="${idx}" ${ind.checked ? 'checked' : ''}>
-        <span class="cfg-name">${ind.name}</span>
+        <span class="cfg-name">${ind.name} <span class="cfg-live">(${liveValueLabel(boxKey, ind.key)})</span></span>
         <input type="number" class="cfg-weight" data-box="${boxKey}" data-idx="${idx}" value="${ind.weight}" min="0" step="1">
         <span class="cfg-pct-sign">%</span>
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
-  ['decision', 'fourbox', 'secondary', 'frame', 'final'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1240,14 +1341,15 @@
     const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
     const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0);
 
-    const avgLean = weightedLean('fourbox', {
-      stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly),
-    });
+    const leanMap = { stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly) };
+    lastLeanMaps.fourbox = leanMap;
+    const avgLean = weightedLean('fourbox', leanMap);
     lastFourBoxLean = avgLean;
 
     const v = dirWord3(avgLean);
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
   }
 
   // ══ مربع "التحليل": يجمع الاتجاه+التوصيات+إجماع الحجم+الثقة+التحليل العام حسب القائمة المختارة ══
@@ -1259,37 +1361,67 @@
     const confWeight = lastConfidence / 100;
     const confidenceLean = lastActionSign * confWeight;
 
-    const avgLean = weightedLean('secondary', {
-      trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign,
-    });
+    const leanMap = { trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign };
+    lastLeanMaps.secondary = leanMap;
+    const avgLean = weightedLean('secondary', leanMap);
     lastSecondaryLean = avgLean;
 
     const v = dirWord3(avgLean);
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('secondary', 'secondary-cfg');
   }
 
-  // ══ مربع "الفريم": يجمع فريمات 5د+15د+30د+1س + الاتجاه حسب القائمة المختارة ══
-  let lastMtfSnapshot = null;
-  let lastFrameLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
-  function renderFrameBox() {
-    const pillEl = document.getElementById('p-frame');
+  // ══ مربع "المؤشرات": يجمع كل المؤشرات الفردية المعروضة أسفل الصفحة (نفس قراءتها هناك) حسب القائمة المختارة ══
+  let lastAllIndLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
+  function renderAllIndicatorsBox() {
+    const pillEl = document.getElementById('p-allind');
     if (!pillEl) return;
     const leanMap = {};
-    ['5m', '15m', '30m', '1h'].forEach((iv) => {
-      const info = lastMtfSnapshot ? lastMtfSnapshot[iv] : null;
-      if (!info) return;
-      const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
-      leanMap[iv] = sign * (info.confidence / 100);
-    });
-    leanMap.trend = lastTrendSign;
-
-    const avgLean = weightedLean('frame', leanMap);
-    lastFrameLean = avgLean;
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
+    }
+    lastLeanMaps.allind = leanMap;
+    const avgLean = weightedLean('allind', leanMap);
+    lastAllIndLean = avgLean;
 
     const v = dirWord3(avgLean);
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('allind', 'allind-cfg');
+  }
+
+  // ══ طبقتا الارتفاع المبكر والنزول المبكر: مستقلتان تمامًا عن بعضهما وعن القرار النهائي — عرض بصري بسهم فقط بدون أي رقم ══
+  // كل مؤشر بكل طبقة يُحسب فقط لو أعطى إشارته المطلوبة تحديدًا (صاعدة للارتفاع، هابطة للنزول) — لا علاقة له بالاتجاه المعاكس إطلاقًا
+  function renderEarlyBoxes() {
+    const upTriggerMap = {}, downTriggerMap = {};
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      upTriggerMap[key] = verdict === 'bull' ? 1 : 0;
+      downTriggerMap[key] = verdict === 'bear' ? 1 : 0;
+    }
+    lastLeanMaps.earlyup = upTriggerMap;
+    lastLeanMaps.earlydown = downTriggerMap;
+
+    const upPct = weightedTriggerPct('earlyup', upTriggerMap);     // 0..1
+    const downPct = weightedTriggerPct('earlydown', downTriggerMap); // 0..1
+
+    const upArrow = document.getElementById('early-up-arrow');
+    const downArrow = document.getElementById('early-down-arrow');
+    if (upArrow) {
+      upArrow.style.opacity = (0.3 + upPct * 0.7).toFixed(2);
+      upArrow.style.transform = `scale(${(1 + upPct * 0.35).toFixed(2)})`;
+    }
+    if (downArrow) {
+      downArrow.style.opacity = (0.3 + downPct * 0.7).toFixed(2);
+      downArrow.style.transform = `scale(${(1 + downPct * 0.35).toFixed(2)})`;
+    }
+    const upWrap = document.getElementById('early-up-wrap');
+    const downWrap = document.getElementById('early-down-wrap');
+    if (upWrap) upWrap.title = `طبقة الارتفاع المبكر: ${Math.round(upPct * 100)}%`;
+    if (downWrap) downWrap.title = `طبقة النزول المبكر: ${Math.round(downPct * 100)}%`;
+
+    renderBoxConfigDropdown('earlyup', 'earlyup-cfg');
+    renderBoxConfigDropdown('earlydown', 'earlydown-cfg');
   }
 
   // ══ عرض كل مؤشر مع إشارته الفردية (شراء/بيع/محايد) ══
@@ -1704,22 +1836,26 @@
     const btcBoost = btcMoved70 ? (btcLayerSign * (btcPct / 100) * 0.3) : 0; // وزن تعزيز 30% كحد أقصى
 
     // مربع "القرار": حسب القائمة المختارة (اتجاه/توصية/زخم/حجم/ارتداد/ثبات) — بعدها تعزيز البيتكوين
-    const decision7Base = weightedLean('decision', {
+    const decisionLeanMap = {
       trend: lastTrendSign, action: lastActionSign, momentum: momentumMajority,
       volume: volumeMajority, reversal: reversalMajority, stability: stabilityMajority,
-    });
+    };
+    lastLeanMaps.decision = decisionLeanMap;
+    const decision7Base = weightedLean('decision', decisionLeanMap);
     const decision7Lean = Math.max(-1, Math.min(1, decision7Base + btcBoost)); // بعد دمج تأثير البيتكوين
     const decision7V = dirWord3(decision7Lean);
     setPill('p-decision', decision7V.dir, `${decision7V.word} ${Math.round(Math.abs(decision7Lean) * 100)}%`);
+    renderBoxConfigDropdown('decision', 'decision-cfg');
 
-    renderFourBoxDecision(); // مربع "الارتداد" (ثبات+ارتداد+زخم+ساعة حسب القائمة) — يُحدَّث بعد اكتمال كل المؤشرات
-    renderSecondaryBox();    // مربع "التحليل" (اتجاه+توصيات+حجم+ثقة+تحليل حسب القائمة) — نفس التوقيت
-    renderFrameBox();        // مربع "الفريم" (5د+15د+30د+1س+الاتجاه حسب القائمة) — نفس التوقيت
+    renderFourBoxDecision();   // مربع "الارتداد" (ثبات+ارتداد+زخم+ساعة حسب القائمة) — يُحدَّث بعد اكتمال كل المؤشرات
+    renderSecondaryBox();      // مربع "التحليل" (اتجاه+توصيات+حجم+ثقة+تحليل حسب القائمة) — نفس التوقيت
+    renderAllIndicatorsBox();  // مربع "المؤشرات" (كل المؤشرات الفردية حسب القائمة) — نفس التوقيت
+    renderEarlyBoxes();        // طبقتا الارتفاع/النزول المبكر — مستقلتان تمامًا، عرض بصري فقط
 
     // القرار النهائي المعروض بأعلى الصفحة = تجميع المربعات الأربعة حسب القائمة المختارة
-    const combinedLean = weightedLean('final', {
-      decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, frame: lastFrameLean,
-    });
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean };
+    lastLeanMaps.final = finalLeanMap;
+    const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
     const finalIcon = finalV.dir === 'up' ? '📈' : finalV.dir === 'down' ? '📉' : '⚪';
     const finalLabel = `${finalIcon} ${finalV.word} ${Math.round(Math.abs(combinedLean) * 100)}%`;
@@ -1727,6 +1863,7 @@
 
     const finalEl = document.getElementById('p-final');
     if (finalEl) { finalEl.textContent = finalLabel; finalEl.className = `final-value ${finalClass}`; }
+    renderBoxConfigDropdown('final', 'final-cfg');
 
     // تحديث عنوان القرار النهائي ليعكس الأوزان الحالية المختارة بالقائمة
     const labelEl = document.getElementById('final-label');
@@ -1890,8 +2027,10 @@
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
-  document.getElementById('p-frame-wrap').addEventListener('click', () => toggleCfgDropdown('frame-cfg'));
+  document.getElementById('p-allind-wrap').addEventListener('click', () => toggleCfgDropdown('allind-cfg'));
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
+  document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
+  document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
 
   // ══ بوت التداول الآلي: عرض الحالة + عناصر التحكم ══
   let lastBotStatus = null;
@@ -2011,14 +2150,12 @@
 
   function handleMtfUpdate(msg) {
     if (msg.symbol !== currentSymbol) return; // احتياطًا، بيانات فريمات عملة غير المعروضة حاليًا
-    lastMtfSnapshot = msg.snapshot;
     document.querySelectorAll('.tf-box').forEach((box) => {
       const iv = box.dataset.interval;
       const info = msg.snapshot[iv];
       if (!info) { box.title = 'بيانات غير كافية بعد'; return; }
       box.title = `${info.trend} — ثقة ${info.confidence}%`;
     });
-    renderFrameBox();
   }
 
   // ══ التحكم: طي/فتح كل مؤشر ══
