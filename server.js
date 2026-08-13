@@ -1,1316 +1,1565 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>لوحة تحليل العملات الرقمية</title>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<style>
-  :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface2: #1c2229;
-    --border: #21262d;
-    --text: #e6edf3;
-    --muted: #7d8590;
-    --accent: #58a6ff;
-    --green: #3fb950;
-    --red: #f85149;
-    --yellow: #e3b341;
-    --buy-bg: rgba(63,185,80,0.16);
-    --sell-bg: rgba(248,81,73,0.16);
-    --wait-bg: rgba(227,179,65,0.14);
+'use strict';
+
+const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
+const axios = require('axios');
+const path = require('path');
+const crypto = require('crypto');
+const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
+
+const PORT = process.env.PORT || 3000;
+
+// قائمة العملات (40 عملة)
+const SYMBOLS = [
+  'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','AVAXUSDT',
+  'LINKUSDT','NEARUSDT','DOTUSDT','FETUSDT','GRTUSDT','RENDERUSDT','WLDUSDT',
+  'AKTUSDT','ROSEUSDT','SEIUSDT','SUIUSDT','KASUSDT','HBARUSDT','VETUSDT',
+  'ALGOUSDT','XLMUSDT','ATOMUSDT','MINAUSDT','XTZUSDT','POLUSDT','ARBUSDT',
+  'OPUSDT','STRKUSDT','MANTAUSDT','ZKUSDT','STXUSDT','TIAUSDT','ALTUSDT',
+  'JASMYUSDT','IOTXUSDT','ASTRUSDT','CKBUSDT','ACHUSDT'
+];
+
+const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
+const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
+const OKX_BAR = { '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
+
+const candleStore = {};
+const streamWs = {};
+const clientSubs = new Map();
+
+const app = express();
+const server = http.createServer(app);
+
+// الحماية
+const APP_USER = process.env.APP_USER || 'group';
+const APP_PASS = process.env.APP_PASS || 'change-me-1234';
+const MAX_USERS = parseInt(process.env.MAX_USERS || '12', 10);
+const SESSION_TTL_MS = 15 * 60 * 1000;
+const AUTH_ENABLED = process.env.AUTH_ENABLED === 'true';
+const activeSessions = new Map();
+
+const BINANCE_API_KEY = process.env.BINANCE_API_KEY || '';
+const BINANCE_API_SECRET = process.env.BINANCE_API_SECRET || '';
+const MEXC_API_KEY = process.env.MEXC_API_KEY || '';
+const MEXC_API_SECRET = process.env.MEXC_API_SECRET || '';
+
+function sweepSessions() {
+  const now = Date.now();
+  for (const [sid, lastSeen] of activeSessions) {
+    if (now - lastSeen > SESSION_TTL_MS) activeSessions.delete(sid);
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Segoe UI', 'Cairo', Tahoma, Arial, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
+}
+setInterval(sweepSessions, 60 * 1000);
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
   }
-
-  header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 8px 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 30;
-  }
-
-  #btc-ticker {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 10px; flex-shrink: 0;
-  }
-  #btc-ticker .label { font-size: 0.65rem; color: var(--muted); font-weight: 700; }
-  #btc-ticker .price  { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #btc-arrow { font-size: 1rem; font-weight: 900; transition: color .25s; }
-  #btc-arrow.up   { color: var(--green); }
-  #btc-arrow.down { color: var(--red); }
-  #btc-arrow.flat { color: var(--muted); }
-
-  #macro-row {
-    flex: 1; display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-  }
-  .macro-box {
-    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 5px 4px; background: var(--bg); border-left: 1px solid var(--border); min-width: 0;
-  }
-  .macro-box:last-child { border-left: none; }
-  .macro-label { font-size: 0.6rem; color: var(--muted); font-weight: 800; }
-  .macro-price { font-size: 0.78rem; font-weight: 800; font-family: 'Courier New', monospace; white-space: nowrap; }
-  .macro-arrow { font-size: 0.8rem; font-weight: 900; }
-  .macro-arrow.up   { color: var(--green); }
-  .macro-arrow.down { color: var(--red); }
-  .macro-arrow.flat { color: var(--muted); }
-
-  #symbol-row {
-    background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 10px;
-  }
-
-  #symbol-wrap { width: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  #symbol-input {
-    width: 100%; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); padding: 8px 10px; border-radius: 8px;
-    font-size: 0.9rem; text-align: center; outline: none;
-  }
-  #symbol-input:focus { border-color: var(--accent); }
-  #symbol-live-price {
-    font-size: 0.72rem; font-weight: 800; font-family: 'Courier New', monospace;
-    color: var(--muted); transition: color .3s;
-  }
-  #symbol-live-price .updated-at { font-size: 0.6rem; color: var(--muted); font-weight: 400; margin-right: 4px; }
-
-  #tf-bar-wrap { padding: 8px 10px 0; }
-  #tf-bar-label {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 0.65rem; color: var(--muted); margin-bottom: 5px;
-  }
-  #tf-bar { display: flex; gap: 4px; }
-  .tf-box {
-    flex: 1; text-align: center; padding: 7px 2px; border-radius: 7px;
-    font-size: 0.75rem; font-weight: 800; cursor: pointer;
-    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
-    transition: background 0.2s, color 0.2s, border-color 0.2s;
-  }
-  .tf-box.green  { background: rgba(63,185,80,0.18);  border-color: rgba(63,185,80,0.5);  color: var(--green); }
-  .tf-box.red    { background: rgba(248,81,73,0.18);  border-color: rgba(248,81,73,0.5);  color: var(--red); }
-  .tf-box.yellow { background: rgba(227,179,65,0.18); border-color: rgba(227,179,65,0.5); color: var(--yellow); }
-  .tf-box.active { outline: 2px solid var(--text); }
-
-  #conn-dot {
-    width: 9px; height: 9px; border-radius: 50%; background: var(--red); flex-shrink: 0;
-    transition: background .3s;
-  }
-  #conn-dot.connected { background: var(--green); }
-  #conn-dot.connecting { background: var(--yellow); }
-
-  #chart-header {
-    padding: 6px 12px; display: flex; align-items: baseline; gap: 10px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-  }
-
-  #chart-symbol { font-size: 1rem; font-weight: 700; }
-  #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #chart-change { font-size: 0.8rem; font-weight: 700; }
-  #chart-container { position: relative; height: 46vh; min-height: 260px; }
-
-  #loading {
-    position: absolute; inset: 0; background: rgba(13,17,23,0.85);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 10px; z-index: 10;
-  }
-  #loading.hidden { display: none; }
-  .spinner {
-    width: 30px; height: 30px; border: 3px solid var(--border);
-    border-top-color: var(--accent); border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #loading p { color: var(--muted); font-size: 0.85rem; }
-
-  #status-row, #status-row-lower, .status-row-like {
-    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-  }
-  .pill {
-    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 8px; text-align: center;
-  }
-  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
-  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
-  .pill-value.up, .pill-value.pos   { color: var(--green); }
-  .pill-value.down, .pill-value.neg { color: var(--red); }
-  .pill-value.neutral { color: var(--yellow); }
-
-  .cfg-dropdown {
-    display: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px; padding: 8px 10px; margin: 4px 10px 8px; font-size: 0.72rem;
-  }
-  .cfg-dropdown.open { display: block; }
-  .cfg-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
-  .cfg-row:last-of-type { border-bottom: none; }
-  .cfg-check { width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
-  .cfg-name { flex: 1; color: var(--text); text-align: right; }
-  .cfg-weight {
-    width: 52px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
-  }
-  .cfg-pct-sign { color: var(--muted); }
-  .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
-  .cfg-save-btn {
-    width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
-    color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
-  }
-
-  #final-row-wrap { display: flex; align-items: stretch; background: var(--surface2); border-bottom: 2px solid var(--accent); }
-  #final-verdict-row {
-    flex: 1; padding: 10px; text-align: center; cursor: pointer;
-  }
-  .final-label { font-size: 0.68rem; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
-  .final-value { font-size: 1.3rem; font-weight: 900; }
-  .final-value.pos { color: var(--green); }
-  .final-value.neg { color: var(--red); }
-  .final-value.neutral { color: var(--yellow); }
-
-  .early-box {
-    width: 60px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-    cursor: pointer; border-left: 1px solid var(--border); border-right: 1px solid var(--border);
-  }
-  .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
-  .early-arrow.up { color: var(--green); }
-  .early-arrow.down { color: var(--red); }
-
-  #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
-  .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
-  .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
-  .zone-box.sell { background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.35); }
-  .zone-box .zt { font-size: 0.68rem; font-weight: 800; }
-  .zone-box.buy .zt  { color: var(--green); }
-  .zone-box.sell .zt { color: var(--red); }
-  .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
-
-  #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
-  #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
-  #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
-  #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
-  #bot-status-text.on { color: var(--green); }
-  #bot-status-text.off { color: var(--muted); }
-  #bot-controls-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
-  .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
-  .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
-  .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
-  #bot-signal-box { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 7px 9px; margin-bottom: 8px; font-size: 0.7rem; }
-  #bot-signal-line { font-weight: 700; margin-bottom: 3px; }
-  #bot-signal-breakdown { color: var(--muted); font-size: 0.64rem; }
-  #bot-action-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  #bot-action-row button { flex: 1; border-radius: 8px; padding: 8px; font-size: 0.72rem; font-weight: 800; cursor: pointer; border: 1px solid; }
-  #bot-manual-close-btn { background: var(--sell-bg); border-color: rgba(248,81,73,0.4); color: var(--red); }
-  #bot-cancel-pending-btn { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: var(--muted); }
-  #bot-error-line { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,79,0.35); color: var(--red); font-size: 0.66rem; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
-  .bot-subheader { font-size: 0.66rem; font-weight: 800; color: var(--muted); margin: 6px 0 4px; }
-  #bot-positions-list, #bot-pending-list, #bot-trade-log { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
-  .bot-pos-row, .bot-log-row { display: flex; justify-content: space-between; gap: 6px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
-  .bot-log-row.buy-row { color: var(--green); }
-  .bot-log-row.sell-row { color: var(--red); }
-  .bot-log-row.error-row { color: var(--yellow); }
-
-  #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; }
-  .explosion-box {
-    flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
-    background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
-    transition: transform 0.15s, background 0.15s;
-  }
-  .explosion-box:active { transform: scale(0.97); background: rgba(240,136,62,0.18); }
-  .explosion-box .explosion-rank { font-size: 0.65rem; color: #f0883e; font-weight: 700; }
-  .explosion-box .explosion-symbol { font-size: 0.95rem; font-weight: 800; color: var(--text); margin: 2px 0; }
-  .explosion-box .explosion-meta { font-size: 0.62rem; color: var(--muted); line-height: 1.4; }
-  .explosion-box.dir-up .explosion-symbol { color: var(--green); }
-  .explosion-box.dir-down .explosion-symbol { color: var(--red); }
-  .explosion-box.empty { opacity: 0.5; cursor: default; }
-
-  #indicators-list { padding: 4px 10px 10px; }
-  .group-header {
-    font-size: 0.8rem; font-weight: 800; color: var(--accent);
-    margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
-  }
-  .group-header:first-child { margin-top: 0; }
-  .group-summary { font-size: 0.68rem; color: var(--muted); margin-bottom: 6px; }
-  .group-summary.pos { color: var(--green); }
-  .group-summary.neg { color: var(--red); }
-  .acc-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
-  .acc-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; cursor: pointer; user-select: none; }
-  .acc-head-left { display: flex; align-items: center; gap: 8px; }
-  .acc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .acc-dot.bull { background: var(--green); }
-  .acc-dot.bear { background: var(--red); }
-  .acc-dot.neutral { background: var(--yellow); }
-  .acc-name { font-size: 0.82rem; font-weight: 700; }
-  .acc-verdict { font-size: 0.72rem; font-weight: 700; }
-  .acc-verdict.bull { color: var(--green); }
-  .acc-verdict.bear { color: var(--red); }
-  .acc-verdict.neutral { color: var(--yellow); }
-  .acc-arrow { font-size: 0.7rem; color: var(--muted); transition: transform .2s; }
-  .acc-item.open .acc-arrow { transform: rotate(180deg); }
-  .acc-body { display: none; padding: 0 12px 10px; font-size: 0.78rem; color: var(--muted); line-height: 1.7; }
-  .acc-item.open .acc-body { display: block; }
-  .acc-body b { color: var(--text); font-family: 'Courier New', monospace; }
-
-  #notes-toggle {
-    width: calc(100% - 20px); margin: 0 10px 10px; background: var(--surface);
-    border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
-    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
-  }
-  #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
-  #notes-list.open { display: flex; }
-  #notes-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
-  #notes-list li .dot { flex-shrink:0; margin-top:4px; width:6px;height:6px;border-radius:50%; }
-  #notes-list li .dot.bull { background: var(--green); }
-  #notes-list li .dot.bear { background: var(--red); }
-  #notes-list li .dot.neutral { background: var(--yellow); }
-
-  ::-webkit-scrollbar { width: 5px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-</style>
-</head>
-<body>
-
-<header>
-  <div id="macro-row">
-    <div class="macro-box" id="macro-btc">
-      <span class="macro-label">BTC</span>
-      <span class="macro-price" id="macro-btc-price">—</span>
-      <span class="macro-arrow flat" id="macro-btc-arrow">▬</span>
-    </div>
-    <div class="macro-box" id="macro-gold">
-      <span class="macro-label">🥇XAU</span>
-      <span class="macro-price" id="macro-gold-price">—</span>
-      <span class="macro-arrow flat" id="macro-gold-arrow">▬</span>
-    </div>
-    <div class="macro-box" id="macro-dxy">
-      <span class="macro-label">DXY</span>
-      <span class="macro-price" id="macro-dxy-price">—</span>
-      <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
-    </div>
-  </div>
-  <div id="conn-dot"></div>
-</header>
-
-<div id="symbol-row">
-  <div id="symbol-wrap">
-    <input id="symbol-input" list="symbol-suggestions" placeholder="اكتب رمز العملة… BTCUSDT" value="BTCUSDT" autocomplete="off" />
-    <span id="symbol-live-price">— <span class="updated-at" id="symbol-live-time"></span></span>
-    <datalist id="symbol-suggestions">
-      <option value="BTCUSDT"><option value="ETHUSDT"><option value="BNBUSDT"><option value="SOLUSDT"><option value="XRPUSDT"><option value="ADAUSDT"><option value="AVAXUSDT"><option value="LINKUSDT"><option value="NEARUSDT"><option value="DOTUSDT"><option value="FETUSDT"><option value="GRTUSDT"><option value="RENDERUSDT"><option value="WLDUSDT"><option value="AKTUSDT"><option value="ROSEUSDT"><option value="SEIUSDT"><option value="SUIUSDT"><option value="KASUSDT"><option value="HBARUSDT"><option value="VETUSDT"><option value="ALGOUSDT"><option value="XLMUSDT"><option value="ATOMUSDT"><option value="MINAUSDT"><option value="XTZUSDT"><option value="POLUSDT"><option value="ARBUSDT"><option value="OPUSDT"><option value="STRKUSDT"><option value="MANTAUSDT"><option value="ZKUSDT"><option value="STXUSDT"><option value="TIAUSDT"><option value="ALTUSDT"><option value="JASMYUSDT"><option value="IOTXUSDT"><option value="ASTRUSDT"><option value="CKBUSDT"><option value="ACHUSDT">
-    </datalist>
-  </div>
-</div>
-
-<div id="explosion-row">
-  <div class="explosion-box" id="explosion-box-1">
-    <div class="explosion-rank">🥇 الأقوى ترشيحًا</div>
-    <div class="explosion-symbol">—</div>
-    <div class="explosion-meta">بانتظار أول فحص…</div>
-  </div>
-  <div class="explosion-box" id="explosion-box-2">
-    <div class="explosion-rank">🥈 الترشيح الثاني</div>
-    <div class="explosion-symbol">—</div>
-    <div class="explosion-meta">بانتظار أول فحص…</div>
-  </div>
-  <div class="explosion-box" id="explosion-box-3">
-    <div class="explosion-rank">🥉 الترشيح الثالث</div>
-    <div class="explosion-symbol">—</div>
-    <div class="explosion-meta">بانتظار أول فحص…</div>
-  </div>
-</div>
-
-<div id="chart-header">
-  <span id="chart-symbol">BTCUSDT</span>
-  <span id="chart-price">—</span>
-  <span id="chart-change"></span>
-</div>
-<div id="chart-container">
-  <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
-</div>
-
-<div id="status-row">
-  <div class="pill" id="p-decision-wrap" style="cursor:pointer;">
-    <div class="pill-label">القرار</div>
-    <div class="pill-value neutral" id="p-decision">—</div>
-  </div>
-  <div class="pill" id="p-fourbox-wrap" style="cursor:pointer;">
-    <div class="pill-label">الارتداد</div>
-    <div class="pill-value neutral" id="p-fourbox">—</div>
-  </div>
-  <div class="pill" id="p-secondary-wrap" style="cursor:pointer;">
-    <div class="pill-label">التحليل</div>
-    <div class="pill-value neutral" id="p-secondary">—</div>
-  </div>
-  <div class="pill" id="p-allind-wrap" style="cursor:pointer;">
-    <div class="pill-label">المؤشرات</div>
-    <div class="pill-value neutral" id="p-allind">—</div>
-  </div>
-</div>
-
-<div id="decision-cfg" class="cfg-dropdown"></div>
-<div id="fourbox-cfg" class="cfg-dropdown"></div>
-<div id="secondary-cfg" class="cfg-dropdown"></div>
-<div id="allind-cfg" class="cfg-dropdown"></div>
-
-<div id="tf-bar-wrap">
-  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
-  <div id="tf-bar">
-    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
-    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
-    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
-    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
-    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
-    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
-  </div>
-</div>
-
-<div id="final-row-wrap">
-  <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
-    <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
-  </div>
-  <div id="final-verdict-row" style="cursor:pointer;">
-    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 4 مربعات)</div>
-    <div class="final-value neutral" id="p-final">—</div>
-  </div>
-  <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
-    <span class="early-arrow down" id="early-down-arrow" style="opacity:0.3;">▼</span>
-  </div>
-</div>
-<div id="final-cfg" class="cfg-dropdown"></div>
-<div id="earlyup-cfg" class="cfg-dropdown"></div>
-<div id="earlydown-cfg" class="cfg-dropdown"></div>
-
-<div id="zones-row">
-  <div class="zone-box buy">
-    <div class="zt">🟢 منطقة شراء</div>
-    <div class="zr" id="buy-zone-range">—</div>
-  </div>
-  <div class="zone-box sell">
-    <div class="zt">🔴 منطقة بيع</div>
-    <div class="zr" id="sell-zone-range">—</div>
-  </div>
-</div>
-
-<div id="bot-panel">
-  <div id="bot-panel-header">
-    <span>🤖 بوت التداول الآلي</span>
-    <label id="bot-toggle-wrap">
-      <input type="checkbox" id="bot-enable-checkbox">
-      <span id="bot-status-text">متوقف</span>
-    </label>
-  </div>
-
-  <div id="bot-controls-row">
-    <div class="bot-control">
-      <span>المنصة</span>
-      <select id="bot-exchange-select">
-        <option value="binance">Binance</option>
-        <option value="mexc">MEXC</option>
-      </select>
-    </div>
-    <div class="bot-control">
-      <span>حجم الصفقة (USDT)</span>
-      <input type="number" id="bot-trade-size-input" min="1" step="1" value="50">
-      <button id="bot-save-size-btn">حفظ</button>
-    </div>
-    <div class="bot-control">
-      <span>جني ربح تلقائي (%)</span>
-      <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
-      <button id="bot-save-tp-btn">حفظ</button>
-    </div>
-    <div class="bot-control">
-      <span>أقصى عدد صفقات</span>
-      <input type="number" id="bot-max-positions-input" min="1" step="1" value="1">
-      <button id="bot-save-maxpos-btn">حفظ</button>
-    </div>
-  </div>
-
-  <div id="bot-signal-box">
-    <div id="bot-signal-line">إشارة العملة الحالية: <span id="bot-signal-value">—</span></div>
-    <div id="bot-signal-breakdown">القرار (30%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الارتداد (45%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الفريم (5%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
-  </div>
-
-  <div id="bot-action-row">
-    <button id="bot-manual-close-btn" style="display:none;">🔴 إغلاق صفقة العملة الحالية</button>
-    <button id="bot-cancel-pending-btn" style="display:none;">❌ إلغاء الأمر المعلّق</button>
-  </div>
-
-  <div id="bot-error-line" style="display:none;"></div>
-
-  <div id="bot-positions-wrap">
-    <div class="bot-subheader">الصفقات المفتوحة</div>
-    <div id="bot-positions-list">لا توجد صفقات مفتوحة حاليًا</div>
-  </div>
-
-  <div id="bot-pending-wrap">
-    <div class="bot-subheader">الأوامر المعلّقة (Limit)</div>
-    <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
-  </div>
-
-  <div id="bot-log-wrap">
-    <div class="bot-subheader">آخر الصفقات</div>
-    <div id="bot-trade-log">لا يوجد سجل بعد</div>
-  </div>
-</div>
-
-<div style="padding:8px 10px 0; font-size:0.68rem; color:var(--muted); font-weight:800;">📋 بقية المربعات التفصيلية</div>
-<div id="status-row-lower">
-  <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
-  <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
-  <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
-  <div class="pill"><div class="pill-label">التحليل</div><div class="pill-value neutral" id="p-overall">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الزخم</div><div class="pill-value neutral" id="p-momentum">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الحجم</div><div class="pill-value neutral" id="p-volume">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الارتداد</div><div class="pill-value neutral" id="p-reversal">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الثبات</div><div class="pill-value neutral" id="p-stability">—</div></div>
-  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
-</div>
-
-<div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
-
-<div id="indicators-list">
-  <!-- مجموعات المؤشرات تظل كما هي، سنملأها عبر JS -->
-  <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
-  <div class="group-summary" id="grp-reversal">—</div>
-  <div class="acc-item" data-key="stochrsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochrsi">—</div></div>
-  <div class="acc-item" data-key="bbpercentb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger %B</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bbpercentb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bbpercentb">—</div></div>
-  <div class="acc-item" data-key="rsidiv"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI Divergence</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-rsidiv">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-rsidiv">—</div></div>
-  <div class="acc-item" data-key="williamsr"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Williams %R</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-williamsr">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-williamsr">—</div></div>
-
-  <div class="group-header">🔒 ثبات الاتجاه</div>
-  <div class="group-summary" id="grp-stability">—</div>
-  <div class="acc-item" data-key="stab-adx"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX (ثبات)</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stab-adx">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stab-adx">—</div></div>
-  <div class="acc-item" data-key="chop"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Choppiness</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-chop">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-chop">—</div></div>
-  <div class="acc-item" data-key="stab-obv"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV ثبات</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stab-obv">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stab-obv">—</div></div>
-  <div class="acc-item" data-key="stab-ichimoku"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">إيشيموكو (استقرار)</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stab-ichimoku">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stab-ichimoku">—</div></div>
-
-  <div class="group-header">₿ طبقة البيتكوين</div>
-  <div class="group-summary" id="grp-btc">—</div>
-  <div class="acc-item" data-key="btclayer"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">قوة حركة البيتكوين</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-btclayer">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-btclayer">—</div></div>
-
-  <div class="group-header">🌍 بيانات السوق الكلية</div>
-  <div class="group-summary" id="grp-macro">—</div>
-  <div class="acc-item" data-key="btc120"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بيتكوين ±120$</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-btc120">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-btc120">—</div></div>
-  <div class="acc-item" data-key="feargreed"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الخوف والطمع</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-feargreed">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-feargreed">—</div></div>
-  <div class="acc-item" data-key="dominance"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">هيمنة البيتكوين</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-dominance">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-dominance">—</div></div>
-  <div class="acc-item" data-key="futures"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">مناطق الفيوتشر</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-futures">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-futures">—</div></div>
-
-  <div class="group-header">📈 المتوسطات والاتجاه</div>
-  <div class="group-summary" id="grp-trend">—</div>
-  <div class="acc-item" data-key="ema50"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 50</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-ema50">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-ema50">—</div></div>
-  <div class="acc-item" data-key="ema200"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 200</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-ema200">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-ema200">—</div></div>
-  <div class="acc-item" data-key="sma20"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">SMA 20</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-sma20">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-sma20">—</div></div>
-  <div class="acc-item" data-key="supertrend"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Supertrend</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-supertrend">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-supertrend">—</div></div>
-  <div class="acc-item" data-key="vwap"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">VWAP</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-vwap">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-vwap">—</div></div>
-  <div class="acc-item" data-key="ichimoku"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">سحابة إيشيموكو</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-ichimoku">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-ichimoku">—</div></div>
-
-  <div class="group-header">💧 الحجم والسيولة</div>
-  <div class="group-sum
-    <div class="group-summary" id="grp-volume">—</div>
-  <div class="acc-item" data-key="obv"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-obv">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-obv">—</div></div>
-  <div class="acc-item" data-key="volprofile"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Volume Profile</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-volprofile">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-volprofile">—</div></div>
-  <div class="acc-item" data-key="accdist"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">A/D</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-accdist">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-accdist">—</div></div>
-  <div class="acc-item" data-key="cvd"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">CVD</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-cvd">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-cvd">—</div></div>
-  <div class="acc-item" data-key="openinterest"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Open Interest</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-openinterest">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-openinterest">—</div></div>
-  <div class="acc-item" data-key="longshort"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Long/Short</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-longshort">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-longshort">—</div></div>
-
-  <div class="group-header">📉 الزخم والتذبذب</div>
-  <div class="group-summary" id="grp-momentum">—</div>
-  <div class="acc-item" data-key="rsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-rsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-rsi">—</div></div>
-  <div class="acc-item" data-key="macd"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-macd">—</div></div>
-  <div class="acc-item" data-key="stochastic"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochastic">—</div></div>
-  <div class="acc-item" data-key="adx"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-adx">—</div></div>
-
-  <div class="group-header">🕯️ الأسعار والأنماط</div>
-  <div class="group-summary" id="grp-price">—</div>
-  <div class="acc-item" data-key="bb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger Bands</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bb">—</div></div>
-  <div class="acc-item" data-key="pivot"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Pivot Points</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-pivot">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-pivot">—</div></div>
-  <div class="acc-item" data-key="candlecmp"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Candle Compare</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-candlecmp">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-candlecmp">—</div></div>
-</div>
-
-<button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
-<ul id="notes-list"></ul>
-
-<script>
-  // ════════════════════ المتغيرات العامة ════════════════════
-  let currentSymbol = 'BTCUSDT';
-  let currentInterval = '5m';
-  let ws = null;
-  let btcWs = null;
-  let goldWs = null;
-  let chart = null;
-  let candleSeries = null;
-  let lastPrice = null;
-  let lastBotStatus = null;
-  let lastMtfSnapshot = null;
-
-  let btcRefPrice = null;
-  let btcArrowState = 'flat';
-  const BTC_UP_THRESHOLD = 90;
-  const BTC_DOWN_THRESHOLD = 75;
-  const BTC_LAYER_STEP = 70;
-  let btcLayerRefPrice = null;
-  let btcLayerPoints = 0;
-  let btcLayerSign = 0;
-  let btcLayerLastDiff = 0;
-  const BTC_LAYER_PCT_CAP = 25;
-
-  const EXPLOSION_DIR_LABEL = { up: '📈 ميل تجميع صاعد', down: '📉 ميل تصريف هابط', neutral: '⚪ غير محدد' };
-
-  // ════════════════════ الشارت ════════════════════
-  function initChart() {
-    const container = document.getElementById('chart-container');
-    if (chart) chart.remove();
-    chart = LightweightCharts.createChart(container, {
-      layout: { background: { color: '#0d1117' }, textColor: '#7d8590' },
-      grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
-      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      rightPriceScale: { visible: false },
-      leftPriceScale: { visible: true, borderColor: '#21262d' },
-      timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false },
-    });
-    candleSeries = chart.addCandlestickSeries({
-      upColor: '#3fb950', downColor: '#f85149',
-      borderUpColor: '#3fb950', borderDownColor: '#f85149',
-      wickUpColor: '#3fb950', wickDownColor: '#f85149',
-      priceScaleId: 'left',
-    });
-    new ResizeObserver(() => {
-      const r = container.getBoundingClientRect();
-      chart.resize(r.width, r.height);
-    }).observe(container);
-  }
-
-  function showBlockOverlay(message) {
-    let overlay = document.getElementById('block-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'block-overlay';
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,0.97);z-index:9999;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:#e6edf3;';
-      document.body.appendChild(overlay);
-    }
-    overlay.innerHTML = `<div style="max-width:320px;"><div style="font-size:2rem;margin-bottom:10px;">🚫</div><div style="font-size:0.95rem;line-height:1.7;">${message}</div></div>`;
-  }
-  function isBlockingCloseCode(code) { return code === 4001 || code === 4002; }
-  function blockMessageFor(code) {
-    return code === 4002 ? `الموقع ممتلئ حاليًا.<br>حاول مرة أخرى بعد قليل.` : `الجلسة غير صالحة.<br>أعد تحميل الصفحة.`;
-  }
-
-  function setDot(s) {
-    const el = document.getElementById('conn-dot');
-    el.className = s === 'connected' ? 'connected' : s === 'connecting' ? 'connecting' : '';
-  }
-  function showLoading(s) { document.getElementById('loading').classList.toggle('hidden', !s); }
-
-  // ════════════════════ WebSocket الرئيسي ════════════════════
-  let mainWsLastMsgTime = 0, mainWatchdog = null;
-  function connect() {
-    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}`);
-    setDot('connecting');
-    ws.onopen = () => { setDot('connected'); subscribe(); mainWsLastMsgTime = Date.now(); };
-    ws.onmessage = (ev) => {
-      mainWsLastMsgTime = Date.now();
-      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.type === 'update') handleUpdate(msg);
-      else if (msg.type === 'explosion_scan') handleExplosionScan(msg);
-      else if (msg.type === 'mtf_update') handleMtfUpdate(msg);
-      else if (msg.type === 'bot_status') handleBotStatus(msg);
-      else if (msg.type === 'error') handleBotError(msg);
-    };
-    ws.onclose = (ev) => {
-      setDot('disconnected');
-      if (isBlockingCloseCode(ev.code)) { showBlockOverlay(blockMessageFor(ev.code)); return; }
-      setTimeout(connect, 3000);
-    };
-    ws.onerror = () => ws.close();
-    if (mainWatchdog) clearInterval(mainWatchdog);
-    mainWatchdog = setInterval(() => { if (Date.now() - mainWsLastMsgTime > 15000) try { ws.close(); } catch (e) {} }, 5000);
-  }
-
-  function subscribe() {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      showLoading(true);
-      ws.send(JSON.stringify({ type: 'subscribe', symbol: currentSymbol, interval: currentInterval }));
-    }
-  }
-
-  // ════════════════════ اتصال البيتكوين المستقل ════════════════════
-  function connectBtcTicker() {
-    if (btcWs) try { btcWs.close(); } catch (e) {}
-    btcWs = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
-    btcWs.onopen = () => btcWs.send(JSON.stringify({ type: 'subscribe', symbol: 'BTCUSDT', interval: '5m' }));
-    btcWs.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch { return; } if (msg.type === 'update' && msg.symbol === 'BTCUSDT') updateBtcTicker(msg); };
-    btcWs.onclose = () => setTimeout(connectBtcTicker, 3000);
-    btcWs.onerror = () => btcWs.close();
-  }
-
-  let btcLastTickPrice = null;
-  function updateBtcTicker(msg) {
-    const latest = msg.candles[msg.candles.length - 1];
-    if (!latest) return;
-    const price = latest.close;
-    const priceEl = document.getElementById('macro-btc-price');
-    priceEl.textContent = fmt(price);
-    updateBtc120Indicator(price);
-    updateBtcLayerIndicator(price);
-    if (btcLastTickPrice !== null) priceEl.style.color = price > btcLastTickPrice ? 'var(--green)' : price < btcLastTickPrice ? 'var(--red)' : priceEl.style.color;
-    btcLastTickPrice = price;
-    if (btcRefPrice === null) { btcRefPrice = price; return; }
-    const diff = price - btcRefPrice;
-    const arrowEl = document.getElementById('macro-btc-arrow');
-    if (diff >= BTC_UP_THRESHOLD) { btcArrowState = 'up'; btcRefPrice = price; }
-    else if (diff <= -BTC_DOWN_THRESHOLD) { btcArrowState = 'down'; btcRefPrice = price; }
-    arrowEl.className = `macro-arrow ${btcArrowState}`;
-    arrowEl.textContent = btcArrowState === 'up' ? '▲' : btcArrowState === 'down' ? '▼' : '▬';
-  }
-
-  // ════════════════════ اتصال الذهب المستقل ════════════════════
-  function connectGoldTicker() {
-    if (goldWs) try { goldWs.close(); } catch (e) {}
-    goldWs = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
-    goldWs.onopen = () => goldWs.send(JSON.stringify({ type: 'subscribe', symbol: 'PAXGUSDT', interval: '5m' }));
-    goldWs.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch { return; } if (msg.type === 'update' && msg.symbol === 'PAXGUSDT') { const latest = msg.candles[msg.candles.length-1]; if (latest) { const priceEl = document.getElementById('macro-gold-price'); priceEl.textContent = fmt(latest.close); } } };
-    goldWs.onclose = () => setTimeout(connectGoldTicker, 3000);
-    goldWs.onerror = () => goldWs.close();
-  }
-
-  // ════════════════════ استقبال التحديثات ════════════════════
-  function handleUpdate(msg) {
-    if (msg.symbol !== currentSymbol || msg.interval !== currentInterval) return;
-    showLoading(false);
-    candleSeries.setData(msg.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
-    const latest = msg.candles[msg.candles.length - 1];
-    if (latest) {
-      const priceEl = document.getElementById('chart-price');
-      priceEl.textContent = fmt(latest.close);
-      if (lastPrice !== null) {
-        const up = latest.close >= lastPrice;
-        priceEl.style.color = up ? 'var(--green)' : 'var(--red)';
-        const pct = (((latest.close - lastPrice) / lastPrice) * 100).toFixed(2);
-        const chEl = document.getElementById('chart-change');
-        chEl.textContent = `${up ? '+' : ''}${pct}%`;
-        chEl.style.color = up ? 'var(--green)' : 'var(--red)';
-      }
-      lastPrice = latest.close;
-      document.getElementById('symbol-live-price').innerHTML = `${fmt(latest.close)} <span class="updated-at">آخر تحديث ${new Date().toLocaleTimeString('ar-EG')}</span>`;
-    }
-    document.getElementById('chart-symbol').textContent = msg.symbol;
-    renderIndicators(msg.indicators);
-    renderDecision(msg.decision);
-  }
-
-  function handleMtfUpdate(msg) {
-    if (msg.symbol !== currentSymbol) return;
-    lastMtfSnapshot = msg.snapshot;
-    document.querySelectorAll('.tf-box').forEach(box => {
-      const info = msg.snapshot[box.dataset.interval];
-      if (!info) { box.title = 'بيانات غير كافية'; return; }
-      box.title = `${info.trend} — ثقة ${info.confidence}%`;
-    });
-    renderFrameBox();
-  }
-
-  function handleExplosionScan(msg) {
-    const ranking = msg.ranking || [];
-    renderExplosionBox('explosion-box-1', ranking[0] || null);
-    renderExplosionBox('explosion-box-2', ranking[1] || null);
-    renderExplosionBox('explosion-box-3', ranking[2] || null);
-  }
-
-  function renderExplosionBox(elId, item) {
-    const box = document.getElementById(elId);
-    if (!item) {
-      box.classList.add('empty');
-      box.classList.remove('dir-up', 'dir-down');
-      box.querySelector('.explosion-symbol').textContent = '—';
-      box.querySelector('.explosion-meta').textContent = 'لا توجد بيانات كافية حاليًا';
-      box.onclick = null;
-      return;
-    }
-    box.classList.remove('empty', 'dir-up', 'dir-down');
-    box.classList.add(item.direction === 'up' ? 'dir-up' : item.direction === 'down' ? 'dir-down' : '');
-    box.querySelector('.explosion-symbol').textContent = item.symbol.replace('USDT', '');
-    const qualityTag = item.overextended ? '⚠️ قريبة من قمتها مؤخرًا' : (item.pricePosition != null && item.pricePosition <= 60 ? '✅ مو منتفخة' : '');
-    const priceTag = item.price != null ? `💰 السعر: <b>${item.price.toFixed(4)}</b>` : '';
-    box.querySelector('.explosion-meta').innerHTML = `🔥 درجة الانضغاط: <b>${item.score}/100</b><br>${EXPLOSION_DIR_LABEL[item.direction] || ''}${qualityTag ? '<br>'+qualityTag : ''}${priceTag ? '<br>'+priceTag : ''}`;
-    box.onclick = () => switchToSymbol(item.symbol);
-  }
-
-  // ════════════════════ عرض المؤشرات ════════════════════
-  let consensusTracker = {};
-
-  function setAcc(key, verdict, label, bodyHtml) {
-    const item = document.querySelector(`.acc-item[data-key="${key}"]`);
-    if (!item) return;
-    item.querySelector('.acc-dot').className = `acc-dot ${verdict}`;
-    const v = document.getElementById(`v-${key}`);
-    if (v) { v.textContent = label; v.className = `acc-verdict ${verdict}`; }
-    const b = document.getElementById(`b-${key}`);
-    if (b) b.innerHTML = bodyHtml;
-    consensusTracker[key] = verdict;
-  }
-
-  function groupVerdictCounts(group) {
-    let bull = 0, bear = 0, neutral = 0;
-    for (const [key, verdict] of Object.entries(consensusTracker)) {
-      if (!inGroup(key, group)) continue;
-      if (verdict === 'bull') bull++; else if (verdict === 'bear') bear++; else neutral++;
-    }
-    return { bull, bear, neutral, total: bull + bear + neutral };
-  }
-
-  // خريطة المؤشرات إلى المجموعات
-  const GROUP_MAP = {
-    rsi: 'momentum', macd: 'momentum', stochastic: 'momentum', adx: 'momentum',
-    ema50: 'trend', ema200: 'trend', sma20: 'trend', supertrend: 'trend', vwap: 'trend', ichimoku: 'trend',
-    obv: 'volume', volprofile: 'volume', accdist: 'volume', cvd: 'volume', openinterest: 'volume',
-    bb: 'price', pivot: 'price', candlecmp: 'price',
-    btc120: 'macro', feargreed: 'macro', dominance: 'macro', futures: 'macro', longshort: 'macro',
-    stochrsi: 'reversal', bbpercentb: 'reversal', rsidiv: 'reversal',
-    'stab-adx': 'stability', chop: 'stability', 'stab-obv': 'stability',
-    williamsr: ['reversal', 'stability'],
-    'stab-ichimoku': ['stability', 'reversal'],
-    btclayer: 'btc',
+  return out;
+}
+
+function checkBasicAuth(req) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Basic ')) return false;
+  let decoded;
+  try { decoded = Buffer.from(header.slice(6), 'base64').toString('utf8'); } catch { return false; }
+  const idx = decoded.indexOf(':');
+  if (idx === -1) return false;
+  const user = decoded.slice(0, idx), pass = decoded.slice(idx + 1);
+  const safeEqual = (a, b) => {
+    const bufA = Buffer.from(a), bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
   };
-  function inGroup(key, group) {
-    const g = GROUP_MAP[key];
-    return Array.isArray(g) ? g.includes(group) : g === group;
-  }
+  return safeEqual(user, APP_USER) && safeEqual(pass, APP_PASS);
+}
 
-  function renderIndicators(ind) {
-    if (!ind) return;
-    consensusTracker = {};
-    renderHourlyLayer(ind.hourlyLayer);
-    // بقية المؤشرات كما في الكود السابق ...
-    // (سألخصها هنا لكن يمكنك نسخها من الملف السابق)
+function authMiddleware(req, res, next) {
+  if (!checkBasicAuth(req)) {
+    res.set('WWW-Authenticate', 'Basic realm="Crypto Dashboard"');
+    return res.status(401).send('كلمة المرور مطلوبة للدخول إلى هذه اللوحة.');
   }
+  next();
+}
 
-  function renderHourlyLayer(hl) {
-    lastHourlyLayer = hl;
-    const pillEl = document.getElementById('p-hourly');
-    const detailEl = document.getElementById('hourly-detail');
-    if (!hl) {
-      pillEl.textContent = '—'; pillEl.className = 'pill-value neutral';
-      detailEl.textContent = 'بيانات فريم الساعة غير كافية بعد';
-      return;
-    }
-    const cls = hl.verdict === 'bull' ? 'up' : hl.verdict === 'bear' ? 'down' : 'neutral';
-    const label = hl.verdict === 'bull' ? 'صاعد' : hl.verdict === 'bear' ? 'هابط' : 'محايد';
-    pillEl.textContent = label; pillEl.className = `pill-value ${cls}`;
-    detailEl.innerHTML = hl.notes.map(n => `• ${n}`).join('<br>');
+function sessionLimitMiddleware(req, res, next) {
+  sweepSessions();
+  const cookies = parseCookies(req);
+  const existingSid = cookies.sid;
+  const isKnown = existingSid && activeSessions.has(existingSid);
+  if (!isKnown && activeSessions.size >= MAX_USERS) {
+    return res.status(503).send(`الموقع ممتلئ حاليًا (الحد الأقصى ${MAX_USERS} مستخدم متزامن).`);
   }
+  const sid = isKnown ? existingSid : crypto.randomBytes(16).toString('hex');
+  if (!isKnown) res.cookie('sid', sid, { httpOnly: true, sameSite: 'lax', maxAge: SESSION_TTL_MS });
+  activeSessions.set(sid, Date.now());
+  req.sid = sid;
+  next();
+}
 
-  // ════════════════════ نظام المربعات والقوائم ════════════════════
-  const DEFAULT_BOX_CONFIGS = {
-    decision: { label: 'القرار', indicators: [
-      { key: 'trend', name: 'الاتجاه', checked: true, weight: 1 },
-      { key: 'action', name: 'التوصية', checked: true, weight: 1 },
-      { key: 'momentum', name: 'إجماع الزخم', checked: true, weight: 1 },
-      { key: 'volume', name: 'إجماع الحجم', checked: true, weight: 1 },
-      { key: 'reversal', name: 'إجماع الارتداد', checked: true, weight: 1 },
-      { key: 'stability', name: 'إجماع الثبات', checked: true, weight: 2 },
-    ]},
-    fourbox: { label: 'الارتداد', indicators: [
-      { key: 'stability', name: 'الثبات', checked: true, weight: 45 },
-      { key: 'reversal', name: 'الارتداد', checked: true, weight: 30 },
-      { key: 'momentum', name: 'إجماع الزخم', checked: true, weight: 20 },
-      { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 5 },
-    ]},
-    secondary: { label: 'التحليل', indicators: [
-      { key: 'trend', name: 'الاتجاه', checked: true, weight: 20 },
-      { key: 'action', name: 'التوصيات', checked: true, weight: 10 },
-      { key: 'volume', name: 'إجماع الحجم', checked: true, weight: 30 },
-      { key: 'confidence', name: 'الثقة', checked: true, weight: 20 },
-      { key: 'analysisGeneral', name: 'التحليل العام', checked: true, weight: 20 },
-    ]},
-    allind: { label: 'المؤشرات', indicators: [
-      { key: 'rsi', name: 'RSI', checked: true, weight: 3 },
-      { key: 'macd', name: 'MACD', checked: true, weight: 3 },
-      { key: 'ema50', name: 'EMA50', checked: true, weight: 3 },
-      { key: 'ema200', name: 'EMA200', checked: true, weight: 3 },
-      { key: 'obv', name: 'OBV', checked: true, weight: 3 },
-      { key: 'ichimoku', name: 'إيشيموكو', checked: true, weight: 3 },
-      { key: 'supertrend', name: 'سوبرترند', checked: true, weight: 3 },
-      { key: 'sma20', name: 'SMA20', checked: true, weight: 2 },
-      { key: 'vwap', name: 'VWAP', checked: true, weight: 2 },
-      { key: 'bb', name: 'بولينجر', checked: true, weight: 2 },
-      { key: 'stochastic', name: 'ستوكاستيك', checked: true, weight: 2 },
-      { key: 'adx', name: 'ADX', checked: true, weight: 2 },
-      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 2 },
-      { key: 'cvd', name: 'CVD', checked: true, weight: 2 },
-      { key: 'btc120', name: 'بيتكوين 120', checked: true, weight: 2 },
-      { key: 'dominance', name: 'هيمنة البيتكوين', checked: true, weight: 2 },
-      { key: 'feargreed', name: 'الخوف والطمع', checked: true, weight: 2 },
-      { key: 'futures', name: 'مناطق الفيوتشر', checked: true, weight: 2 },
-      { key: 'openinterest', name: 'الفائدة المفتوحة', checked: true, weight: 2 },
-      { key: 'longshort', name: 'نسبة الشراء/البيع', checked: true, weight: 2 },
-      { key: 'bbpercentb', name: 'Bollinger %B', checked: true, weight: 1 },
-      { key: 'stochrsi', name: 'Stochastic RSI', checked: true, weight: 1 },
-      { key: 'williamsr', name: 'Williams %R', checked: true, weight: 1 },
-      { key: 'rsidiv', name: 'انحراف RSI', checked: true, weight: 1 },
-      { key: 'chop', name: 'Choppiness', checked: true, weight: 1 },
-      { key: 'pivot', name: 'نقاط الارتكاز', checked: true, weight: 1 },
-      { key: 'candlecmp', name: 'مقارنة الشموع', checked: true, weight: 1 },
-      { key: 'btclayer', name: 'طبقة البيتكوين', checked: true, weight: 1 },
-      { key: 'volprofile', name: 'بروفايل الحجم', checked: true, weight: 1 },
-      { key: 'stab-adx', name: 'ADX ثبات', checked: false, weight: 1 },
-      { key: 'stab-ichimoku', name: 'إيشيموكو ثبات', checked: false, weight: 1 },
-      { key: 'stab-obv', name: 'OBV ثبات', checked: false, weight: 1 },
-    ]},
-    final: { label: 'القرار النهائي', indicators: [
-      { key: 'decision', name: 'مربع القرار', checked: true, weight: 35 },
-      { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 20 },
-      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 35 },
-      { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
-    ]},
-    earlyup: { label: 'الارتفاع المبكر', indicators: [
-      { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
-      { key: 'cvd', name: 'CVD', checked: true, weight: 3 },
-      { key: 'obv', name: 'OBV', checked: true, weight: 3 },
-      { key: 'accdist', name: 'تجميع', checked: true, weight: 3 },
-      { key: 'openinterest', name: 'فائدة مفتوحة', checked: true, weight: 3 },
-      { key: 'rsi', name: 'تشبع بيعي', checked: true, weight: 2 },
-      { key: 'stochastic', name: 'ستوكاستك', checked: true, weight: 2 },
-      { key: 'stochrsi', name: 'StochRSI', checked: true, weight: 2 },
-      { key: 'williamsr', name: 'Williams', checked: true, weight: 2 },
-      { key: 'bb', name: 'ارتداد بولينجر', checked: true, weight: 2 },
-      { key: 'bbpercentb', name: '%B', checked: true, weight: 2 },
-      { key: 'longshort', name: 'نسبة شراء/بيع', checked: true, weight: 2 },
-      { key: 'futures', name: 'تمويل', checked: true, weight: 2 },
-      { key: 'volprofile', name: 'بروفايل', checked: true, weight: 1 },
-      { key: 'grp-reversal', name: 'ارتداد جماعي', checked: true, weight: 1 },
-      { key: 'grp-stability', name: 'ثبات جماعي', checked: true, weight: 1 },
-      { key: 'grp-volume', name: 'حجم جماعي', checked: true, weight: 1 },
-      { key: 'grp-momentum', name: 'زخم جماعي', checked: true, weight: 1 },
-    ]},
-    earlydown: { label: 'النزول المبكر', indicators: [
-      { key: 'rsidiv', name: 'انحراف سلبي', checked: true, weight: 3 },
-      { key: 'cvd', name: 'CVD', checked: true, weight: 3 },
-      { key: 'obv', name: 'OBV', checked: true, weight: 3 },
-      { key: 'accdist', name: 'تصريف', checked: true, weight: 3 },
-      { key: 'openinterest', name: 'فائدة مفتوحة', checked: true, weight: 3 },
-      { key: 'rsi', name: 'تشبع شرائي', checked: true, weight: 2 },
-      { key: 'stochastic', name: 'ستوكاستك', checked: true, weight: 2 },
-      { key: 'stochrsi', name: 'StochRSI', checked: true, weight: 2 },
-      { key: 'williamsr', name: 'Williams', checked: true, weight: 2 },
-      { key: 'bb', name: 'رفض بولينجر', checked: true, weight: 2 },
-      { key: 'bbpercentb', name: '%B', checked: true, weight: 2 },
-      { key: 'longshort', name: 'نسبة شراء/بيع', checked: true, weight: 2 },
-      { key: 'futures', name: 'تمويل', checked: true, weight: 2 },
-      { key: 'volprofile', name: 'بروفايل', checked: true, weight: 1 },
-      { key: 'grp-reversal', name: 'ارتداد جماعي', checked: true, weight: 1 },
-      { key: 'grp-stability', name: 'ثبات جماعي', checked: true, weight: 1 },
-      { key: 'grp-volume', name: 'حجم جماعي', checked: true, weight: 1 },
-      { key: 'grp-momentum', name: 'زخم جماعي', checked: true, weight: 1 },
-    ]},
+if (AUTH_ENABLED) {
+  app.use(authMiddleware);
+  app.use(sessionLimitMiddleware);
+}
+
+// REST
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/favicon.ico', (_req, res) => res.status(204).end());
+app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
+
+// نظرة عامة على السوق
+let marketCache = { data: null, ts: 0 };
+const MARKET_CACHE_MS = 60 * 1000;
+
+app.get('/api/market-overview', async (_req, res) => {
+  const now = Date.now();
+  if (marketCache.data && now - marketCache.ts < MARKET_CACHE_MS) return res.json(marketCache.data);
+
+  const result = { fearGreed: null, btcDominance: null, totalMarketCap: null, marketCapChange24h: null, totalVolume24h: null, fundingRate: null, openInterest: null, updatedAt: new Date().toISOString(), errors: [] };
+  try { const r = await axios.get('https://api.alternative.me/fng/?limit=1', { timeout: 8000 }); const d = r.data?.data?.[0]; if (d) result.fearGreed = { value: Number(d.value), label: d.value_classification }; } catch (e) { result.errors.push('fearGreed'); }
+  try { const r = await axios.get('https://api.coingecko.com/api/v3/global', { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } }); const d = r.data?.data; if (d) { result.btcDominance = d.market_cap_percentage?.btc ?? null; result.totalMarketCap = d.total_market_cap?.usd ?? null; result.totalVolume24h = d.total_volume?.usd ?? null; result.marketCapChange24h = d.market_cap_change_percentage_24h_usd ?? null; } } catch (e) { result.errors.push('coingecko'); }
+  try { const r = await axios.get('https://contract.mexc.com/api/v1/contract/funding_rate/BTC_USDT', { timeout: 8000 }); const fr = r.data?.data?.fundingRate; if (fr != null) result.fundingRate = Number(fr) * 100; } catch (e) { result.errors.push('fundingRate'); }
+  try { const r = await axios.get('https://contract.mexc.com/api/v1/contract/open_interest/BTC_USDT', { timeout: 8000 }); const oi = r.data?.data?.holdVol ?? r.data?.data?.amount; if (oi != null) result.openInterest = Number(oi); } catch (e) { result.errors.push('openInterest'); }
+  marketCache = { data: result, ts: now };
+  res.json(result);
+});
+
+// الطبقة الكلية
+const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
+let macroCache = { data: null, ts: 0 };
+const MACRO_CACHE_MS = 60 * 1000;
+
+async function computeDxyProxy() {
+  const pairs = ['EUR/USD','USD/JPY','GBP/USD','USD/CAD','USD/SEK','USD/CHF'];
+  const r = await axios.get('https://api.twelvedata.com/price', { params: { symbol: pairs.join(','), apikey: TWELVE_DATA_KEY }, timeout: 8000 });
+  const d = r.data;
+  const get = (sym) => { const v = pairs.length === 1 ? d : d[sym]; if (!v || !v.price) throw new Error(v?.message || `تعذّر جلب ${sym}`); return parseFloat(v.price); };
+  const eurusd = get('EUR/USD'), usdjpy = get('USD/JPY'), gbpusd = get('GBP/USD'), usdcad = get('USD/CAD'), usdsek = get('USD/SEK'), usdchf = get('USD/CHF');
+  return 50.14348112 * Math.pow(eurusd, -0.576) * Math.pow(usdjpy, 0.136) * Math.pow(gbpusd, -0.119) * Math.pow(usdcad, 0.091) * Math.pow(usdsek, 0.042) * Math.pow(usdchf, 0.036);
+}
+
+app.get('/api/macro-overview', async (_req, res) => {
+  const now = Date.now();
+  if (macroCache.data && now - macroCache.ts < MACRO_CACHE_MS) return res.json(macroCache.data);
+  const result = { dxy: null, news: null, dxyError: null, errors: [] };
+  if (!TWELVE_DATA_KEY) { result.errors.push('no_twelvedata_key'); result.dxyError = 'لا يوجد مفتاح TWELVE_DATA_KEY'; }
+  else { try { result.dxy = await computeDxyProxy(); } catch (e) { result.errors.push('dxy'); result.dxyError = e.response?.data?.message || e.message; } }
+  macroCache = { data: result, ts: now };
+  res.json(result);
+});
+
+// فيوتشر متعدد المنصات
+async function fetchBinanceFutures(symbol) {
+  const out = {};
+  try { const r = await axios.get(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`, { timeout: 8000 }); if (r.data?.lastFundingRate != null) out.fundingRate = Number(r.data.lastFundingRate) * 100; } catch (e) {}
+  try { const r = await axios.get(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`, { timeout: 8000 }); if (r.data?.openInterest != null) out.openInterest = Number(r.data.openInterest); } catch (e) {}
+  try { const r = await axios.get(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`, { timeout: 8000 }); const d = r.data?.[0]; if (d) { out.longShortRatio = Number(d.longShortRatio); out.longAccountPct = Number(d.longAccount) * 100; out.shortAccountPct = Number(d.shortAccount) * 100; } } catch (e) {}
+  return Object.keys(out).length ? out : null;
+}
+
+async function fetchOkxFutures(symbol) {
+  const base = symbol.replace(/USDT$/, ''); const instId = `${base}-USDT-SWAP`; const out = {};
+  try { const r = await axios.get(`https://www.okx.com/api/v5/public/funding-rate?instId=${instId}`, { timeout: 8000 }); const fr = r.data?.data?.[0]?.fundingRate; if (fr != null) out.fundingRate = Number(fr) * 100; } catch (e) {}
+  try { const r = await axios.get(`https://www.okx.com/api/v5/public/open-interest?instId=${instId}`, { timeout: 8000 }); const oi = r.data?.data?.[0]?.oi; if (oi != null) out.openInterest = Number(oi); } catch (e) {}
+  try { const r = await axios.get(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio?ccy=${base}&period=5m`, { timeout: 8000 }); const d = r.data?.data?.[0]; if (d && d[1] != null) out.longShortRatio = Number(d[1]); } catch (e) {}
+  return Object.keys(out).length ? out : null;
+}
+
+async function fetchMexcFutures(symbol) {
+  const contractSymbol = symbol.replace(/USDT$/, '_USDT'); const out = {};
+  try { const r = await axios.get(`https://contract.mexc.com/api/v1/contract/funding_rate/${contractSymbol}`, { timeout: 8000 }); const fr = r.data?.data?.fundingRate; if (fr != null) out.fundingRate = Number(fr) * 100; } catch (e) {}
+  try { const r = await axios.get(`https://contract.mexc.com/api/v1/contract/open_interest/${contractSymbol}`, { timeout: 8000 }); const oi = r.data?.data?.holdVol ?? r.data?.data?.amount; if (oi != null) out.openInterest = Number(oi); } catch (e) {}
+  return Object.keys(out).length ? out : null;
+}
+
+app.get('/api/futures-zone', async (req, res) => {
+  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
+  const [binance, okx, mexc] = await Promise.all([
+    fetchBinanceFutures(symbol).catch(() => null),
+    fetchOkxFutures(symbol).catch(() => null),
+    fetchMexcFutures(symbol).catch(() => null),
+  ]);
+  const exchanges = {};
+  if (binance) exchanges.binance = binance;
+  if (okx) exchanges.okx = okx;
+  if (mexc) exchanges.mexc = mexc;
+  const fundingRates = Object.values(exchanges).map(e => e.fundingRate).filter(v => v != null);
+  const openInterests = Object.values(exchanges).map(e => e.openInterest).filter(v => v != null);
+  const longShortRatios = Object.values(exchanges).map(e => e.longShortRatio).filter(v => v != null);
+  const aggregate = {
+    avgFundingRate: fundingRates.length ? fundingRates.reduce((a,b)=>a+b,0)/fundingRates.length : null,
+    fundingRateSpread: fundingRates.length >= 2 ? Math.max(...fundingRates)-Math.min(...fundingRates) : null,
+    totalOpenInterest: openInterests.length ? openInterests.reduce((a,b)=>a+b,0) : null,
+    avgLongShortRatio: longShortRatios.length ? longShortRatios.reduce((a,b)=>a+b,0)/longShortRatios.length : null,
+    exchangeCount: Object.keys(exchanges).length,
   };
+  res.json({ fundingRate: aggregate.avgFundingRate, openInterest: aggregate.totalOpenInterest, exchanges, aggregate });
+});
 
-  let boxConfigs = loadBoxConfigs();
+// WebSocket Server
+const wss = new WebSocket.Server({ server });
 
-  function loadBoxConfigs() {
-    try {
-      const saved = JSON.parse(localStorage.getItem('boxConfigs') || 'null');
-      if (saved) {
-        const merged = {};
-        for (const bk of Object.keys(DEFAULT_BOX_CONFIGS)) {
-          merged[bk] = { label: DEFAULT_BOX_CONFIGS[bk].label, indicators: DEFAULT_BOX_CONFIGS[bk].indicators.map((def) => {
-            const savedInd = saved[bk] && saved[bk].indicators ? saved[bk].indicators.find((i) => i.key === def.key) : null;
-            return savedInd ? { ...def, checked: !!savedInd.checked, weight: Number(savedInd.weight) } : { ...def };
-          }) };
+wss.on('connection', (ws, req) => {
+  if (AUTH_ENABLED && !checkBasicAuth(req)) { ws.close(4001, 'Unauthorized'); return; }
+  sweepSessions();
+  const cookies = parseCookies(req);
+  const sid = cookies.sid;
+  const isKnown = sid && activeSessions.has(sid);
+  if (AUTH_ENABLED && !isKnown && activeSessions.size >= MAX_USERS) { ws.close(4002, 'SERVER_FULL'); return; }
+  if (sid) activeSessions.set(sid, Date.now());
+
+  if (explosionRanking.length) {
+    ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking.slice(0, 3) }));
+  }
+  ws.send(botStatusPayload());
+
+  ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+
+    if (msg.type === 'subscribe') {
+      const { symbol, interval } = msg;
+      const validSymbol = typeof symbol === 'string' && /^[A-Z0-9]{2,20}USDT$/.test(symbol);
+      if (!validSymbol || !INTERVALS.includes(interval)) return ws.send(JSON.stringify({ type: 'error', message: 'رمز أو فترة غير صحيحة' }));
+      if (sid) activeSessions.set(sid, Date.now());
+      clientSubs.set(ws, { symbol, interval });
+      await ensureStream(symbol, interval);
+      await ensureStream(symbol, '15m');
+      sendSnapshot(ws, symbol, interval);
+      for (const iv of INTERVALS) { if (iv !== interval && iv !== '15m') ensureStream(symbol, iv).then(() => broadcastMtfUpdate(symbol, true)); }
+      broadcastMtfUpdate(symbol, true);
+    }
+    else if (msg.type === 'bot_toggle') {
+      if (msg.enabled) {
+        const hasKeys = botState.exchange === 'binance'
+          ? (BINANCE_API_KEY && BINANCE_API_SECRET)
+          : (MEXC_API_KEY && MEXC_API_SECRET);
+        if (!hasKeys) {
+          ws.send(JSON.stringify({ type: 'error', message: `لا يوجد مفتاح API معرّف لمنصة ${botState.exchange === 'binance' ? 'Binance' : 'MEXC'} — أضِف متغيرات البيئة أولاً` }));
+          return;
         }
-        return merged;
       }
-    } catch (e) {}
-    return JSON.parse(JSON.stringify(DEFAULT_BOX_CONFIGS));
-  }
-  function saveBoxConfigs() { try { localStorage.setItem('boxConfigs', JSON.stringify(boxConfigs)); } catch (e) {} }
-
-  function weightedLean(boxKey, leanMap) {
-    const cfg = boxConfigs[boxKey];
-    if (!cfg) return 0;
-    const active = cfg.indicators.filter((i) => i.checked && leanMap[i.key] != null);
-    const totalW = active.reduce((s, i) => s + Number(i.weight || 0), 0);
-    if (totalW <= 0) return 0;
-    return active.reduce((s, i) => s + leanMap[i.key] * (Number(i.weight) / totalW), 0);
-  }
-  function dirWord3(lean, threshold = 0.15) {
-    if (lean > threshold) return { dir: 'up', word: 'صعود' };
-    if (lean < -threshold) return { dir: 'down', word: 'هبوط' };
-    return { dir: 'neutral', word: 'محايد' };
-  }
-  function weightedTriggerPct(boxKey, triggerMap) {
-    const cfg = boxConfigs[boxKey];
-    if (!cfg) return 0;
-    const active = cfg.indicators.filter((i) => i.checked && triggerMap[i.key] != null);
-    const totalW = active.reduce((s, i) => s + Number(i.weight || 0), 0);
-    if (totalW <= 0) return 0;
-    return active.reduce((s, i) => s + (triggerMap[i.key] ? 1 : 0) * (Number(i.weight) / totalW), 0);
-  }
-
-  function renderBoxConfigDropdown(boxKey, containerId) {
-    const cfg = boxConfigs[boxKey];
-    const container = document.getElementById(containerId);
-    if (!container || !cfg) return;
-    container.innerHTML = cfg.indicators.map((ind, idx) => `
-      <div class="cfg-row">
-        <input type="checkbox" class="cfg-check" data-box="${boxKey}" data-idx="${idx}" ${ind.checked ? 'checked' : ''}>
-        <span class="cfg-name">${ind.name} <span class="cfg-live">(${liveValueLabel(boxKey, ind.key)})</span></span>
-        <input type="number" class="cfg-weight" data-box="${boxKey}" data-idx="${idx}" value="${ind.weight}" min="0" step="1">
-        <span class="cfg-pct-sign">%</span>
-      </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
-  }
-
-  ['decision', 'fourbox', 'secondary', 'allind', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
-    const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
-    renderBoxConfigDropdown(bk, containerId);
-  });
-
-  let lastLeanMaps = {};
-  function liveValueLabel(boxKey, key) {
-    const map = lastLeanMaps[boxKey];
-    if (!map || map[key] == null) return 'غير متاح';
-    const v = dirWord3(map[key]);
-    return `${v.word} ${Math.round(Math.abs(map[key]) * 100)}%`;
-  }
-
-  document.addEventListener('change', (e) => {
-    if (e.target.classList.contains('cfg-check')) {
-      const { box, idx } = e.target.dataset;
-      boxConfigs[box].indicators[idx].checked = e.target.checked;
-    } else if (e.target.classList.contains('cfg-weight')) {
-      const { box, idx } = e.target.dataset;
-      boxConfigs[box].indicators[idx].weight = parseFloat(e.target.value) || 0;
+      botState.enabled = !!msg.enabled;
+      broadcastBotStatus();
     }
-  });
-  document.addEventListener('click', (e) => {
-    if (e.target.classList.contains('cfg-save-btn')) {
-      saveBoxConfigs();
-      renderConsensus();
+    else if (msg.type === 'bot_set_exchange') {
+      if (msg.exchange === 'mexc' || msg.exchange === 'binance') {
+        botState.exchange = msg.exchange;
+        broadcastBotStatus();
+      }
+    }
+    else if (msg.type === 'bot_set_trade_size') {
+      const v = parseFloat(msg.tradeSizeUsdt);
+      if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_set_take_profit') {
+      const v = parseFloat(msg.takeProfitPercent);
+      if (v > 0 && v <= 100) { botState.takeProfitPercent = v; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_set_max_positions') {
+      const v = parseInt(msg.maxConcurrentPositions, 10);
+      if (v >= 1 && v <= SCAN_SYMBOLS.length) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_manual_close') {
+      const { symbol } = msg;
+      if (botState.positions[symbol]) {
+        executeBotSell(symbol, null, 'إغلاق يدوي من المستخدم').catch((err) => {
+          const detail = err.response?.data?.msg || err.message;
+          ws.send(JSON.stringify({ type: 'error', message: 'فشل إغلاق الصفقة: ' + detail }));
+          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
+          broadcastBotStatus();
+        });
+      }
+    }
+    else if (msg.type === 'bot_cancel_pending') {
+      const { symbol } = msg;
+      const pending = botState.pendingOrders[symbol];
+      if (pending) {
+        (async () => {
+          try {
+            await cancelOrder(pending.exchange, symbol, pending.orderId);
+            delete botState.pendingOrders[symbol];
+            botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: 'أُلغي الأمر المعلّق يدويًا من المستخدم' });
+            botState.tradeLog = botState.tradeLog.slice(0, 50);
+            broadcastBotStatus();
+          } catch (err) {
+            const detail = err.response?.data?.msg || err.message;
+            ws.send(JSON.stringify({ type: 'error', message: 'فشل إلغاء الأمر: ' + detail }));
+          }
+        })();
+      }
     }
   });
 
-  function toggleCfgDropdown(id) { document.getElementById(id).classList.toggle('open'); }
-  document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
-  document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
-  document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
-  document.getElementById('p-allind-wrap').addEventListener('click', () => toggleCfgDropdown('allind-cfg'));
-  document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
-  document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
-  document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
+  ws.on('close', () => clientSubs.delete(ws));
+  ws.on('error', () => clientSubs.delete(ws));
+});
 
-  // ════════════════════ الحالة العامة ════════════════════
-  let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
-  let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0;
+// طبقة أفضل 3 عملات
+const SCAN_INTERVAL = '15m';
+const SCAN_SYMBOLS = SYMBOLS;
 
-  function setPill(id, cls, text) { const el = document.getElementById(id); if (el) { el.className = `pill-value ${cls}`; el.textContent = text; } }
+let explosionRanking = [];
 
-  function renderDecision(d) {
-    if (!d) return;
-    const trendMap = { 'صعود': ['up', 'صعود'], 'هبوط': ['down', 'هبوط'], 'تذبذب': ['neutral', 'تذبذب'] };
-    const [tc, tl] = trendMap[d.trend] || ['neutral', d.trend];
-    setPill('p-trend', tc, tl);
-    lastTrendSign = d.trend === 'صعود' ? 1 : d.trend === 'هبوط' ? -1 : 0;
+function computeExplosionScore(candles) {
+  if (!candles || candles.length < 80) return null;
+  const closes = candles.map(c => c.close);
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+  const volumes = candles.map(c => c.volume);
+  const n = closes.length;
 
-    const actionMap = { 'buy zone': ['up', 'صعود'], 'sell zone': ['down', 'هبوط'], 'wait': ['neutral', 'انتظر'] };
-    const [ac, al] = actionMap[d.action] || ['neutral', d.action];
-    setPill('p-action', ac, al);
-    lastActionSign = d.action === 'buy zone' ? 1 : d.action === 'sell zone' ? -1 : 0;
+  const bbArr = BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
+  if (bbArr.length < 40) return null;
+  const bbWidths = bbArr.map(b => b.middle ? (b.upper - b.lower) / b.middle : 0);
+  const lastBB = bbArr[bbArr.length - 1];
+  const lastWidth = bbWidths[bbWidths.length - 1];
+  const widthWindow = bbWidths.slice(-100);
+  const minW = Math.min(...widthWindow), maxW = Math.max(...widthWindow);
+  const widthPercentile = maxW > minW ? (lastWidth - minW) / (maxW - minW) : 0.5;
 
-    const conf = Math.min(100, Math.max(0, d.confidence));
-    setPill('p-conf', conf >= 50 ? 'up' : 'down', `${conf}%`);
-    lastConfidence = conf;
+  const trArr = [];
+  for (let i = 1; i < n; i++) trArr.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
+  const atrPeriod = 14;
+  if (trArr.length < atrPeriod) return null;
+  const atrSeries = [];
+  let atrVal = trArr.slice(0, atrPeriod).reduce((a,b)=>a+b,0) / atrPeriod;
+  atrSeries.push(atrVal);
+  for (let i = atrPeriod; i < trArr.length; i++) { atrVal = (atrVal * (atrPeriod-1) + trArr[i]) / atrPeriod; atrSeries.push(atrVal); }
+  const lastAtr = atrSeries[atrSeries.length-1];
+  const atrWindow = atrSeries.slice(-60);
+  const atrMin = Math.min(...atrWindow), atrMax = Math.max(...atrWindow);
+  const atrPercentile = atrMax > atrMin ? (lastAtr - atrMin) / (atrMax - atrMin) : 0.5;
 
-    const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
-    const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
-    setPill('p-overall', oc, ol);
+  const ema20Arr = EMA.calculate({ values: closes, period: 20 });
+  const lastEma20 = ema20Arr[ema20Arr.length-1];
+  const kcUpper = lastEma20 + lastAtr * 1.5;
+  const kcLower = lastEma20 - lastAtr * 1.5;
+  const squeezeOn = lastBB.upper < kcUpper && lastBB.lower > kcLower;
 
-    if (d.buyZone) document.getElementById('buy-zone-range').innerHTML = `${d.buyZone.from} – ${d.buyZone.to}`;
-    if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
+  const avgVol5 = volumes.slice(-5).reduce((a,b)=>a+b,0) / 5;
+  const avgVol50 = volumes.slice(-50).reduce((a,b)=>a+b,0) / 50;
+  const volRatio = avgVol50 > 0 ? avgVol5 / avgVol50 : 1;
 
-    const list = document.getElementById('notes-list');
-    list.innerHTML = '';
-    (d.notes || []).forEach(n => {
-      const bull = /شراء|صعود|دعم|قوي/.test(n) && !/بيع|هبوط|مقاومة/.test(n);
-      const bear = /بيع|هبوط|مقاومة|تصحيح/.test(n);
-      const cls = bull ? 'bull' : bear ? 'bear' : 'neutral';
-      const li = document.createElement('li');
-      li.innerHTML = `<span class="dot ${cls}"></span><span>${n}</span>`;
-      list.appendChild(li);
-    });
+  let obvVal = 0; const obvArr = [0];
+  for (let i = 1; i < n; i++) { if (closes[i] > closes[i-1]) obvVal += volumes[i]; else if (closes[i] < closes[i-1]) obvVal -= volumes[i]; obvArr.push(obvVal); }
+  const obvSlice = obvArr.slice(-20);
+  const obvSlope = obvSlice[obvSlice.length-1] - obvSlice[0];
 
-    renderConsensus();
+  const rsiArr = RSI.calculate({ values: closes, period: 14 });
+  const lastRsi = rsiArr.length ? rsiArr[rsiArr.length-1] : null;
+
+  let lastMfi = null;
+  { const period = 14; const typicalPrices = closes.map((c,i)=>(highs[i]+lows[i]+c)/3); const rawMF = typicalPrices.map((tp,i)=>tp*volumes[i]); if (n > period) { let posMF=0, negMF=0; for (let i=n-period;i<n;i++){ if (typicalPrices[i] > typicalPrices[i-1]) posMF += rawMF[i]; else if (typicalPrices[i] < typicalPrices[i-1]) negMF += rawMF[i]; } lastMfi = negMF===0 ? 100 : 100 - (100/(1+posMF/negMF)); } }
+
+  let lastCmf = null;
+  { const period = 20; const win = candles.slice(-period); let mfvSum=0, volSum=0; for (const c of win) { const range = c.high-c.low; const mfm = range ? ((c.close-c.low)-(c.high-c.close))/range : 0; mfvSum += mfm*c.volume; volSum += c.volume; } lastCmf = volSum>0 ? mfvSum/volSum : 0; }
+
+  const rangeHigh = Math.max(...highs.slice(-50));
+  const rangeLow = Math.min(...lows.slice(-50));
+  const pricePosition = rangeHigh > rangeLow ? (closes[n-1] - rangeLow) / (rangeHigh - rangeLow) : 0.5;
+  const priceThen = closes[n-21] ?? closes[0];
+  const recentGainPct = priceThen ? ((closes[n-1] - priceThen) / priceThen) * 100 : 0;
+
+  const obvDir = obvSlope > 0 ? 'up' : obvSlope < 0 ? 'down' : 'neutral';
+  const cmfDir = lastCmf > 0.03 ? 'up' : lastCmf < -0.03 ? 'down' : 'neutral';
+  let direction = 'neutral';
+  if (obvDir !== 'neutral' && obvDir === cmfDir) direction = obvDir;
+  else if (obvDir !== 'neutral' && cmfDir === 'neutral') direction = obvDir;
+  else if (cmfDir !== 'neutral' && obvDir === 'neutral') direction = cmfDir;
+
+  let score = 0;
+  score += (1 - Math.max(0, Math.min(1, widthPercentile))) * 25;
+  score += (1 - Math.max(0, Math.min(1, atrPercentile))) * 15;
+  score += squeezeOn ? 10 : 0;
+  score += Math.max(0, Math.min(1, (volRatio-1)*2)) * 15;
+  score += Math.min(1, Math.abs(obvSlope) / (avgVol50*20 || 1)) * 10;
+  if (lastMfi != null) { if (lastMfi >= 40 && lastMfi <= 65) score += 10; else if (lastMfi > 85) score -= 15; }
+  if (direction !== 'neutral' && cmfDir === direction) score += 8;
+  const overextPenalty = pricePosition > 0.8 ? ((pricePosition-0.8)/0.2)*30 : 0;
+  score -= overextPenalty;
+  const gainPenalty = recentGainPct > 10 ? Math.min(1, (recentGainPct-10)/15)*20 : 0;
+  score -= gainPenalty;
+  const rsiPenalty = lastRsi != null && lastRsi > 70 ? Math.min(1, (lastRsi-70)/15)*15 : 0;
+  score -= rsiPenalty;
+
+  // أفضلية السعر المنخفض
+  const price = closes[n-1];
+  let priceBias = 0;
+  if (price < 1) priceBias = 12;
+  else if (price < 2) priceBias = 8;
+  else if (price < 5) priceBias = 5;
+  else if (price <= 50) priceBias = 2;
+  else if (price > 200) priceBias = -5;
+  score += priceBias;
+
+  const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
+
+  return {
+    score: Math.round(Math.max(0, Math.min(100, score))),
+    direction,
+    price,
+    overextended,
+    pricePosition: Math.round(pricePosition*100),
+    recentGainPct: Math.round(recentGainPct*10)/10,
+    rsi: lastRsi != null ? Math.round(lastRsi) : null,
+    volRatio: Math.round(volRatio*100)/100,
+  };
+}
+
+function runExplosionScan() {
+  const results = [];
+  for (const symbol of SCAN_SYMBOLS) {
+    const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+    const res = computeExplosionScore(candles);
+    if (res) results.push({ symbol, ...res });
   }
+  results.sort((a, b) => b.score - a.score);
+  explosionRanking = results.slice(0, 3);
+  broadcastExplosionScan();
+}
 
-  function renderConsensus() {
-    const verdicts = Object.values(consensusTracker);
-    if (!verdicts.length) return;
-    // ... (حساب المجموعات والمربعات) ...
+function broadcastExplosionScan() {
+  if (!explosionRanking.length) return;
+  const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(payload);
   }
+}
 
-  function renderFourBoxDecision() {
-    // ... (الحساب) ...
+(async () => {
+  for (const symbol of SCAN_SYMBOLS) { await ensureStream(symbol, SCAN_INTERVAL); }
+  setTimeout(runExplosionScan, 5000);
+})();
+setInterval(runExplosionScan, 5 * 60 * 1000);
+
+// دوال المصادر التاريخية والبث اللحظي
+async function fetchHistoricalBinance(symbol, interval, limit = 300) {
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const { data } = await axios.get(url, { timeout: 8000 });
+  return data.map(k => ({
+    time: Math.floor(k[0] / 1000),
+    open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]),
+    volume: parseFloat(k[5]), isClosed: true,
+  }));
+}
+async function fetchHistoricalMexc(symbol, interval, limit = 300) {
+  const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const { data } = await axios.get(url, { timeout: 10000 });
+  return data.map(k => ({
+    time: Math.floor(k[0] / 1000),
+    open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]),
+    volume: parseFloat(k[5]), isClosed: true,
+  }));
+}
+async function fetchHistoricalOkx(symbol, interval, limit = 300) {
+  const instId = symbol.replace(/USDT$/, '-USDT');
+  const bar = OKX_BAR[interval] || interval;
+  const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=${limit}`;
+  const { data } = await axios.get(url, { timeout: 10000 });
+  const rows = data.data || [];
+  return rows.map(r => ({
+    time: Math.floor(Number(r[0]) / 1000),
+    open: parseFloat(r[1]), high: parseFloat(r[2]), low: parseFloat(r[3]), close: parseFloat(r[4]),
+    volume: parseFloat(r[5]), isClosed: true,
+  })).reverse();
+}
+
+function updateCandleStore(symbol, interval, candle) {
+  const key = `${symbol}_${interval}`;
+  if (!candleStore[key]) candleStore[key] = [];
+  const candles = candleStore[key];
+  const lastC = candles[candles.length - 1];
+  if (lastC && lastC.time === candle.time) candles[candles.length - 1] = candle;
+  else if (!lastC || candle.time > lastC.time) {
+    candles.push(candle);
+    if (candles.length > 600) candles.shift();
   }
-  function renderSecondaryBox() { /* ... */ }
-  function renderAllIndicatorsBox() { /* ... */ }
-  function renderFrameBox() { /* ... */ }
-  function renderEarlyBoxes() { /* ... */ }
+}
 
-  // ════════════════════ بوت التداول ════════════════════
-  function handleBotStatus(msg) {
-    lastBotStatus = msg;
-    const checkbox = document.getElementById('bot-enable-checkbox');
-    const statusText = document.getElementById('bot-status-text');
-    checkbox.checked = msg.enabled;
-    statusText.textContent = msg.enabled ? 'يعمل الآن ⚡' : 'متوقف';
-    statusText.className = msg.enabled ? 'on' : 'off';
+async function fetchHistorical(symbol, interval, limit = 300) {
+  try {
+    const c = await fetchHistoricalBinance(symbol, interval, limit);
+    console.log(`[${symbol}_${interval}] بيانات تاريخية من Binance`);
+    return c;
+  } catch (err) { console.warn(`[${symbol}_${interval}] فشل Binance (${err.message}) — تجربة MEXC`); }
 
-    document.getElementById('bot-exchange-select').value = msg.exchange;
-    document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
-    if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
-    if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
+  try {
+    const c = await fetchHistoricalMexc(symbol, interval, limit);
+    console.log(`[${symbol}_${interval}] بيانات تاريخية من MEXC`);
+    return c;
+  } catch (err) { console.warn(`[${symbol}_${interval}] فشل MEXC (${err.message}) — تجربة OKX`); }
 
-    const sig = msg.lastSignals ? msg.lastSignals[currentSymbol] : null;
-    if (sig) {
-      const actionLabel = sig.action === 'buy' ? '🟢 شراء' : sig.action === 'sell' ? '🔴 بيع' : '⚪ انتظار';
-      document.getElementById('bot-signal-value').textContent = `${actionLabel} (مركّب ${(sig.composite * 100).toFixed(0)}%)`;
-      document.getElementById('bot-decision7-pct').textContent = `${(sig.decision7Signal * 100).toFixed(0)}%`;
-      document.getElementById('bot-fourbox-pct').textContent = `${(sig.fourBoxSignal * 100).toFixed(0)}%`;
-      document.getElementById('bot-secondary-pct').textContent = `${(sig.secondarySignal * 100).toFixed(0)}%`;
-      document.getElementById('bot-frame-pct').textContent = `${(sig.frameSignal * 100).toFixed(0)}%`;
-      document.getElementById('bot-own-pct').textContent = `${(sig.botOwnSignal * 100).toFixed(0)}%`;
+  const c = await fetchHistoricalOkx(symbol, interval, limit);
+  console.log(`[${symbol}_${interval}] بيانات تاريخية من OKX`);
+  return c;
+}
+
+async function ensureStream(symbol, interval) {
+  const key = `${symbol}_${interval}`;
+  if (streamWs[key] !== undefined) return;
+  streamWs[key] = null;
+  try {
+    const candles = await fetchHistorical(symbol, interval, 300);
+    candleStore[key] = candles;
+    console.log(`[${key}] loaded ${candles.length} historical candles`);
+  } catch (err) {
+    console.error(`[${key}] فشلت كل المصادر التاريخية:`, err.message);
+    candleStore[key] = [];
+  }
+  connectStream(symbol, interval);
+}
+
+function connectStream(symbol, interval) {
+  connectBinanceStream(symbol, interval, () => connectMexcStream(symbol, interval, () => connectOkxStream(symbol, interval)));
+}
+
+function connectBinanceStream(symbol, interval, onFail) {
+  const key = `${symbol}_${interval}`;
+  const wsUrl = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
+  const ws = new WebSocket(wsUrl);
+  streamWs[key] = ws;
+  let hasReceivedData = false;
+  const failTimer = setTimeout(() => { if (!hasReceivedData) { console.warn(`[${key}] Binance لم يستجب خلال 8 ثوانٍ — تجربة MEXC`); try { ws.terminate(); } catch (e) {} } }, 8000);
+  ws.on('open', () => console.log(`[${key}] Binance stream connected`));
+  ws.on('message', (raw) => {
+    hasReceivedData = true;
+    clearTimeout(failTimer);
+    let msg; try { msg = JSON.parse(raw); } catch { return; }
+    const k = msg.k;
+    if (!k) return;
+    updateCandleStore(symbol, interval, { time: Math.floor(k.t / 1000), open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c), volume: parseFloat(k.v), isClosed: k.x === true });
+    broadcastUpdate(symbol, interval);
+  });
+  ws.on('error', (err) => console.error(`[${key}] Binance WS error:`, err.message));
+  ws.on('close', () => {
+    clearTimeout(failTimer);
+    delete streamWs[key];
+    if (!hasReceivedData) { console.warn(`[${key}] بينانس أغلق بدون بيانات — الانتقال لـ MEXC`); onFail(); }
+    else { console.log(`[${key}] Binance stream closed — إعادة الاتصال ببينانس خلال 5 ثوانٍ`); setTimeout(() => connectBinanceStream(symbol, interval, onFail), 5000); }
+  });
+}
+
+function connectMexcStream(symbol, interval, onFail) {
+  const key = `${symbol}_${interval}`;
+  const wsInterval = MEXC_WS_INTERVAL[interval];
+  const topic = `spot@public.kline.v3.api@${symbol}@${wsInterval}`;
+  const ws = new WebSocket('wss://wbs.mexc.com/ws');
+  streamWs[key] = ws;
+  let hasReceivedData = false;
+  const failTimer = setTimeout(() => { if (!hasReceivedData) { console.warn(`[${key}] MEXC لم يستجب خلال 8 ثوانٍ — تجربة OKX`); try { ws.terminate(); } catch (e) {} } }, 8000);
+  ws.on('open', () => { console.log(`[${key}] MEXC stream connected`); ws.send(JSON.stringify({ method: 'SUBSCRIPTION', params: [topic] })); });
+  const ping = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ method: 'PING' })); }, 20000);
+  ws.on('message', (raw) => {
+    let msg; try { msg = JSON.parse(raw); } catch { return; }
+    if (!msg.d || !msg.d.k) return;
+    hasReceivedData = true;
+    clearTimeout(failTimer);
+    const k = msg.d.k;
+    updateCandleStore(symbol, interval, { time: Math.floor(k.t / 1000), open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c), volume: parseFloat(k.v), isClosed: k.X === true });
+    broadcastUpdate(symbol, interval);
+  });
+  ws.on('error', (err) => console.error(`[${key}] MEXC WS error:`, err.message));
+  ws.on('close', () => {
+    clearInterval(ping);
+    clearTimeout(failTimer);
+    delete streamWs[key];
+    if (!hasReceivedData && onFail) { console.warn(`[${key}] MEXC أغلق بدون بيانات — الانتقال لـ OKX`); onFail(); }
+    else { console.log(`[${key}] MEXC stream closed — reconnecting in 5s`); setTimeout(() => connectMexcStream(symbol, interval, onFail), 5000); }
+  });
+}
+
+function connectOkxStream(symbol, interval) {
+  const key = `${symbol}_${interval}`;
+  const instId = symbol.replace(/USDT$/, '-USDT');
+  const channel = `candle${OKX_BAR[interval] || interval}`;
+  const ws = new WebSocket('wss://ws.okx.com:8443/public');
+  streamWs[key] = ws;
+  ws.on('open', () => { console.log(`[${key}] OKX stream connected`); ws.send(JSON.stringify({ op: 'subscribe', args: [{ channel, instId }] })); });
+  const ping = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send('ping'); }, 20000);
+  ws.on('message', (raw) => {
+    if (raw.toString() === 'pong') return;
+    let msg; try { msg = JSON.parse(raw); } catch { return; }
+    const row = msg.data?.[0];
+    if (!row) return;
+    updateCandleStore(symbol, interval, { time: Math.floor(Number(row[0]) / 1000), open: parseFloat(row[1]), high: parseFloat(row[2]), low: parseFloat(row[3]), close: parseFloat(row[4]), volume: parseFloat(row[5]), isClosed: row[8] === '1' });
+    broadcastUpdate(symbol, interval);
+  });
+  ws.on('error', (err) => console.error(`[${key}] OKX WS error:`, err.message));
+  ws.on('close', () => {
+    clearInterval(ping);
+    console.log(`[${key}] OKX stream closed — reconnecting in 5s (آخر مصدر بالتسلسل)`);
+    delete streamWs[key];
+    setTimeout(() => connectOkxStream(symbol, interval), 5000);
+  });
+}
+
+// Broadcast
+function computeIndicatorsFixedReversal(symbol, interval, candles) {
+  const indicators = computeIndicators(candles);
+  if (!indicators) return indicators;
+  if (interval !== '15m') {
+    const candles15 = candleStore[`${symbol}_15m`];
+    if (candles15 && candles15.length >= 30) {
+      const ind15 = computeIndicators(candles15);
+      if (ind15) {
+        indicators.stochRsi = ind15.stochRsi;
+        indicators.bbPercentB = ind15.bbPercentB;
+        indicators.rsiDivergence = ind15.rsiDivergence;
+        indicators.williamsR = ind15.williamsR;
+      }
+    }
+  }
+  indicators.hourlyLayer = computeHourlyLayer(symbol);
+  return indicators;
+}
+
+function computeHourlyLayer(symbol) {
+  const candles1h = candleStore[`${symbol}_1h`];
+  if (!candles1h || candles1h.length < 60) return null;
+  const ind = computeIndicators(candles1h);
+  if (!ind) return null;
+  let bull = 0, bear = 0;
+  const notes = [];
+  if (ind.ema50 != null && ind.ema200 != null) {
+    if (ind.ema50 > ind.ema200) { bull++; notes.push('EMA50 فوق EMA200 (فريم الساعة) — انحياز صاعد متوسط المدى'); }
+    else { bear++; notes.push('EMA50 تحت EMA200 (فريم الساعة) — انحياز هابط متوسط المدى'); }
+  }
+  if (ind.adx) {
+    if (ind.adx.adx >= 20) {
+      if (ind.adx.pdi > ind.adx.mdi) { bull++; notes.push(`ADX قوي وصاعد على فريم الساعة (${ind.adx.adx.toFixed(1)})`); }
+      else { bear++; notes.push(`ADX قوي وهابط على فريم الساعة (${ind.adx.adx.toFixed(1)})`); }
     } else {
-      document.getElementById('bot-signal-value').textContent = 'بانتظار أول دورة';
-      ['bot-decision7-pct','bot-fourbox-pct','bot-secondary-pct','bot-frame-pct','bot-own-pct'].forEach(id => document.getElementById(id).textContent = '—');
+      notes.push(`ADX ضعيف على فريم الساعة (${ind.adx.adx.toFixed(1)}) — لا اتجاه هيكلي واضح بعد`);
     }
+  }
+  if (ind.supertrend) {
+    if (ind.supertrend.trendUp) { bull++; notes.push('Supertrend صاعد على فريم الساعة'); }
+    else { bear++; notes.push('Supertrend هابط على فريم الساعة'); }
+  }
+  if (ind.ichimoku && ind.currentPrice != null) {
+    const cloudTop = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB);
+    const cloudBottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB);
+    if (ind.currentPrice > cloudTop) { bull++; notes.push('السعر فوق سحابة إيشيموكو (فريم الساعة)'); }
+    else if (ind.currentPrice < cloudBottom) { bear++; notes.push('السعر تحت سحابة إيشيموكو (فريم الساعة)'); }
+    else notes.push('السعر داخل سحابة إيشيموكو (فريم الساعة) — منطقة تردد هيكلي');
+  }
+  const verdict = bull > bear ? 'bull' : bear > bull ? 'bear' : 'neutral';
+  return { verdict, bull, bear, notes };
+}
 
-    document.getElementById('bot-manual-close-btn').style.display = msg.positions && msg.positions[currentSymbol] ? 'block' : 'none';
-    document.getElementById('bot-cancel-pending-btn').style.display = msg.pendingOrders && msg.pendingOrders[currentSymbol] ? 'block' : 'none';
+function broadcastUpdate(symbol, interval) {
+  const key = `${symbol}_${interval}`;
+  const candles = candleStore[key];
+  if (!candles || !candles.length) return;
+  const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
+  const decision = makeDecision(indicators);
+  const payload = JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision });
+  for (const [client, sub] of clientSubs) {
+    if (client.readyState === WebSocket.OPEN && sub.symbol === symbol && sub.interval === interval) client.send(payload);
+  }
+  broadcastMtfUpdate(symbol);
+}
 
-    document.getElementById('bot-positions-list').innerHTML = Object.entries(msg.positions || {}).length
-      ? Object.entries(msg.positions).map(([sym, p]) => `<div class="bot-pos-row"><span>${sym}</span><span>${p.qty.toFixed(5)} @ ${p.entryPrice.toFixed(4)}</span></div>`).join('')
-      : 'لا توجد صفقات مفتوحة';
-    document.getElementById('bot-pending-list').innerHTML = Object.entries(msg.pendingOrders || {}).length
-      ? Object.entries(msg.pendingOrders).map(([sym, o]) => `<div class="bot-pos-row"><span>🟡 ${o.side} ${sym}</span><span>${o.qty.toFixed(5)} @ ${o.price}</span></div>`).join('')
-      : 'لا توجد أوامر معلّقة';
-    document.getElementById('bot-trade-log').innerHTML = (msg.tradeLog || []).length
-      ? msg.tradeLog.map(t => {
-          if (t.type === 'error') return `<div class="bot-log-row error-row"><span>⚠️ ${t.symbol}</span><span>${t.message}</span></div>`;
-          const cls = t.side === 'BUY' ? 'buy-row' : 'sell-row';
-          return `<div class="bot-log-row ${cls}"><span>${t.side} ${t.symbol}</span><span>${t.price.toFixed(4)}</span></div>`;
-        }).join('')
-      : 'لا يوجد سجل';
+function sendSnapshot(ws, symbol, interval) {
+  const key = `${symbol}_${interval}`;
+  const candles = candleStore[key];
+  if (!candles || !candles.length) return;
+  const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
+  const decision = makeDecision(indicators);
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision }));
+}
+
+function computeMtfSnapshot(symbol) {
+  const out = {};
+  for (const iv of INTERVALS) {
+    const candles = candleStore[`${symbol}_${iv}`];
+    if (!candles || candles.length < 30) { out[iv] = null; continue; }
+    const indicators = computeIndicatorsFixedReversal(symbol, iv, candles);
+    const decision = indicators ? makeDecision(indicators) : null;
+    out[iv] = decision ? { action: decision.action, confidence: decision.confidence, trend: decision.trend } : null;
+  }
+  return out;
+}
+
+const lastMtfBroadcast = {};
+function broadcastMtfUpdate(symbol, force = false) {
+  const now = Date.now();
+  if (!force && lastMtfBroadcast[symbol] && now - lastMtfBroadcast[symbol] < 3000) return;
+  lastMtfBroadcast[symbol] = now;
+  const snapshot = computeMtfSnapshot(symbol);
+  const payload = JSON.stringify({ type: 'mtf_update', symbol, snapshot });
+  for (const [client, sub] of clientSubs) {
+    if (client.readyState === WebSocket.OPEN && sub.symbol === symbol) client.send(payload);
+  }
+}
+
+// Indicators
+function last(arr) { return arr && arr.length ? arr[arr.length - 1] : undefined; }
+
+function computeIndicators(candles) {
+  if (candles.length < 30) return null;
+  const closes = candles.map(c => c.close);
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+  const volumes = candles.map(c => c.volume);
+  const rsiArr = RSI.calculate({ values: closes, period: 14 });
+  const rsi = last(rsiArr);
+  const macdRaw = last(MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }));
+  const macd = macdRaw ? { value: macdRaw.MACD, signal: macdRaw.signal, histogram: macdRaw.histogram } : null;
+  const bbRaw = last(BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 }));
+  const bb = bbRaw ? { upper: bbRaw.upper, middle: bbRaw.middle, lower: bbRaw.lower } : null;
+  const ema50 = last(EMA.calculate({ values: closes, period: 50 }));
+  const ema200 = closes.length >= 200 ? last(EMA.calculate({ values: closes, period: 200 })) : null;
+  const n = closes.length;
+
+  let sma20 = null;
+  if (n >= 20) {
+    let sum = 0;
+    for (let i = n - 20; i < n; i++) sum += closes[i];
+    sma20 = sum / 20;
   }
 
-  let botErrorTimer = null;
-  function handleBotError(msg) {
-    const el = document.getElementById('bot-error-line');
-    el.textContent = '⚠️ ' + msg.message;
-    el.style.display = 'block';
-    if (botErrorTimer) clearTimeout(botErrorTimer);
-    botErrorTimer = setTimeout(() => el.style.display = 'none', 8000);
-  }
-
-  document.getElementById('bot-enable-checkbox').addEventListener('change', (e) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_toggle', enabled: e.target.checked }));
-  });
-  document.getElementById('bot-exchange-select').addEventListener('change', (e) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_exchange', exchange: e.target.value }));
-  });
-  document.getElementById('bot-save-size-btn').addEventListener('click', () => {
-    const v = parseFloat(document.getElementById('bot-trade-size-input').value);
-    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: v }));
-  });
-  document.getElementById('bot-save-tp-btn').addEventListener('click', () => {
-    const v = parseFloat(document.getElementById('bot-take-profit-input').value);
-    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
-  });
-  document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
-    const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
-    if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
-  });
-  document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: currentSymbol }));
-  });
-  document.getElementById('bot-cancel-pending-btn').addEventListener('click', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_cancel_pending', symbol: currentSymbol }));
-  });
-
-  // ════════════════════ التحكم بالفريمات والعملة ════════════════════
-  document.querySelectorAll('.tf-box').forEach(box => {
-    box.addEventListener('click', () => switchInterval(box.dataset.interval));
-  });
-  function switchInterval(iv) {
-    if (!iv || iv === currentInterval) return;
-    currentInterval = iv;
-    lastPrice = null;
-    showLoading(true);
-    document.querySelectorAll('.tf-box').forEach(b => b.classList.toggle('active', b.dataset.interval === iv));
-    subscribe();
-  }
-
-  document.getElementById('symbol-input').addEventListener('change', applySymbolInput);
-  function applySymbolInput() {
-    let v = document.getElementById('symbol-input').value.trim().toUpperCase().replace(/\s+/g, '');
-    if (!v) return;
-    if (v.length % 2 === 0) {
-      const half = v.length / 2;
-      if (v.slice(0, half) === v.slice(half)) v = v.slice(0, half);
+  let vwap = null;
+  {
+    const win = candles.slice(-100);
+    let cumPV = 0, cumVol = 0;
+    for (const c of win) {
+      const typical = (c.high + c.low + c.close) / 3;
+      cumPV += typical * c.volume;
+      cumVol += c.volume;
     }
-    if (!v.endsWith('USDT')) v += 'USDT';
-    switchToSymbol(v);
-  }
-  function switchToSymbol(v) {
-    if (!v || v === currentSymbol) return;
-    currentSymbol = v;
-    lastPrice = null;
-    showLoading(true);
-    document.getElementById('symbol-input').value = v;
-    document.querySelectorAll('.tf-box').forEach(b => b.classList.remove('green','red','yellow'));
-    subscribe();
-    loadFuturesZone();
-    if (lastBotStatus) handleBotStatus(lastBotStatus);
+    if (cumVol > 0) vwap = cumPV / cumVol;
   }
 
-  // ════════════════════ الأسعار والبيانات الخارجية ════════════════════
-  function fmt(v) {
-    if (v == null) return '—';
-    if (v >= 1000) return v.toFixed(2);
-    if (v >= 1) return v.toFixed(4);
-    return v.toFixed(6);
-  }
-  function fmtBig(n) {
-    if (n >= 1e12) return (n / 1e12).toFixed(2) + 'ت';
-    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'ب';
-    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'م';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'ك';
-    return n.toFixed(0);
-  }
-
-  let prevBtcDominance = null;
-  async function loadMarketOverview() {
-    try {
-      const r = await fetch('/api/market-overview');
-      const d = await r.json();
-      if (d.fearGreed) {
-        const v = d.fearGreed.value;
-        const verdict = v <= 45 ? 'bull' : v >= 55 ? 'bear' : 'neutral';
-        setAcc('feargreed', verdict, `${d.fearGreed.label} (${v})`, `القيمة: <b>${v}/100</b> — ${d.fearGreed.label}`);
-      }
-      if (d.btcDominance != null) {
-        const rising = prevBtcDominance !== null && d.btcDominance > prevBtcDominance;
-        const falling = prevBtcDominance !== null && d.btcDominance < prevBtcDominance;
-        const isBtc = currentSymbol === 'BTCUSDT';
-        let verdict = 'neutral', label = 'مستقرة';
-        if (rising) { verdict = isBtc ? 'bull' : 'bear'; label = isBtc ? 'ترتفع (إيجابي)' : 'ترتفع (ضغط ألتكوين)'; }
-        else if (falling) { verdict = isBtc ? 'bear' : 'bull'; label = isBtc ? 'تنخفض (ضغط)' : 'تنخفض (إيجابي ألتكوين)'; }
-        setAcc('dominance', verdict, `${d.btcDominance.toFixed(1)}% — ${label}`, `النسبة: <b>${d.btcDominance.toFixed(2)}%</b>`);
-        prevBtcDominance = d.btcDominance;
-      }
-      renderConsensus();
-    } catch (e) {}
+  let stochastic = null;
+  if (n >= 17) {
+    const kValues = [];
+    for (let i = 13; i < n; i++) {
+      const hh = Math.max(...highs.slice(i - 13, i + 1));
+      const ll = Math.min(...lows.slice(i - 13, i + 1));
+      kValues.push(hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100);
+    }
+    const kLast = kValues[kValues.length - 1];
+    const dSlice = kValues.slice(-3);
+    const dLast = dSlice.reduce((a, b) => a + b, 0) / dSlice.length;
+    stochastic = { k: kLast, d: dLast };
   }
 
-  let prevDxy = null;
-  async function loadMacroOverview() {
-    try {
-      const r = await fetch('/api/macro-overview');
-      const d = await r.json();
-      if (d.dxy != null) {
-        const el = document.getElementById('macro-dxy-price');
-        el.textContent = d.dxy.toFixed(2);
-        const arrowEl = document.getElementById('macro-dxy-arrow');
-        if (prevDxy !== null) {
-          if (d.dxy > prevDxy) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
-          else if (d.dxy < prevDxy) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
-        }
-        prevDxy = d.dxy;
+  let adx = null;
+  if (n >= 30) {
+    const period = 14;
+    const trArr = [], plusDM = [], minusDM = [];
+    for (let i = 1; i < n; i++) {
+      const upMove = highs[i] - highs[i - 1];
+      const downMove = lows[i - 1] - lows[i];
+      plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+      minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+      trArr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    }
+    const wilderSmooth = (arr) => {
+      const out = [];
+      let s = 0;
+      for (let i = 0; i < period; i++) s += arr[i];
+      out.push(s);
+      for (let i = period; i < arr.length; i++) out.push(out[out.length - 1] - out[out.length - 1] / period + arr[i]);
+      return out;
+    };
+    if (trArr.length >= period) {
+      const trS = wilderSmooth(trArr), plusS = wilderSmooth(plusDM), minusS = wilderSmooth(minusDM);
+      const pdiArr = plusS.map((v, i) => (trS[i] ? (v / trS[i]) * 100 : 0));
+      const mdiArr = minusS.map((v, i) => (trS[i] ? (v / trS[i]) * 100 : 0));
+      const dxArr = pdiArr.map((p, i) => { const m = mdiArr[i]; return (p + m) ? (Math.abs(p - m) / (p + m)) * 100 : 0; });
+      if (dxArr.length >= period) {
+        let sum = 0;
+        for (let i = 0; i < period; i++) sum += dxArr[i];
+        let adxVal = sum / period;
+        for (let i = period; i < dxArr.length; i++) adxVal = (adxVal * (period - 1) + dxArr[i]) / period;
+        adx = { adx: adxVal, pdi: pdiArr[pdiArr.length - 1], mdi: mdiArr[mdiArr.length - 1] };
       }
-    } catch (e) {}
-  }
-
-  async function loadFuturesZone() {
-    try {
-      const r = await fetch(`/api/futures-zone?symbol=${currentSymbol}`);
-      const d = await r.json();
-      if (d.fundingRate != null) {
-        const fr = d.fundingRate;
-        const verdict = fr > 0.02 ? 'bear' : fr < -0.02 ? 'bull' : 'neutral';
-        const label = fr > 0.02 ? 'ازدحام شراء (حذر)' : fr < -0.02 ? 'ازدحام بيع (فرصة)' : 'متوازن';
-        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>`);
-      }
-      if (d.openInterest != null) {
-        setAcc('openinterest', 'neutral', fmtBig(d.openInterest), `الفائدة المفتوحة: <b>${fmtBig(d.openInterest)}</b>`);
-      }
-      renderConsensus();
-    } catch (e) {}
-  }
-
-  // ════════════════════ طبقة البيتكوين 120 ════════════════════
-  let btc120RefPrice = null;
-  function updateBtc120Indicator(price) {
-    if (btc120RefPrice === null) { btc120RefPrice = price; return; }
-    const diff = price - btc120RefPrice;
-    if (Math.abs(diff) >= 120) {
-      const verdict = diff > 0 ? 'bull' : 'bear';
-      const label = diff > 0 ? 'إيجابي (+120$)' : 'سلبي (-120$)';
-      setAcc('btc120', verdict, label, `آخر تغيّر: <b>${diff.toFixed(0)}$</b>`);
-      btc120RefPrice = price;
-      renderConsensus();
     }
   }
 
-  function classifyBtcLayer(points, dir) {
-    const upDown = (up, down) => dir === 'up' ? up : down;
-    if (points <= 1) return { label: upDown('استقرار', 'استقرار') };
-    if (points === 2) return { label: upDown('ارتفاع نسبي', 'هبوط نسبي') };
-    if (points === 3) return { label: upDown('ارتفاع واضح', 'هبوط واضح') };
-    if (points === 4) return { label: upDown('ارتفاع حاد', 'هبوط حاد') };
-    return { label: upDown('ارتفاع حاد جدًا', 'هبوط حاد جدًا') };
+  let obv = null, obvPrev = null, obvTrendRef = null;
+  {
+    let val = 0;
+    const arr = [0];
+    for (let i = 1; i < n; i++) {
+      if (closes[i] > closes[i - 1]) val += volumes[i];
+      else if (closes[i] < closes[i - 1]) val -= volumes[i];
+      arr.push(val);
+    }
+    obv = arr[arr.length - 1];
+    obvPrev = arr.length > 1 ? arr[arr.length - 2] : null;
+    const lookback = Math.min(14, arr.length - 1);
+    obvTrendRef = lookback > 0 ? arr[arr.length - 1 - lookback] : null;
   }
 
-  function updateBtcLayerIndicator(price) {
-    if (btcLayerRefPrice === null) { btcLayerRefPrice = price; return; }
-    const diff = price - btcLayerRefPrice;
-    btcLayerLastDiff = diff;
-    const steps = Math.floor(Math.abs(diff) / BTC_LAYER_STEP);
-    if (steps < 1) return;
-    const dir = diff > 0 ? 'up' : 'down';
-    const points = Math.min(steps, 5);
-    const { label } = classifyBtcLayer(points, dir);
-    const verdict = dir === 'up' ? 'bull' : 'bear';
-    btcLayerPoints = points;
-    btcLayerSign = dir === 'up' ? 1 : -1;
-    setAcc('btclayer', verdict, `${label} (${points} نقطة)`, `آخر تغيّر: <b>${diff.toFixed(0)}$</b>`);
-    btcLayerRefPrice = price;
-    renderConsensus();
+  const supertrend = computeSupertrend(candles);
+
+  let ichimoku = null;
+  if (n >= 52) {
+    const hl = (period) => {
+      const h = Math.max(...highs.slice(-period));
+      const l = Math.min(...lows.slice(-period));
+      return (h + l) / 2;
+    };
+    const conversion = hl(9), base = hl(26), spanB = hl(52);
+    ichimoku = { conversion, base, spanA: (conversion + base) / 2, spanB };
   }
 
-  // ════════════════════ تهيئة ════════════════════
-  initChart();
-  connect();
-  connectBtcTicker();
-  connectGoldTicker();
-  loadMarketOverview();
-  loadMacroOverview();
-  loadFuturesZone();
-  setInterval(loadMarketOverview, 60000);
-  setInterval(loadMacroOverview, 60000);
-  setInterval(loadFuturesZone, 60000);
-  setInterval(renderConsensus, 30000);
-</script>
-</body>
-</html>
+  const volumeProfile = computeVolumeProfile(candles.slice(-100));
+
+  let pivot = null;
+  if (n >= 2) {
+    const prev = candles[n - 2];
+    const p = (prev.high + prev.low + prev.close) / 3;
+    pivot = { p, r1: 2 * p - prev.low, s1: 2 * p - prev.high };
+  }
+
+  let candleCompare = null;
+  if (n >= 3) {
+    const c1 = candles[n - 3], c2 = candles[n - 2], c3 = candles[n - 1];
+    const dir = (c) => c.close > c.open ? 1 : c.close < c.open ? -1 : 0;
+    const d1 = dir(c1), d2 = dir(c2), d3 = dir(c3);
+    const consecutiveUp = d1 > 0 && d2 > 0 && d3 > 0;
+    const consecutiveDown = d1 < 0 && d2 < 0 && d3 < 0;
+    const bullEngulf = d2 < 0 && d3 > 0 && c3.close > c2.open && c3.open < c2.close;
+    const bearEngulf = d2 > 0 && d3 < 0 && c3.close < c2.open && c3.open > c2.close;
+    candleCompare = { consecutiveUp, consecutiveDown, bullEngulf, bearEngulf };
+  }
+
+  let accDist = null;
+  {
+    const win = candles.slice(-60);
+    let adLine = 0;
+    const adArr = [];
+    for (const c of win) {
+      const range = c.high - c.low;
+      const mfm = range === 0 ? 0 : ((c.close - c.low) - (c.high - c.close)) / range;
+      adLine += mfm * c.volume;
+      adArr.push(adLine);
+    }
+    if (adArr.length >= 5) {
+      const recent = adArr.slice(-5);
+      const rising = recent[recent.length - 1] > recent[0];
+      const lastMFM = ((win[win.length - 1].close - win[win.length - 1].low) - (win[win.length - 1].high - win[win.length - 1].close)) / ((win[win.length - 1].high - win[win.length - 1].low) || 1);
+      let zone = 'متعادل';
+      if (rising && lastMFM > 0.2) zone = 'تجميع (Accumulation)';
+      else if (!rising && lastMFM < -0.2) zone = 'تصريف (Distribution)';
+      accDist = { value: adLine, rising, zone };
+    }
+  }
+
+  let cvd = null;
+  {
+    const win = candles.slice(-50);
+    let running = 0;
+    const cvdArr = [];
+    for (const c of win) {
+      const range = c.high - c.low;
+      const buyVol = range === 0 ? c.volume / 2 : c.volume * ((c.close - c.low) / range);
+      const sellVol = c.volume - buyVol;
+      running += (buyVol - sellVol);
+      cvdArr.push(running);
+    }
+    if (cvdArr.length >= 10) {
+      const lookback = 10;
+      const priceNow = win[win.length - 1].close;
+      const priceBefore = win[win.length - 1 - lookback].close;
+      const cvdNow = cvdArr[cvdArr.length - 1];
+      const cvdBefore = cvdArr[cvdArr.length - 1 - lookback];
+      const priceDir = priceNow > priceBefore ? 'up' : priceNow < priceBefore ? 'down' : 'flat';
+      const cvdDir = cvdNow > cvdBefore ? 'up' : cvdNow < cvdBefore ? 'down' : 'flat';
+      let signal = 'confirm';
+      if (priceDir === 'down' && cvdDir === 'up') signal = 'bullish_divergence';
+      else if (priceDir === 'up' && cvdDir === 'down') signal = 'bearish_divergence';
+      cvd = { value: cvdNow, priceDir, cvdDir, signal };
+    }
+  }
+
+  let stochRsi = null;
+  if (rsiArr.length >= 17) {
+    const kArr = [];
+    for (let i = 13; i < rsiArr.length; i++) {
+      const win = rsiArr.slice(i - 13, i + 1);
+      const hi = Math.max(...win), lo = Math.min(...win);
+      kArr.push(hi === lo ? 50 : ((rsiArr[i] - lo) / (hi - lo)) * 100);
+    }
+    if (kArr.length >= 4) {
+      const dSmooth = (arr, p) => arr.slice(-p).reduce((a, b) => a + b, 0) / p;
+      const kNow = dSmooth(kArr, 3), kPrev = dSmooth(kArr.slice(0, -1), 3);
+      const dNow = dSmooth(kArr.slice(-5), 3), dPrev = dSmooth(kArr.slice(0, -1).slice(-5), 3);
+      stochRsi = { k: kNow, d: dNow, crossUp: kPrev <= dPrev && kNow > dNow, crossDown: kPrev >= dPrev && kNow < dNow, zoneUp: kNow < 25, zoneDown: kNow > 75 };
+    }
+  }
+
+  let bbPercentB = null;
+  if (bb) {
+    const closesForBB = closes.slice(-21);
+    const prevClose = closesForBB[closesForBB.length - 2];
+    const range = bb.upper - bb.lower;
+    const nowB = range === 0 ? 0.5 : (closes[n - 1] - bb.lower) / range;
+    const prevB = range === 0 || prevClose == null ? nowB : (prevClose - bb.lower) / range;
+    bbPercentB = { now: nowB, prev: prevB, crossedUpFromZero: prevB < 0 && nowB >= 0, crossedDownFromOne: prevB > 1 && nowB <= 1, zoneUp: nowB <= 0.05, zoneDown: nowB >= 0.95 };
+  }
+
+  let rsiDivergence = null;
+  if (rsiArr.length >= 11 && n >= 11) {
+    const priceNow = closes[n - 1], priceBefore = closes[n - 11];
+    const rsiNow = rsiArr[rsiArr.length - 1], rsiBefore = rsiArr[rsiArr.length - 11];
+    let type = 'none';
+    if (priceNow < priceBefore && rsiNow > rsiBefore && rsiNow < 40) type = 'bullish';
+    else if (priceNow > priceBefore && rsiNow < rsiBefore && rsiNow > 60) type = 'bearish';
+    rsiDivergence = { type, priceNow, priceBefore, rsiNow, rsiBefore };
+  }
+
+  let williamsR = null;
+  if (n >= 15) {
+    const calcWR = (idx) => {
+      const hh = Math.max(...highs.slice(idx - 13, idx + 1));
+      const ll = Math.min(...lows.slice(idx - 13, idx + 1));
+      return hh === ll ? -50 : ((hh - closes[idx]) / (hh - ll)) * -100;
+    };
+    const wrNow = calcWR(n - 1), wrPrev = calcWR(n - 2);
+    williamsR = { now: wrNow, prev: wrPrev, crossUpFrom80: wrPrev < -80 && wrNow >= -80, crossDownFrom20: wrPrev > -20 && wrNow <= -20, zoneUp: wrNow <= -80, zoneDown: wrNow >= -20 };
+  }
+
+  let chop = null;
+  if (n >= 15) {
+    const trWin = [];
+    for (let i = n - 14; i < n; i++) trWin.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    const atrSum = trWin.reduce((a, b) => a + b, 0);
+    const hh14 = Math.max(...highs.slice(-14)), ll14 = Math.min(...lows.slice(-14));
+    const range14 = hh14 - ll14;
+    if (range14 > 0 && atrSum > 0) chop = 100 * Math.log10(atrSum / range14) / Math.log10(14);
+  }
+
+  let atr = null;
+  if (n >= 15) {
+    const trArrAtr = [];
+    for (let i = 1; i < n; i++) trArrAtr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    const atrPeriod = 14;
+    if (trArrAtr.length >= atrPeriod) {
+      let atrVal = trArrAtr.slice(0, atrPeriod).reduce((a, b) => a + b, 0) / atrPeriod;
+      for (let i = atrPeriod; i < trArrAtr.length; i++) atrVal = (atrVal * (atrPeriod - 1) + trArrAtr[i]) / atrPeriod;
+      const lastClose = closes[n - 1];
+      const atrPercent = lastClose ? (atrVal / lastClose) * 100 : null;
+      atr = { value: atrVal, percent: atrPercent };
+    }
+  }
+
+  return { rsi, macd, bb, ema50, ema200, sma20, vwap, stochastic, adx, obv, obvPrev, obvTrendRef, supertrend, ichimoku, volumeProfile, pivot, candleCompare, accDist, cvd, stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr, currentPrice: closes[closes.length - 1] };
+}
+
+function computeSupertrend(candles, period = 10, multiplier = 3) {
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+  const closes = candles.map(c => c.close);
+  const trArr = [];
+  for (let i = 1; i < closes.length; i++) trArr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+  if (trArr.length < period) return null;
+  let atr = trArr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const atrArr = [atr];
+  for (let i = period; i < trArr.length; i++) { atr = (atr * (period - 1) + trArr[i]) / period; atrArr.push(atr); }
+  if (!atrArr.length) return null;
+  const offset = candles.length - atrArr.length;
+  let finalUpper = null, finalLower = null, trendUp = true, st = null;
+  for (let i = 0; i < atrArr.length; i++) {
+    const idx = i + offset;
+    const hl2 = (highs[idx] + lows[idx]) / 2;
+    const a = atrArr[i];
+    const basicUpper = hl2 + multiplier * a;
+    const basicLower = hl2 - multiplier * a;
+    const close = closes[idx];
+    const prevClose = idx > 0 ? closes[idx - 1] : close;
+    if (finalUpper === null) { finalUpper = basicUpper; finalLower = basicLower; }
+    else { finalUpper = (basicUpper < finalUpper || prevClose > finalUpper) ? basicUpper : finalUpper; finalLower = (basicLower > finalLower || prevClose < finalLower) ? basicLower : finalLower; }
+    if (close > finalUpper) trendUp = true;
+    else if (close < finalLower) trendUp = false;
+    st = trendUp ? finalLower : finalUpper;
+  }
+  return st !== null ? { value: st, trendUp } : null;
+}
+
+function computeVolumeProfile(candles, buckets = 24) {
+  if (!candles.length) return null;
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+  const max = Math.max(...highs);
+  const min = Math.min(...lows);
+  if (max === min) return null;
+  const step = (max - min) / buckets;
+  const vol = new Array(buckets).fill(0);
+  for (const c of candles) {
+    const mid = (c.high + c.low) / 2;
+    let idx = Math.floor((mid - min) / step);
+    if (idx < 0) idx = 0;
+    if (idx >= buckets) idx = buckets - 1;
+    vol[idx] += c.volume;
+  }
+  let pocIdx = 0;
+  for (let i = 1; i < buckets; i++) if (vol[i] > vol[pocIdx]) pocIdx = i;
+  const pocPrice = min + step * (pocIdx + 0.5);
+  return { pocPrice, rangeHigh: max, rangeLow: min };
+}
+
+// Decision Engine
+function makeDecision(indicators) {
+  if (!indicators) return null;
+  const { rsi, macd, bb, ema50, ema200, currentPrice, stochRsi, williamsR, cvd, accDist, chop, atr } = indicators;
+  const notes = [];
+  let bull = 0, bear = 0, rawScore = 50;
+  if (rsi != null) {
+    if (rsi < 30) { bull += 2; rawScore += 15; notes.push(`RSI عند ${rsi.toFixed(1)} — تشبع بيعي قوي، فرصة شراء محتملة`); }
+    else if (rsi < 45) { bull += 1; rawScore += 8; notes.push(`RSI عند ${rsi.toFixed(1)} — ضغط بيعي، المشترون يترقبون`); }
+    else if (rsi > 70) { bear += 2; rawScore -= 15; notes.push(`RSI عند ${rsi.toFixed(1)} — تشبع شرائي، احتمالية تصحيح مرتفعة`); }
+    else if (rsi > 55) { bull += 1; rawScore += 6; notes.push(`RSI عند ${rsi.toFixed(1)} — زخم صعودي معتدل`); }
+    else notes.push(`RSI عند ${rsi.toFixed(1)} — محايد`);
+  }
+  if (macd) {
+    if (macd.value > macd.signal) { bull += 1; rawScore += 10; notes.push(`MACD فوق خط الإشارة — إشارة شراء نشطة`); }
+    else { bear += 1; rawScore -= 10; notes.push(`MACD تحت خط الإشارة — إشارة بيع نشطة`); }
+    if (macd.histogram > 0) { bull += 1; rawScore += 5; notes.push(`هيستوغرام MACD موجب — تصاعد الزخم الصعودي`); }
+    else { bear += 1; rawScore -= 5; notes.push(`هيستوغرام MACD سالب — تصاعد الزخم الهبوطي`); }
+  }
+  if (ema50 != null) {
+    if (currentPrice > ema50) { bull += 1; rawScore += 7; notes.push(`السعر فوق EMA50 — دعم متحرك قصير المدى`); }
+    else { bear += 1; rawScore -= 7; notes.push(`السعر تحت EMA50 — مقاومة متحركة قصيرة المدى`); }
+  }
+  if (ema200 != null) {
+    if (currentPrice > ema200) { bull += 2; rawScore += 10; notes.push(`السعر فوق EMA200 — الاتجاه العام صعودي`); }
+    else { bear += 2; rawScore -= 10; notes.push(`السعر تحت EMA200 — الاتجاه العام هبوطي`); }
+  }
+  if (ema50 != null && ema200 != null) {
+    if (ema50 > ema200) { bull += 1; rawScore += 5; notes.push(`EMA50 فوق EMA200 — التقاطع الذهبي مؤكَّد`); }
+    else { bear += 1; rawScore -= 5; notes.push(`EMA50 تحت EMA200 — التقاطع الميت مؤكَّد`); }
+  }
+  if (bb) {
+    if (currentPrice < bb.lower) { bull += 2; rawScore += 12; notes.push(`السعر تحت الحد الأدنى لبولينجر — منطقة شراء قوية`); }
+    else if (currentPrice > bb.upper) { bear += 2; rawScore -= 12; notes.push(`السعر فوق الحد الأعلى لبولينجر — منطقة بيع قوية`); }
+    else notes.push(currentPrice > (bb.upper + bb.lower) / 2 ? `السعر في النصف العلوي لبولينجر — ميل صعودي` : `السعر في النصف السفلي لبولينجر — ميل هبوطي`);
+    if ((bb.upper - bb.lower) / bb.middle < 0.02) notes.push(`نطاق بولينجر ضيق جداً — تذبذب محتمل قريب`);
+  }
+  if (stochRsi) {
+    if (stochRsi.crossUp) { bull += 2; rawScore += 10; notes.push(`StochRSI (15د) عبور صاعد من منطقة التشبع البيعي — إشارة ارتداد صعودي`); }
+    else if (stochRsi.crossDown) { bear += 2; rawScore -= 10; notes.push(`StochRSI (15د) عبور هابط من منطقة التشبع الشرائي — إشارة ارتداد هبوطي`); }
+    else if (stochRsi.zoneUp) { bull += 1; rawScore += 5; notes.push(`StochRSI (15د) داخل منطقة تشبع بيعي — احتمال ارتداد قريب`); }
+    else if (stochRsi.zoneDown) { bear += 1; rawScore -= 5; notes.push(`StochRSI (15د) داخل منطقة تشبع شرائي — احتمال تصحيح قريب`); }
+  }
+  if (williamsR) {
+    if (williamsR.crossUpFrom80) { bull += 2; rawScore += 10; notes.push(`Williams %R (15د) خرج من منطقة التشبع البيعي (-80) — زخم ارتدادي صعودي`); }
+    else if (williamsR.crossDownFrom20) { bear += 2; rawScore -= 10; notes.push(`Williams %R (15د) خرج من منطقة التشبع الشرائي (-20) — زخم ارتدادي هبوطي`); }
+    else if (williamsR.zoneUp) { bull += 1; rawScore += 4; notes.push(`Williams %R (15د) داخل منطقة تشبع بيعي`); }
+    else if (williamsR.zoneDown) { bear += 1; rawScore -= 4; notes.push(`Williams %R (15د) داخل منطقة تشبع شرائي`); }
+  }
+  if (cvd) {
+    if (cvd.signal === 'bullish_divergence') { bull += 2; rawScore += 9; notes.push(`CVD يصعد بينما السعر ينخفض — امتصاص مؤسسي خفي (شراء بصمت)`); }
+    else if (cvd.signal === 'bearish_divergence') { bear += 2; rawScore -= 9; notes.push(`CVD ينخفض بينما السعر يصعد — تصريف مؤسسي خفي (بيع بصمت)`); }
+  }
+  if (accDist) {
+    if (accDist.zone === 'تجميع (Accumulation)') { bull += 1; rawScore += 6; notes.push(`A/D Line في منطقة تجميع — تدفق سيولة شرائي حقيقي`); }
+    else if (accDist.zone === 'تصريف (Distribution)') { bear += 1; rawScore -= 6; notes.push(`A/D Line في منطقة تصريف — تدفق سيولة بيعي حقيقي`); }
+  }
+  let trendStable = null;
+  if (chop != null) {
+    if (chop < 38.2) { trendStable = true; notes.push(`Choppiness Index عند ${chop.toFixed(1)} — السوق في اتجاه ثابت وقوي`); }
+    else if (chop > 61.8) { trendStable = false; notes.push(`Choppiness Index عند ${chop.toFixed(1)} — السوق متذبذب وعشوائي`); }
+  }
+  if (atr && atr.percent != null) {
+    if (atr.percent >= 1.5) notes.push(`ATR عند ${atr.percent.toFixed(2)}% — تذبذب مرتفع`);
+    else if (atr.percent <= 0.3) notes.push(`ATR عند ${atr.percent.toFixed(2)}% — تذبذب منخفض جداً`);
+  }
+
+  const trend = bull > bear + 1 ? 'صعود' : bear > bull + 1 ? 'هبوط' : 'تذبذب';
+  const score = Math.max(0, Math.min(100, rawScore));
+  let action;
+  if (rsi != null && rsi < 35 && macd && macd.value > macd.signal) action = 'buy zone';
+  else if (rsi != null && rsi > 65 && macd && macd.value < macd.signal) action = 'sell zone';
+  else if (bb && currentPrice < bb.lower) action = 'buy zone';
+  else if (bb && currentPrice > bb.upper) action = 'sell zone';
+  else if (trend === 'صعود' && score >= 62) action = 'buy zone';
+  else if (trend === 'هبوط' && score <= 38) action = 'sell zone';
+  else action = 'wait';
+
+  const total = bull + bear;
+  const dominance = total > 0 ? Math.max(bull, bear) / total : 0.5;
+  if (trendStable === false && action !== 'wait' && dominance < 0.75) {
+    action = 'wait';
+    notes.push(`تم تحويل القرار إلى "انتظار": التذبذب العشوائي المرتفع يُضعف موثوقية الإشارة`);
+  }
+  let confidence = Math.round(Math.min(100, score * (0.4 + dominance * 0.6)));
+  if (trendStable === true) confidence = Math.min(100, Math.round(confidence * 1.1));
+  else if (trendStable === false) confidence = Math.round(confidence * 0.85);
+
+  const buyZone = bb ? { from: bb.lower.toFixed(4), to: ((bb.lower + bb.middle) / 2).toFixed(4) } : null;
+  const sellZone = bb ? { from: ((bb.upper + bb.middle) / 2).toFixed(4), to: bb.upper.toFixed(4) } : null;
+  return { trend, action, confidence, notes, buyZone, sellZone };
+}
+
+// بوت التداول
+let botState = {
+  enabled: false,
+  exchange: 'binance',
+  tradeSizeUsdt: 50,
+  takeProfitPercent: 1,
+  maxConcurrentPositions: 1,
+  positions: {},
+  pendingOrders: {},
+  pendingSellOrders: {},
+  tradeLog: [],
+  lastSignals: {},
+};
+
+const BOT_BUY_THRESHOLD = 0.35;
+const BOT_SELL_THRESHOLD = -0.35;
+const MAX_PENDING_BUY_MINUTES = 45;
+const TP_LEVELS = [1, 1.5, 2];
+
+function computeFourBoxScore(indicators) {
+  if (!indicators) return 0;
+  const leanOf = { stability: 0, reversal: 0, momentum: 0, hourly: 0 };
+  { let bull = 0, bear = 0;
+    if (indicators.adx && indicators.adx.adx >= 20) { if (indicators.adx.pdi > indicators.adx.mdi) bull++; else bear++; }
+    if (indicators.williamsR) { if (indicators.williamsR.zoneUp) bull++; if (indicators.williamsR.zoneDown) bear++; }
+    if (indicators.ichimoku && indicators.currentPrice != null) { const top = Math.max(indicators.ichimoku.spanA, indicators.ichimoku.spanB); const bottom = Math.min(indicators.ichimoku.spanA, indicators.ichimoku.spanB); if (indicators.currentPrice > top) bull++; else if (indicators.currentPrice < bottom) bear++; }
+    if (indicators.obv != null && indicators.obvTrendRef != null) { if (indicators.obv > indicators.obvTrendRef) bull++; else bear++; }
+    const total = bull + bear; leanOf.stability = total > 0 ? (bull - bear) / total : 0; }
+  { let bull = 0, bear = 0;
+    if (indicators.stochRsi) { if (indicators.stochRsi.crossUp || indicators.stochRsi.zoneUp) bull++; if (indicators.stochRsi.crossDown || indicators.stochRsi.zoneDown) bear++; }
+    if (indicators.williamsR) { if (indicators.williamsR.crossUpFrom80 || indicators.williamsR.zoneUp) bull++; if (indicators.williamsR.crossDownFrom20 || indicators.williamsR.zoneDown) bear++; }
+    if (indicators.bbPercentB) { if (indicators.bbPercentB.zoneUp) bull++; if (indicators.bbPercentB.zoneDown) bear++; }
+    if (indicators.rsiDivergence) { if (indicators.rsiDivergence.type === 'bullish') bull++; else if (indicators.rsiDivergence.type === 'bearish') bear++; }
+    const total = bull + bear; leanOf.reversal = total > 0 ? (bull - bear) / total : 0; }
+  { let bull = 0, bear = 0;
+    if (indicators.rsi != null) { if (indicators.rsi > 55) bull++; else if (indicators.rsi < 45) bear++; }
+    if (indicators.macd) { if (indicators.macd.value > indicators.macd.signal) bull++; else bear++; }
+    if (indicators.stochastic) { if (indicators.stochastic.k > 55 && indicators.stochastic.k >= indicators.stochastic.d) bull++; else if (indicators.stochastic.k < 45 && indicators.stochastic.k <= indicators.stochastic.d) bear++; }
+    if (indicators.adx && indicators.adx.adx >= 20) { if (indicators.adx.pdi > indicators.adx.mdi) bull++; else bear++; }
+    const total = bull + bear; leanOf.momentum = total > 0 ? (bull - bear) / total : 0; }
+  { const hl = indicators.hourlyLayer; const total = hl ? hl.bull + hl.bear : 0; leanOf.hourly = total > 0 ? (hl.bull - hl.bear) / total : 0; }
+  return leanOf.stability * 0.45 + leanOf.reversal * 0.30 + leanOf.momentum * 0.20 + leanOf.hourly * 0.05;
+}
+
+function computeDecision7Score(indicators, decision) {
+  if (!indicators || !decision) return 0;
+  const terms = [];
+  if (indicators.ema200 != null && indicators.currentPrice != null) terms.push({ sign: indicators.currentPrice > indicators.ema200 ? 1 : -1, w: 1 });
+  terms.push({ sign: decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0, w: 1 });
+  let mBull = 0, mBear = 0;
+  if (indicators.rsi != null) { if (indicators.rsi > 55) mBull++; else if (indicators.rsi < 45) mBear++; }
+  if (indicators.macd) { if (indicators.macd.value > indicators.macd.signal) mBull++; else mBear++; }
+  terms.push({ sign: mBull > mBear ? 1 : mBull < mBear ? -1 : 0, w: 1 });
+  let vBull = 0, vBear = 0;
+  if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') vBull++;
+  if (indicators.cvd && indicators.cvd.signal === 'bearish_divergence') vBear++;
+  if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') vBull++;
+  if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') vBear++;
+  terms.push({ sign: vBull > vBear ? 1 : vBull < vBear ? -1 : 0, w: 1 });
+  let rBull = 0, rBear = 0;
+  if (indicators.stochRsi) { if (indicators.stochRsi.crossUp || indicators.stochRsi.zoneUp) rBull++; if (indicators.stochRsi.crossDown || indicators.stochRsi.zoneDown) rBear++; }
+  if (indicators.williamsR) { if (indicators.williamsR.crossUpFrom80 || indicators.williamsR.zoneUp) rBull++; if (indicators.williamsR.crossDownFrom20 || indicators.williamsR.zoneDown) rBear++; }
+  terms.push({ sign: rBull > rBear ? 1 : rBull < rBear ? -1 : 0, w: 1 });
+  if (indicators.chop != null) {
+    const majoritySign = Math.sign(terms.reduce((s, t) => s + t.sign * t.w, 0)) || 0;
+    if (indicators.chop < 38.2) terms.push({ sign: majoritySign, w: 2 });
+    else if (indicators.chop > 61.8) terms.push({ sign: 0, w: 2 });
+  }
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0;
+}
+
+function computeFrameScore(symbol, indicators) {
+  const snapshot = computeMtfSnapshot(symbol);
+  const watched = ['5m', '15m', '30m', '1h'];
+  let sumLean = 0;
+  for (const iv of watched) {
+    const info = snapshot[iv];
+    if (!info) continue;
+    const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
+    sumLean += (sign * (info.confidence / 100)) * 0.20;
+  }
+  if (indicators && indicators.ema200 != null && indicators.currentPrice != null) sumLean += (indicators.currentPrice > indicators.ema200 ? 1 : -1) * 0.20;
+  return sumLean;
+}
+
+const BTC_LAYER_STEP_SERVER = 70;
+const BTC_LAYER_PCT_CAP_SERVER = 25;
+let botBtcRefPrice = null;
+let botBtcLastDiff = 0;
+function updateBotBtcLayer() {
+  const btcCandles = candleStore[`BTCUSDT_${SCAN_INTERVAL}`];
+  if (!btcCandles || !btcCandles.length) return;
+  const price = btcCandles[btcCandles.length - 1].close;
+  if (botBtcRefPrice === null) { botBtcRefPrice = price; return; }
+  botBtcLastDiff = price - botBtcRefPrice;
+}
+function computeBtcBoost() {
+  const moved70 = Math.abs(botBtcLastDiff) >= BTC_LAYER_STEP_SERVER;
+  if (!moved70) return 0;
+  const pct = Math.min(100, (Math.abs(botBtcLastDiff) / BTC_LAYER_PCT_CAP_SERVER) * 100) / 100;
+  const sign = botBtcLastDiff > 0 ? 1 : -1;
+  return sign * pct * 0.3;
+}
+
+function computeSecondaryScore(indicators, decision) {
+  if (!indicators) return 0;
+  let volumeLean = 0;
+  { let bull = 0, bear = 0;
+    if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') bull++;
+    if (indicators.cvd && indicators.cvd.signal === 'bearish_divergence') bear++;
+    if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') bull++;
+    if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') bear++;
+    const total = bull + bear; volumeLean = total > 0 ? (bull - bear) / total : 0; }
+  const trendSign = (indicators.ema200 != null && indicators.currentPrice != null) ? (indicators.currentPrice > indicators.ema200 ? 1 : -1) : 0;
+  const actionSign = decision ? (decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0) : 0;
+  const confWeight = decision ? (decision.confidence || 50) / 100 : 0.5;
+  const confidenceLean = actionSign * confWeight;
+  const W = { trend: 0.20, action: 0.10, volume: 0.30, confidence: 0.20, analysis: 0.20 };
+  return trendSign * W.trend + actionSign * W.action + volumeLean * W.volume + confidenceLean * W.confidence + trendSign * W.analysis;
+}
+
+async function computeBotOwnSignal(indicators, candles, symbol) {
+  if (!indicators || !candles || candles.length < 20) return 0;
+  const terms = [];
+  const closes = candles.map(c => c.close);
+  const rsiSeries = RSI.calculate({ values: closes, period: 14 });
+  if (rsiSeries.length >= 5) {
+    const recent = rsiSeries.slice(-5);
+    const slope = recent[recent.length - 1] - recent[0];
+    terms.push({ sign: Math.abs(slope) > 3 ? (slope > 0 ? 1 : -1) : 0, w: 1 });
+  }
+  if (indicators.vwap != null && indicators.currentPrice != null) {
+    const dev = (indicators.currentPrice - indicators.vwap) / indicators.vwap;
+    terms.push({ sign: Math.abs(dev) > 0.004 ? (dev > 0 ? 1 : -1) : 0, w: 1 });
+  }
+  if (indicators.atr && indicators.atr.percent != null && indicators.ema50 != null && indicators.currentPrice != null) {
+    const trendDir = indicators.currentPrice > indicators.ema50 ? 1 : -1;
+    terms.push({ sign: indicators.atr.percent >= 0.5 ? trendDir : 0, w: 1 });
+  }
+  try {
+    const bf = await fetchBinanceFutures(symbol);
+    if (bf) {
+      let sign = 0, count = 0;
+      if (bf.fundingRate != null) { sign += bf.fundingRate > 0.02 ? -1 : bf.fundingRate < -0.02 ? 1 : 0; count++; }
+      if (bf.longShortRatio != null) { sign += bf.longShortRatio > 2 ? -1 : bf.longShortRatio < 0.5 ? 1 : 0; count++; }
+      if (count > 0) terms.push({ sign: Math.sign(sign) || 0, w: 1 });
+    }
+  } catch (e) {}
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0;
+}
+
+const MIN_LIQUIDITY_USDT = 200000;
+function passesEntryFilters(candles) {
+  if (!candles || candles.length < 11) return { ok: false, reason: 'بيانات غير كافية' };
+  const last10 = candles.slice(-11, -1);
+  const closes = last10.map(c => c.close);
+  const changePct = ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100;
+  const currentPrice = candles[candles.length - 1].close;
+  const rangeHigh = Math.max(...last10.map(c => c.high));
+  const rangeLow = Math.min(...last10.map(c => c.low));
+  const posInRange = rangeHigh > rangeLow ? (currentPrice - rangeLow) / (rangeHigh - rangeLow) : 0.5;
+  const avgQuoteVolume = last10.reduce((s, c) => s + c.volume * c.close, 0) / last10.length;
+  const declineConfirmed = changePct < -0.3;
+  const nearLowerZone = posInRange <= 0.4;
+  const liquidOk = avgQuoteVolume >= MIN_LIQUIDITY_USDT;
+  if (!declineConfirmed) return { ok: false, reason: `ما فيه نزول واضح (${changePct.toFixed(2)}%)` };
+  if (!nearLowerZone) return { ok: false, reason: `السعر مو بأدنى المدى (${(posInRange * 100).toFixed(0)}%)` };
+  if (!liquidOk) return { ok: false, reason: `سيولة ضعيفة (${fmtBig(avgQuoteVolume)} USDT)` };
+  return { ok: true, reason: `تأكيد نزول ${changePct.toFixed(2)}% + السعر بأدنى ${(posInRange * 100).toFixed(0)}% + سيولة ${fmtBig(avgQuoteVolume)} USDT` };
+}
+
+function fmtBig(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toFixed(0);
+}
+
+function computeBuyPoints(candles, indicators, sig) {
+  if (!candles || candles.length < 20 || !indicators) return [];
+  const price = indicators.currentPrice;
+  const lows = candles.slice(-20).map(c => c.low);
+  const recentLow = Math.min(...lows);
+  const bbLower = indicators.bb?.lower;
+  return [
+    { point: 1, label: 'نقطة الهبوط المبكر المكتمل', price: roundPrice(price * 0.995), triggered: sig.action === 'buy' && sig.passesFilters },
+    { point: 2, label: 'ارتداد من بولينجر السفلي + StochRSI', price: roundPrice(bbLower || price * 0.99), triggered: sig.action === 'buy' && indicators.stochRsi?.crossUp },
+    { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && indicators.candleCompare?.bullEngulf },
+  ];
+}
+
+// أوامر API
+function mexcSignedQuery(params) {
+  const qs = new URLSearchParams(params).toString();
+  const sig = crypto.createHmac('sha256', MEXC_API_SECRET).update(qs).digest('hex');
+  return `${qs}&signature=${sig}`;
+}
+function binanceSignedQuery(params) {
+  const qs = new URLSearchParams(params).toString();
+  const sig = crypto.createHmac('sha256', BINANCE_API_SECRET).update(qs).digest('hex');
+  return `${qs}&signature=${sig}`;
+}
+function roundQty(qty, price) {
+  let decimals;
+  if (price >= 1000) decimals = 5;
+  else if (price >= 100) decimals = 4;
+  else if (price >= 1) decimals = 3;
+  else if (price >= 0.01) decimals = 1;
+  else decimals = 0;
+  return Number(qty.toFixed(decimals));
+}
+function roundPrice(price) {
+  if (price >= 1000) return Number(price.toFixed(2));
+  if (price >= 1) return Number(price.toFixed(4));
+  if (price >= 0.01) return Number(price.toFixed(6));
+  return Number(price.toFixed(8));
+}
+
+async function placeMexcOrder(symbol, side, quoteOrderQty, quantity) {
+  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
+  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
+  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function placeBinanceOrder(symbol, side, quoteOrderQty, quantity) {
+  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
+  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+function placeOrder(exchange, symbol, side, quoteOrderQty, quantity) {
+  return exchange === 'binance' ? placeBinanceOrder(symbol, side, quoteOrderQty, quantity) : placeMexcOrder(symbol, side, quoteOrderQty, quantity);
+}
+
+async function placeMexcLimitOrder(symbol, side, price, quantity) {
+  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function placeBinanceLimitOrder(symbol, side, price, quantity) {
+  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+function placeLimitOrder(exchange, symbol, side, price, quantity) {
+  return exchange === 'binance' ? placeBinanceLimitOrder(symbol, side, price, quantity) : placeMexcLimitOrder(symbol, side, price, quantity);
+}
+
+async function queryMexcOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.get(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function queryBinanceOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+function queryOrder(exchange, symbol, orderId) {
+  return exchange === 'binance' ? queryBinanceOrder(symbol, orderId) : queryMexcOrder(symbol, orderId);
+}
+
+async function cancelMexcOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.delete(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function cancelBinanceOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+function cancelOrder(exchange, symbol, orderId) {
+  return exchange === 'binance' ? cancelBinanceOrder(symbol, orderId) : cancelMexcOrder(symbol, orderId);
+}
+
+async function executeBotSell(symbol, sig, reasonOverride) {
+  const pos = botState.positions[symbol];
+  if (!pos) return;
+  if (botState.pendingSellOrders[symbol]) {
+    for (const o of botState.pendingSellOrders[symbol]) { try { await cancelOrder(o.exchange, symbol, o.orderId); } catch {} }
+    delete botState.pendingSellOrders[symbol];
+  }
+  if (botState.pendingOrders[symbol] && botState.pendingOrders[symbol].side === 'SELL') {
+    try { await cancelOrder(botState.exchange, symbol, botState.pendingOrders[symbol].orderId); } catch {}
+    delete botState.pendingOrders[symbol];
+  }
+  const data = await placeOrder(botState.exchange, symbol, 'SELL', null, pos.qty);
+  const executedQty = parseFloat(data.executedQty || pos.qty);
+  const quoteReceived = parseFloat(data.cummulativeQuoteQty || 0);
+  const exitPrice = executedQty ? quoteReceived / executedQty : pos.entryPrice;
+  const pnl = quoteReceived - (pos.qty * pos.entryPrice);
+  const pnlPct = pos.entryPrice ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+  delete botState.positions[symbol];
+  const reason = reasonOverride || 'إغلاق يدوي فوري';
+  botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: exitPrice, qty: executedQty, quoteAmount: quoteReceived, exchange: botState.exchange, reason, pnl, pnlPct });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  broadcastBotStatus();
+}
+
+function logBotError(symbol, err) {
+  const detail = err.response?.data?.msg || err.message;
+  console.error(`[BOT] خطأ في ${symbol}:`, detail);
+  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+}
+
+async function placeBotTakeProfitSells(symbol, position) {
+  const qtyPerOrder = roundQty(position.qty / 3, position.entryPrice);
+  if (!qtyPerOrder || qtyPerOrder <= 0) return;
+  const tpBase = botState.takeProfitPercent / 100;
+  botState.pendingSellOrders[symbol] = [];
+  for (const [i, mult] of TP_LEVELS.entries()) {
+    const sellPrice = roundPrice(position.entryPrice * (1 + tpBase * mult));
+    const pointName = `TP${i + 1} (${(botState.takeProfitPercent * mult).toFixed(1)}%)`;
+    try {
+      const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qtyPerOrder);
+      if (data.orderId) {
+        botState.pendingSellOrders[symbol].push({ orderId: data.orderId, side: 'SELL', price: sellPrice, qty: qtyPerOrder, placedAt: Date.now(), exchange: botState.exchange, point: pointName });
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty: qtyPerOrder, exchange: botState.exchange, reason: `أمر بيع ${pointName} معلّق عند ${sellPrice}` });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
+      }
+    } catch (err) { logBotError(symbol, err); }
+  }
+}
+
+async function placeBotLimitBuy(sig) {
+  const { symbol } = sig;
+  const buyPoint = sig.buyPoints?.find(p => p.triggered) || sig.buyPoints?.[0];
+  const buyPrice = roundPrice(buyPoint?.price || sig.price);
+  const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
+  if (!qty || qty <= 0) return;
+  try {
+    const data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
+    if (!data.orderId) return;
+    botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
+    botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange, reason: `أمر شراء محدّد (${buyPoint?.label || 'نقطة عامة'}) عند ${buyPrice} — ${sig.filterReason}` });
+    botState.tradeLog = botState.tradeLog.slice(0, 50);
+  } catch (err) { logBotError(symbol, err); }
+}
+
+async function checkPendingOrders(symbol) {
+  const buyOrder = botState.pendingOrders[symbol];
+  if (buyOrder) {
+    let data;
+    try { data = await queryOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch { return; }
+    const status = data.status;
+    if (status === 'FILLED') {
+      const executedQty = parseFloat(data.executedQty || buyOrder.qty);
+      const quoteAmount = parseFloat(data.cummulativeQuoteQty || executedQty * buyOrder.price);
+      const fillPrice = executedQty ? quoteAmount / executedQty : buyOrder.price;
+      botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
+      delete botState.pendingOrders[symbol];
+      botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty, quoteAmount, exchange: buyOrder.exchange, reason: `نفذ أمر الشراء عند ${fillPrice.toFixed(6)}` });
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
+      await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
+    } else if (status === 'CANCELED' || status === 'EXPIRED' || status === 'REJECTED') {
+      delete botState.pendingOrders[symbol];
+    } else {
+      const ageMinutes = (Date.now() - buyOrder.placedAt) / 60000;
+      const sig = botState.lastSignals[symbol];
+      if (ageMinutes > MAX_PENDING_BUY_MINUTES && sig && sig.price > buyOrder.price * 1.01) {
+        try { await cancelOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch {}
+        delete botState.pendingOrders[symbol];
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: 'أُلغي أمر الشراء المعلق لابتعاد السعر' });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
+      }
+    }
+  }
+  const sellOrders = botState.pendingSellOrders[symbol];
+  if (sellOrders && sellOrders.length) {
+    for (const order of [...sellOrders]) {
+      let data;
+      try { data = await queryOrder(order.exchange, symbol, order.orderId); } catch { continue; }
+      if (data.status === 'FILLED') {
+        const executedQty = parseFloat(data.executedQty || order.qty);
+        const quoteAmount = parseFloat(data.cummulativeQuoteQty || executedQty * order.price);
+        const fillPrice = executedQty ? quoteAmount / executedQty : order.price;
+        const pos = botState.positions[symbol];
+        const pnl = pos ? quoteAmount - executedQty * pos.entryPrice : null;
+        const pnlPct = pos && pos.entryPrice ? ((fillPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
+        botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
+        botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: fillPrice, qty: executedQty, quoteAmount, exchange: order.exchange, reason: `نفذ بيع ${order.point} عند ${fillPrice.toFixed(6)}`, pnl, pnlPct });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
+      } else if (['CANCELED', 'EXPIRED', 'REJECTED'].includes(data.status)) {
+        botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
+      }
+    }
+    if (botState.pendingSellOrders[symbol].length === 0) delete botState.pendingSellOrders[symbol];
+  }
+}
+
+async function runBotCycle() {
+  if (!botState.enabled) return;
+  const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
+  for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
+  const candidates = [];
+  for (const symbol of SCAN_SYMBOLS) {
+    try {
+      const sig = await evaluateBotSignal(symbol);
+      if (!sig) continue;
+      botState.lastSignals[symbol] = sig;
+      const alreadyOpen = botState.positions[symbol] || botState.pendingOrders[symbol];
+      if (!alreadyOpen && sig.action === 'buy' && sig.passesFilters) candidates.push(sig);
+    } catch (err) { logBotError(symbol, err); }
+  }
+  const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
+  if (openCount < botState.maxConcurrentPositions && candidates.length) {
+    candidates.sort((a, b) => a.price - b.price);
+    const pick = candidates[0];
+    await placeBotLimitBuy(pick);
+  }
+  broadcastBotStatus();
+}
+
+async function evaluateBotSignal(symbol) {
+  const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+  if (!candles || candles.length < 60) return null;
+  const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+  if (!indicators) return null;
+  const decision = makeDecision(indicators);
+  updateBotBtcLayer();
+  const decision7Base = computeDecision7Score(indicators, decision);
+  const decision7Signal = Math.max(-1, Math.min(1, decision7Base + computeBtcBoost()));
+  const fourBoxSignal = computeFourBoxScore(indicators);
+  const secondarySignal = computeSecondaryScore(indicators, decision);
+  const frameSignal = computeFrameScore(symbol, indicators);
+  const dashboardSignal = 0.30 * decision7Signal + 0.20 * secondarySignal + 0.45 * fourBoxSignal + 0.05 * frameSignal;
+  const botOwnSignal = await computeBotOwnSignal(indicators, candles, symbol);
+  const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
+  let action = 'hold';
+  if (composite >= BOT_BUY_THRESHOLD) action = 'buy';
+  else if (composite <= BOT_SELL_THRESHOLD) action = 'sell';
+  const filter = passesEntryFilters(candles);
+  const buyPoints = computeBuyPoints(candles, indicators, { action, passesFilters: filter.ok, price: indicators.currentPrice });
+  return { symbol, decision7Signal, fourBoxSignal, secondarySignal, frameSignal, dashboardSignal, botOwnSignal, composite, action, price: indicators.currentPrice, buyZone: decision.buyZone, sellZone: decision.sellZone, passesFilters: filter.ok, filterReason: filter.reason, buyPoints };
+}
+
+function botStatusPayload() {
+  return JSON.stringify({
+    type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
+    tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
+    maxConcurrentPositions: botState.maxConcurrentPositions,
+    positions: botState.positions, pendingOrders: botState.pendingOrders,
+    pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20), lastSignals: botState.lastSignals,
+  });
+}
+function broadcastBotStatus() {
+  const payload = botStatusPayload();
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(payload);
+  }
+}
+
+setInterval(runBotCycle, 60 * 1000);
+server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));
