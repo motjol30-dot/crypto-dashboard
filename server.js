@@ -433,13 +433,27 @@ function broadcastExplosionScan() {
   }
 }
 
+// تحميل العملات بالتوازي (دفعات) ثم الفحص المبكر
 (async () => {
-  for (const symbol of SCAN_SYMBOLS) { await ensureStream(symbol, SCAN_INTERVAL); }
-  setTimeout(runExplosionScan, 5000);
+  const batchSize = 10;
+  const symbols = [...SCAN_SYMBOLS];
+  for (let i = 0; i < symbols.length; i += batchSize) {
+    const batch = symbols.slice(i, i + batchSize);
+    await Promise.all(batch.map(symbol => ensureStream(symbol, SCAN_INTERVAL).catch(err => console.error(err))));
+  }
+  runExplosionScan();
 })();
-setInterval(runExplosionScan, 5 * 60 * 1000);
 
-// دوال المصادر التاريخية والبث اللحظي
+// فحص كل 10 ثوانٍ حتى تظهر 3 عملات، ثم كل 5 دقائق
+let scanInterval = setInterval(() => {
+  if (explosionRanking.length < 3) {
+    runExplosionScan();
+  } else {
+    clearInterval(scanInterval);
+    setInterval(runExplosionScan, 5 * 60 * 1000);
+  }
+}, 10000);
+// ── دوال المصادر التاريخية والبث اللحظي ─────────────────────────────────────────
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const { data } = await axios.get(url, { timeout: 8000 });
@@ -600,7 +614,8 @@ function connectOkxStream(symbol, interval) {
   });
 }
 
-// Broadcast
+// ── Broadcast ─────────────────────────────────────────────────────────────────
+
 function computeIndicatorsFixedReversal(symbol, interval, candles) {
   const indicators = computeIndicators(candles);
   if (!indicators) return indicators;
@@ -700,7 +715,8 @@ function broadcastMtfUpdate(symbol, force = false) {
   }
 }
 
-// Indicators
+// ── Indicators ────────────────────────────────────────────────────────────────
+
 function last(arr) { return arr && arr.length ? arr[arr.length - 1] : undefined; }
 
 function computeIndicators(candles) {
@@ -1010,7 +1026,63 @@ function computeVolumeProfile(candles, buckets = 24) {
   return { pocPrice, rangeHigh: max, rangeLow: min };
 }
 
-// Decision Engine
+// ── Decision Engine ───────────────────────────────────────────────────────────
+
+function computeEarlySignal(indicators) {
+  if (!indicators) return null;
+  let bull = 0, bear = 0;
+  const reasons = [];
+
+  if (indicators.rsiDivergence) {
+    if (indicators.rsiDivergence.type === 'bullish') { bull += 3; reasons.push('تباعد RSI إيجابي'); }
+    else if (indicators.rsiDivergence.type === 'bearish') { bear += 3; reasons.push('تباعد RSI سلبي'); }
+  }
+  if (indicators.stochRsi) {
+    if (indicators.stochRsi.crossUp) { bull += 2; reasons.push('StochRSI عبور صاعد'); }
+    else if (indicators.stochRsi.crossDown) { bear += 2; reasons.push('StochRSI عبور هابط'); }
+    else if (indicators.stochRsi.zoneUp) { bull += 1; reasons.push('StochRSI تشبع بيعي'); }
+    else if (indicators.stochRsi.zoneDown) { bear += 1; reasons.push('StochRSI تشبع شرائي'); }
+  }
+  if (indicators.williamsR) {
+    if (indicators.williamsR.crossUpFrom80) { bull += 2; reasons.push('Williams %R خرج من تشبع بيعي'); }
+    else if (indicators.williamsR.crossDownFrom20) { bear += 2; reasons.push('Williams %R خرج من تشبع شرائي'); }
+    else if (indicators.williamsR.zoneUp) { bull += 1; reasons.push('Williams %R تشبع بيعي'); }
+    else if (indicators.williamsR.zoneDown) { bear += 1; reasons.push('Williams %R تشبع شرائي'); }
+  }
+  if (indicators.bbPercentB) {
+    if (indicators.bbPercentB.crossedUpFromZero) { bull += 2; reasons.push('Bollinger %B عبور صاعد من الصفر'); }
+    else if (indicators.bbPercentB.crossedDownFromOne) { bear += 2; reasons.push('Bollinger %B هبوط من 1'); }
+    else if (indicators.bbPercentB.zoneUp) { bull += 1; reasons.push('قرب الحد السفلي لبولينجر'); }
+    else if (indicators.bbPercentB.zoneDown) { bear += 1; reasons.push('قرب الحد العلوي لبولينجر'); }
+  }
+  if (indicators.cvd) {
+    if (indicators.cvd.signal === 'bullish_divergence') { bull += 3; reasons.push('CVD امتصاص مؤسسي صاعد'); }
+    else if (indicators.cvd.signal === 'bearish_divergence') { bear += 3; reasons.push('CVD توزيع/تباعد سلبي'); }
+  }
+  if (indicators.accDist) {
+    if (indicators.accDist.zone === 'تجميع (Accumulation)') { bull += 2; reasons.push('تجميع A/D'); }
+    else if (indicators.accDist.zone === 'تصريف (Distribution)') { bear += 2; reasons.push('تصريف A/D'); }
+  }
+  if (indicators.candleCompare) {
+    if (indicators.candleCompare.bullEngulf) { bull += 3; reasons.push('شمعة ابتلاع صاعدة'); }
+    else if (indicators.candleCompare.bearEngulf) { bear += 3; reasons.push('شمعة ابتلاع هابطة'); }
+  }
+  if (indicators.obvTrendRef != null && indicators.obv != null) {
+    if (indicators.obv > indicators.obvTrendRef) { bull += 1; reasons.push('OBV إيجابي'); }
+    else { bear += 1; reasons.push('OBV سلبي'); }
+  }
+
+  const total = bull + bear;
+  let verdict = 'neutral';
+  let strength = 0;
+  if (total > 0) {
+    strength = Math.max(bull, bear) / total;
+    verdict = bull > bear ? 'bull' : bull < bear ? 'bear' : 'neutral';
+  }
+
+  return { verdict, bull, bear, total, strength: Math.round(strength * 100), reasons };
+}
+
 function makeDecision(indicators) {
   if (!indicators) return null;
   const { rsi, macd, bb, ema50, ema200, currentPrice, stochRsi, williamsR, cvd, accDist, chop, atr } = indicators;
@@ -1100,10 +1172,12 @@ function makeDecision(indicators) {
 
   const buyZone = bb ? { from: bb.lower.toFixed(4), to: ((bb.lower + bb.middle) / 2).toFixed(4) } : null;
   const sellZone = bb ? { from: ((bb.upper + bb.middle) / 2).toFixed(4), to: bb.upper.toFixed(4) } : null;
-  return { trend, action, confidence, notes, buyZone, sellZone };
+  const early = computeEarlySignal(indicators);
+  return { trend, action, confidence, notes, buyZone, sellZone, early };
 }
 
-// بوت التداول
+// ── بوت التداول ──────────────────────────────────────────────────────────────
+
 let botState = {
   enabled: false,
   exchange: 'binance',
@@ -1258,7 +1332,7 @@ async function computeBotOwnSignal(indicators, candles, symbol) {
   return totalWeight > 0 ? rawScore / totalWeight : 0;
 }
 
-const MIN_LIQUIDITY_USDT = 100000; // تم تخفيضها من 200000
+const MIN_LIQUIDITY_USDT = 100000;
 
 function passesEntryFilters(candles) {
   if (!candles || candles.length < 11) return { ok: false, reason: 'بيانات غير كافية' };
@@ -1271,7 +1345,6 @@ function passesEntryFilters(candles) {
   const posInRange = rangeHigh > rangeLow ? (currentPrice - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const avgQuoteVolume = last10.reduce((s, c) => s + c.volume * c.close, 0) / last10.length;
 
-  // تخفيف الشروط:
   const declineConfirmed = changePct < -0.15;
   const nearLowerZone = posInRange <= 0.55;
   const liquidOk = avgQuoteVolume >= MIN_LIQUIDITY_USDT;
@@ -1302,7 +1375,8 @@ function computeBuyPoints(candles, indicators, sig) {
   ];
 }
 
-// أوامر API
+// ── أوامر API ────────────────────────────────────────────────────────────────
+
 function mexcSignedQuery(params) {
   const qs = new URLSearchParams(params).toString();
   const sig = crypto.createHmac('sha256', MEXC_API_SECRET).update(qs).digest('hex');
@@ -1446,7 +1520,6 @@ async function placeBotLimitBuy(sig) {
 
   try {
     let data;
-    // إذا كانت إشارة ارتداد قوية نستخدم Market لضمان التنفيذ الفوري
     if (sig.strongReversalUp) {
       data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
       const executedQty = parseFloat(data.executedQty || qty);
@@ -1535,7 +1608,6 @@ async function runBotCycle() {
   const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
   for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
 
-  // نبدأ بأفضل 3 عملات مرشحة ثم باقي العملات
   const scanSymbols = explosionRanking.length ? explosionRanking.map(p => p.symbol) : SCAN_SYMBOLS;
   const candidates = [];
   for (const symbol of scanSymbols) {
@@ -1577,7 +1649,6 @@ async function evaluateBotSignal(symbol) {
   if (composite >= BOT_BUY_THRESHOLD) action = 'buy';
   else if (composite <= BOT_SELL_THRESHOLD) action = 'sell';
 
-  // ⭐ إشارة ارتداد قوية تفرض الشراء أو البيع
   let strongReversalUp = false;
   let strongReversalDown = false;
   if (indicators.stochRsi?.crossUp || indicators.williamsR?.crossUpFrom80 ||
@@ -1597,7 +1668,6 @@ async function evaluateBotSignal(symbol) {
     action = 'sell';
   }
 
-  // فلتر الدخول: السماح بالشراء عند إشارة ارتداد قوية حتى لو لم تتحقق كل الشروط
   let filter = passesEntryFilters(candles);
   if (strongReversalUp && !filter.ok) {
     filter = { ok: true, reason: 'إشارة ارتداد قوية (تجاوز الفلاتر)' };
@@ -1634,6 +1704,6 @@ function broadcastBotStatus() {
   }
 }
 
-setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية بدلاً من دقيقة
+setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية
 
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));

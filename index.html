@@ -342,12 +342,17 @@
     <div class="pill-label">المؤشرات</div>
     <div class="pill-value neutral" id="p-allind">—</div>
   </div>
+  <div class="pill" id="p-early-wrap" style="cursor:pointer;">
+    <div class="pill-label">🔥 الإنذار المبكر</div>
+    <div class="pill-value neutral" id="p-early">—</div>
+  </div>
 </div>
 
 <div id="decision-cfg" class="cfg-dropdown"></div>
 <div id="fourbox-cfg" class="cfg-dropdown"></div>
 <div id="secondary-cfg" class="cfg-dropdown"></div>
 <div id="allind-cfg" class="cfg-dropdown"></div>
+<div id="early-cfg" class="cfg-dropdown"></div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -508,7 +513,6 @@
   <div class="acc-item" data-key="macd"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-macd">—</div></div>
   <div class="acc-item" data-key="stochastic"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochastic">—</div></div>
   <div class="acc-item" data-key="adx"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-adx">—</div></div>
-
   <div class="group-header">🕯️ الأسعار والأنماط</div>
   <div class="group-summary" id="grp-price">—</div>
   <div class="acc-item" data-key="bb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger Bands</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bb">—</div></div>
@@ -894,6 +898,16 @@
       { key: 'stab-ichimoku', name: 'إيشيموكو ثبات', checked: false, weight: 1 },
       { key: 'stab-obv', name: 'OBV ثبات', checked: false, weight: 1 },
     ]},
+    early: { label: 'الإنذار المبكر', indicators: [
+      { key: 'rsidiv', name: 'تباعد RSI', checked: true, weight: 5 },
+      { key: 'cvd', name: 'CVD (امتصاص)', checked: true, weight: 5 },
+      { key: 'candlecmp', name: 'نمط الشموع', checked: true, weight: 5 },
+      { key: 'stochrsi', name: 'StochRSI', checked: true, weight: 3 },
+      { key: 'williamsr', name: 'Williams %R', checked: true, weight: 3 },
+      { key: 'bbpercentb', name: 'Bollinger %B', checked: true, weight: 3 },
+      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 3 },
+      { key: 'obv', name: 'OBV', checked: true, weight: 1 },
+    ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 35 },
       { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 20 },
@@ -1004,7 +1018,7 @@
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
 
-  ['decision', 'fourbox', 'secondary', 'allind', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1030,6 +1044,7 @@
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
   document.getElementById('p-allind-wrap').addEventListener('click', () => toggleCfgDropdown('allind-cfg'));
+  document.getElementById('p-early-wrap').addEventListener('click', () => toggleCfgDropdown('early-cfg'));
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
   document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
@@ -1119,6 +1134,7 @@
     renderFourBoxDecision();
     renderSecondaryBox();
     renderAllIndicatorsBox();
+    renderEarlyBox();
     renderEarlyBoxes();
 
     const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean };
@@ -1180,6 +1196,29 @@
     pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
     pillEl.className = `pill-value ${v.dir}`;
     renderBoxConfigDropdown('allind', 'allind-cfg');
+  }
+
+  function renderEarlyBox() {
+    const pillEl = document.getElementById('p-early');
+    if (!pillEl) return;
+    const leanMap = {};
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
+    }
+    lastLeanMaps.early = leanMap;
+    const avgLean = weightedLean('early', leanMap);
+    const v = dirWord3(avgLean, 0.2);
+    if (v.dir === 'up') {
+      pillEl.textContent = `إنذار صاعد ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.className = 'pill-value up';
+    } else if (v.dir === 'down') {
+      pillEl.textContent = `إنذار هابط ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.className = 'pill-value down';
+    } else {
+      pillEl.textContent = `ترقب ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.className = 'pill-value neutral';
+    }
+    renderBoxConfigDropdown('early', 'early-cfg');
   }
 
   function renderFrameBox() {
