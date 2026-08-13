@@ -286,7 +286,7 @@
     <div class="pill-value neutral" id="p-allind">—</div>
   </div>
   <div class="pill" id="p-early-wrap" style="cursor:pointer;">
-    <div class="pill-label">المسافة</div>
+    <div class="pill-label">🔥 الإنذار المبكر</div>
     <div class="pill-value neutral" id="p-early">—</div>
   </div>
 </div>
@@ -617,7 +617,7 @@
     let group = document.getElementById('group-early-indicators');
     if (!group) {
       group = document.createElement('div');
-      group.innerHTML = `<div class="group-header">📏 مؤشرات المسافة</div><div class="group-summary" id="grp-early-indicators">—</div>`;
+      group.innerHTML = `<div class="group-header">🔥 مؤشرات الإنذار المبكر</div><div class="group-summary" id="grp-early-indicators">—</div>`;
       group.id = 'group-early-indicators';
       list.appendChild(group);
     }
@@ -681,7 +681,6 @@
     consensusTracker = {};
     renderHourlyLayer(ind.hourlyLayer);
 
-    // المؤشرات القديمة (موجودة في HTML)
     if (ind.rsi != null) { const verdict = ind.rsi > 55 ? 'bull' : ind.rsi < 45 ? 'bear' : 'neutral'; setAcc('rsi', verdict, verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'زخم محايد', `القيمة: <b>${ind.rsi.toFixed(1)}</b>`); }
     if (ind.macd) { const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear'; setAcc('macd', verdict, verdict === 'bull' ? 'صعود' : 'هبوط', `MACD: <b>${ind.macd.value.toFixed(4)}</b> / Signal: <b>${ind.macd.signal.toFixed(4)}</b>`); }
     if (ind.ema50 != null) { const verdict = ind.currentPrice > ind.ema50 ? 'bull' : 'bear'; setAcc('ema50', verdict, verdict === 'bull' ? 'فوق EMA50' : 'تحت EMA50', `EMA50: <b>${fmt(ind.ema50)}</b>`); }
@@ -704,112 +703,46 @@
     if (ind.rsiDivergence) { const r = ind.rsiDivergence; let verdict = 'neutral', label = 'لا تباعد'; if (r.type === 'bullish') { verdict = 'bull'; label = 'تجميع خفي'; } else if (r.type === 'bearish') { verdict = 'bear'; label = 'توزيع خفي'; } setAcc('rsidiv', verdict, label, `RSI Divergence`); }
     if (ind.williamsR) { const w = ind.williamsR; let verdict = 'neutral', label = 'لا إشارة'; if (w.crossUpFrom80) { verdict = 'bull'; label = 'ارتداد صاعد'; } else if (w.crossDownFrom20) { verdict = 'bear'; label = 'ارتداد هابط'; } else if (w.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (w.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('williamsr', verdict, label, `Williams: ${w.now.toFixed(1)}`); }
     if (ind.chop != null) { let verdict = 'neutral', label = 'انتقالي'; if (ind.chop < 38.2) { verdict = 'neutral'; label = 'ترند'; } else if (ind.chop > 61.8) { verdict = 'neutral'; label = 'تذبذب'; } setAcc('chop', verdict, label, `Choppiness: ${ind.chop.toFixed(1)}`); }
+    if (ind.atr) { setAcc('atr', 'neutral', fmt(ind.atr.value), `ATR: ${fmt(ind.atr.value)}`); }
 
-    // ═══════════ مؤشرات المسافة الجديدة ═══════════
-    ensureIndicatorItem('atr', 'متوسط المدى الحقيقي (ATR)');
-    if (ind.atr) {
-      const v = ind.atr.value;
-      const pct = ind.atr.percent;
-      const verdict = pct > 1.5 ? 'bear' : pct < 0.3 ? 'bull' : 'neutral';
-      setAcc('atr', verdict, verdict === 'bull' ? 'تذبذب منخفض' : verdict === 'bear' ? 'تذبذب مرتفع' : 'متوسط',
-        `ATR: <b>${fmt(v)}</b> (${pct.toFixed(2)}% من السعر)`);
-    }
+    ensureIndicatorItem('mfi', 'مؤشر تدفق الأموال (MFI)');
+    if (ind.mfi != null) { const verdict = ind.mfi < 20 ? 'bull' : ind.mfi > 80 ? 'bear' : 'neutral'; setAcc('mfi', verdict, verdict === 'bull' ? 'تشبع بيعي' : verdict === 'bear' ? 'تشبع شرائي' : 'متوازن', `MFI: <b>${ind.mfi.toFixed(1)}</b>`); }
 
-    ensureIndicatorItem('donchian', 'قنوات دونتشيان');
-    if (ind.donchian) {
-      const upper = ind.donchian.upper, lower = ind.donchian.lower;
-      const mid = (upper + lower) / 2;
-      const verdict = ind.currentPrice > mid ? 'bull' : 'bear';
-      setAcc('donchian', verdict, verdict === 'bull' ? 'فوق المنتصف' : 'تحت المنتصف',
-        `القناة: <b>${fmt(lower)}</b> - <b>${fmt(upper)}</b>`);
-    }
+    ensureIndicatorItem('cci', 'مؤشر قناة السلع (CCI)');
+    if (ind.cci != null) { const verdict = ind.cci < -100 ? 'bull' : ind.cci > 100 ? 'bear' : 'neutral'; setAcc('cci', verdict, verdict === 'bull' ? 'تشبع بيعي' : verdict === 'bear' ? 'تشبع شرائي' : 'متوازن', `CCI: <b>${ind.cci.toFixed(1)}</b>`); }
 
-    ensureIndicatorItem('hma', 'متوسط هال المتحرك');
-    if (ind.hma != null) {
-      const verdict = ind.currentPrice > ind.hma ? 'bull' : 'bear';
-      setAcc('hma', verdict, verdict === 'bull' ? 'فوق HMA' : 'تحت HMA', `HMA: <b>${fmt(ind.hma)}</b>`);
-    }
+    ensureIndicatorItem('roc', 'معدل التغير (ROC)');
+    if (ind.roc != null) { const verdict = ind.roc > 2 ? 'bull' : ind.roc < -2 ? 'bear' : 'neutral'; setAcc('roc', verdict, verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'محايد', `ROC: <b>${ind.roc.toFixed(2)}%</b>`); }
 
-    ensureIndicatorItem('vwma', 'المتوسط المرجح بحجم التداول');
-    if (ind.vwma != null) {
-      const verdict = ind.currentPrice > ind.vwma ? 'bull' : 'bear';
-      setAcc('vwma', verdict, verdict === 'bull' ? 'فوق VWMA' : 'تحت VWMA', `VWMA: <b>${fmt(ind.vwma)}</b>`);
-    }
+    ensureIndicatorItem('awesomeOscillator', 'المذبذب الرائع (AO)');
+    if (ind.awesomeOscillator != null) { const verdict = ind.awesomeOscillator > 0 ? 'bull' : 'bear'; setAcc('awesomeOscillator', verdict, verdict === 'bull' ? 'موجب' : 'سالب', `AO: <b>${fmt(ind.awesomeOscillator)}</b>`); }
 
-    ensureIndicatorItem('trix', 'TRIX');
-    if (ind.trix != null) {
-      const verdict = ind.trix > 0 ? 'bull' : 'bear';
-      setAcc('trix', verdict, verdict === 'bull' ? 'زخم إيجابي' : 'زخم سلبي', `TRIX: <b>${ind.trix.toFixed(4)}</b>`);
-    }
+    ensureIndicatorItem('aroon', 'مؤشر أرون (Aroon)');
+    if (ind.aroon) { const verdict = ind.aroon.up > 70 && ind.aroon.down < 30 ? 'bull' : ind.aroon.down > 70 && ind.aroon.up < 30 ? 'bear' : 'neutral'; setAcc('aroon', verdict, verdict === 'bull' ? 'صاعد قوي' : verdict === 'bear' ? 'هابط قوي' : 'محايد', `Aroon Up: <b>${ind.aroon.up.toFixed(1)}</b> / Down: <b>${ind.aroon.down.toFixed(1)}</b>`); }
 
-    ensureIndicatorItem('squeezeMomentum', 'زخم الانضغاط');
-    if (ind.squeezeMomentum != null) {
-      const verdict = ind.squeezeMomentum > 0 ? 'bull' : 'bear';
-      setAcc('squeezeMomentum', verdict, verdict === 'bull' ? 'انضغاط صاعد' : 'انضغاط هابط', `Squeeze Momentum: <b>${fmt(ind.squeezeMomentum)}</b>`);
-    }
+    ensureIndicatorItem('keltner', 'قنوات كيلتنر');
+    if (ind.keltner) { const verdict = ind.currentPrice < ind.keltner.lower ? 'bull' : ind.currentPrice > ind.keltner.upper ? 'bear' : 'neutral'; setAcc('keltner', verdict, verdict === 'bull' ? 'تحت القناة' : verdict === 'bear' ? 'فوق القناة' : 'داخل', `Keltner Upper: <b>${fmt(ind.keltner.upper)}</b> / Lower: <b>${fmt(ind.keltner.lower)}</b>`); }
 
-    ensureIndicatorItem('fisherTransform', 'تحويل فيشر');
-    if (ind.fisherTransform != null) {
-      const verdict = ind.fisherTransform > 0 ? 'bull' : 'bear';
-      setAcc('fisherTransform', verdict, verdict === 'bull' ? 'فيشر موجب' : 'فيشر سالب', `Fisher: <b>${ind.fisherTransform.toFixed(4)}</b>`);
-    }
+    ensureIndicatorItem('parabolicSAR', 'بارابوليك سار');
+    if (ind.parabolicSAR) { const verdict = ind.parabolicSAR.trendUp ? 'bull' : 'bear'; setAcc('parabolicSAR', verdict, verdict === 'bull' ? 'صاعد' : 'هابط', `SAR: <b>${fmt(ind.parabolicSAR.value)}</b>`); }
 
-    ensureIndicatorItem('elderRay', 'قوة الثيران والدببة');
-    if (ind.elderRay) {
-      const verdict = ind.elderRay.bullPower > ind.elderRay.bearPower ? 'bull' : 'bear';
-      setAcc('elderRay', verdict, verdict === 'bull' ? 'الثيران أقوى' : 'الدببة أقوى',
-        `Bull Power: <b>${fmt(ind.elderRay.bullPower)}</b> / Bear Power: <b>${fmt(ind.elderRay.bearPower)}</b>`);
-    }
+    ensureIndicatorItem('stdDev', 'الانحراف المعياري');
+    if (ind.stdDev != null) { setAcc('stdDev', 'neutral', fmt(ind.stdDev), `Standard Deviation: <b>${fmt(ind.stdDev)}</b>`); }
 
-    ensureIndicatorItem('vortex', 'مؤشر الدوامة');
-    if (ind.vortex) {
-      const verdict = ind.vortex.plusVI > ind.vortex.minusVI ? 'bull' : 'bear';
-      setAcc('vortex', verdict, verdict === 'bull' ? 'دوامة صاعدة' : 'دوامة هابطة',
-        `+VI: <b>${ind.vortex.plusVI.toFixed(2)}</b> / -VI: <b>${ind.vortex.minusVI.toFixed(2)}</b>`);
-    }
+    ensureIndicatorItem('orderBlock', 'كتل الأوامر');
+    if (ind.orderBlock) { const verdict = ind.orderBlock.type === 'bullish' ? 'bull' : 'bear'; setAcc('orderBlock', verdict, verdict === 'bull' ? 'Order Block صاعد' : 'Order Block هابط', `السعر: <b>${fmt(ind.orderBlock.price)}</b>`); }
 
-    ensureIndicatorItem('zScore', 'Z-Score');
-    if (ind.zScore != null) {
-      const verdict = ind.zScore > 1.5 ? 'bear' : ind.zScore < -1.5 ? 'bull' : 'neutral';
-      setAcc('zScore', verdict, verdict === 'bull' ? 'بعيد عن المتوسط (أدنى)' : verdict === 'bear' ? 'بعيد عن المتوسط (أعلى)' : 'ضمن الطبيعي',
-        `Z-Score: <b>${ind.zScore.toFixed(2)}</b>`);
-    }
+    ensureIndicatorItem('fvg', 'فجوات القيمة العادلة');
+    if (ind.fvg) { const verdict = ind.fvg.type === 'bullish' ? 'bull' : 'bear'; setAcc('fvg', verdict, verdict === 'bull' ? 'FVG صاعد' : 'FVG هابط', `FVG Top: <b>${fmt(ind.fvg.top)}</b> / Bottom: <b>${fmt(ind.fvg.bottom)}</b>`); }
 
-    ensureIndicatorItem('zigzag', 'الزجزاج');
-    if (ind.zigzag) {
-      setAcc('zigzag', ind.zigzag.direction === 'up' ? 'bull' : 'bear',
-        ind.zigzag.direction === 'up' ? 'منعطف صاعد' : 'منعطف هابط',
-        `آخر قمة/قاع: <b>${fmt(ind.zigzag.price)}</b>`);
-    }
+    ensureIndicatorItem('marketStructure', 'هيكل السوق');
+    if (ind.marketStructure) { const verdict = ind.marketStructure.type === 'bullish' ? 'bull' : 'bear'; setAcc('marketStructure', verdict, verdict === 'bull' ? 'هيكل صاعد' : 'هيكل هابط', `كسر: ${ind.marketStructure.break ? 'نعم' : 'لا'}`); }
 
-    ensureIndicatorItem('klinger', 'مؤشر القوة التجميعية');
-    if (ind.klinger != null) {
-      const verdict = ind.klinger > 0 ? 'bull' : 'bear';
-      setAcc('klinger', verdict, verdict === 'bull' ? 'تراكم شرائي' : 'تراكم بيعي', `Klinger: <b>${fmt(ind.klinger)}</b>`);
-    }
+    ensureIndicatorItem('liquidityPool', 'مناطق السيولة');
+    if (ind.liquidityPool) { setAcc('liquidityPool', 'neutral', 'مناطق', `فوق: <b>${fmt(ind.liquidityPool.above)}</b> / تحت: <b>${fmt(ind.liquidityPool.below)}</b>`); }
 
-    ensureIndicatorItem('linearRegression', 'قنوات انحراف السعر');
-    if (ind.linearRegression) {
-      const upper = ind.linearRegression.upper, lower = ind.linearRegression.lower;
-      const mid = (upper + lower) / 2;
-      const verdict = ind.currentPrice > mid ? 'bull' : 'bear';
-      setAcc('linearRegression', verdict, verdict === 'bull' ? 'فوق منتصف الانحدار' : 'تحت منتصف الانحدار',
-        `القناة: <b>${fmt(lower)}</b> - <b>${fmt(upper)}</b>`);
-    }
-
-    ensureIndicatorItem('relativeStrengthBTC', 'القوة النسبية مقارنة بالبيتكوين');
-    if (ind.relativeStrengthBTC != null) {
-      const verdict = ind.relativeStrengthBTC > 0 ? 'bull' : 'bear';
-      setAcc('relativeStrengthBTC', verdict, verdict === 'bull' ? 'أقوى من البيتكوين' : 'أضعف من البيتكوين',
-        `القوة النسبية: <b>${ind.relativeStrengthBTC.toFixed(2)}%</b>`);
-    }
-
-    ensureIndicatorItem('marketFacilitation', 'تيسير الحركة');
-    if (ind.marketFacilitation != null) {
-      const verdict = ind.marketFacilitation > 0 ? 'bull' : 'bear';
-      setAcc('marketFacilitation', verdict, verdict === 'bull' ? 'تيسير إيجابي' : 'تيسير سلبي',
-        `MFI: <b>${fmt(ind.marketFacilitation)}</b>`);
-    }
+    ensureIndicatorItem('fibonacci', 'تصحيحات فيبوناتشي');
+    if (ind.fibonacci) { setAcc('fibonacci', 'neutral', 'فيبو', `61.8%: <b>${fmt(ind.fibonacci.fib618)}</b> / 38.2%: <b>${fmt(ind.fibonacci.fib382)}</b>`); }
   }
 
   let lastHourlyLayer = null;
@@ -885,22 +818,20 @@
       { key: 'stab-ichimoku', name: 'إيشيموكو ثبات', checked: false, weight: 1 },
       { key: 'stab-obv', name: 'OBV ثبات', checked: false, weight: 1 },
     ]},
-    early: { label: 'المسافة', indicators: [
-      { key: 'atr', name: 'متوسط المدى الحقيقي (ATR)', checked: true, weight: 1 },
-      { key: 'donchian', name: 'قنوات دونتشيان', checked: true, weight: 1 },
-      { key: 'hma', name: 'متوسط هال المتحرك', checked: true, weight: 1 },
-      { key: 'vwma', name: 'المتوسط المرجح بحجم التداول', checked: true, weight: 1 },
-      { key: 'trix', name: 'TRIX', checked: true, weight: 1 },
-      { key: 'squeezeMomentum', name: 'زخم الانضغاط', checked: true, weight: 1 },
-      { key: 'fisherTransform', name: 'تحويل فيشر', checked: true, weight: 1 },
-      { key: 'elderRay', name: 'قوة الثيران والدببة', checked: true, weight: 1 },
-      { key: 'vortex', name: 'مؤشر الدوامة', checked: true, weight: 1 },
-      { key: 'zScore', name: 'Z-Score', checked: true, weight: 1 },
-      { key: 'zigzag', name: 'الزجزاج', checked: true, weight: 1 },
-      { key: 'klinger', name: 'مؤشر القوة التجميعية', checked: true, weight: 1 },
-      { key: 'linearRegression', name: 'قنوات انحراف السعر', checked: true, weight: 1 },
-      { key: 'relativeStrengthBTC', name: 'القوة النسبية مقارنة بالبيتكوين', checked: true, weight: 1 },
-      { key: 'marketFacilitation', name: 'تيسير الحركة', checked: true, weight: 1 },
+    early: { label: 'الإنذار المبكر', indicators: [
+      { key: 'orderBlock', name: 'Order Block', checked: true, weight: 5 },
+      { key: 'fvg', name: 'FVG', checked: true, weight: 5 },
+      { key: 'marketStructure', name: 'هيكل السوق', checked: true, weight: 5 },
+      { key: 'liquidityPool', name: 'مناطق السيولة', checked: true, weight: 5 },
+      { key: 'fibonacci', name: 'فيبوناتشي', checked: true, weight: 3 },
+      { key: 'parabolicSAR', name: 'بارابوليك سار', checked: true, weight: 3 },
+      { key: 'keltner', name: 'قنوات كيلتنر', checked: true, weight: 3 },
+      { key: 'aroon', name: 'مؤشر أرون', checked: true, weight: 3 },
+      { key: 'cci', name: 'CCI', checked: true, weight: 3 },
+      { key: 'mfi', name: 'MFI', checked: true, weight: 3 },
+      { key: 'awesomeOscillator', name: 'Awesome Oscillator', checked: true, weight: 2 },
+      { key: 'roc', name: 'ROC', checked: true, weight: 2 },
+      { key: 'stdDev', name: 'Standard Deviation', checked: true, weight: 1 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 35 },
@@ -1213,13 +1144,13 @@
     const avgLean = weightedLean('early', leanMap);
     const v = dirWord3(avgLean, 0.2);
     if (v.dir === 'up') {
-      pillEl.textContent = `صعود ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `إنذار صاعد ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value up';
     } else if (v.dir === 'down') {
-      pillEl.textContent = `هبوط ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `إنذار هابط ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value down';
     } else {
-      pillEl.textContent = `محايد ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `ترقب ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value neutral';
     }
     renderBoxConfigDropdown('early', 'early-cfg');
