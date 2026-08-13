@@ -10,6 +10,7 @@ const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
+// قائمة العملات (40 عملة)
 const SYMBOLS = [
   'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','AVAXUSDT',
   'LINKUSDT','NEARUSDT','DOTUSDT','FETUSDT','GRTUSDT','RENDERUSDT','WLDUSDT',
@@ -30,6 +31,7 @@ const clientSubs = new Map();
 const app = express();
 const server = http.createServer(app);
 
+// الحماية
 const APP_USER = process.env.APP_USER || 'group';
 const APP_PASS = process.env.APP_PASS || 'change-me-1234';
 const MAX_USERS = parseInt(process.env.MAX_USERS || '12', 10);
@@ -106,10 +108,12 @@ if (AUTH_ENABLED) {
   app.use(sessionLimitMiddleware);
 }
 
+// REST
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 
+// نظرة عامة على السوق
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
 
@@ -126,6 +130,7 @@ app.get('/api/market-overview', async (_req, res) => {
   res.json(result);
 });
 
+// الطبقة الكلية
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
 let macroCache = { data: null, ts: 0 };
 const MACRO_CACHE_MS = 60 * 1000;
@@ -149,6 +154,7 @@ app.get('/api/macro-overview', async (_req, res) => {
   res.json(result);
 });
 
+// فيوتشر متعدد المنصات
 async function fetchBinanceFutures(symbol) {
   const out = {};
   try { const r = await axios.get(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`, { timeout: 8000 }); if (r.data?.lastFundingRate != null) out.fundingRate = Number(r.data.lastFundingRate) * 100; } catch (e) {}
@@ -196,6 +202,7 @@ app.get('/api/futures-zone', async (req, res) => {
   res.json({ fundingRate: aggregate.avgFundingRate, openInterest: aggregate.totalOpenInterest, exchanges, aggregate });
 });
 
+// WebSocket Server
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws, req) => {
@@ -294,6 +301,7 @@ wss.on('connection', (ws, req) => {
   ws.on('error', () => clientSubs.delete(ws));
 });
 
+// طبقة أفضل 3 عملات
 const SCAN_INTERVAL = '15m';
 const SCAN_SYMBOLS = SYMBOLS;
 
@@ -381,6 +389,7 @@ function computeExplosionScore(candles) {
   const rsiPenalty = lastRsi != null && lastRsi > 70 ? Math.min(1, (lastRsi-70)/15)*15 : 0;
   score -= rsiPenalty;
 
+  // أفضلية السعر المنخفض
   const price = closes[n-1];
   let priceBias = 0;
   if (price < 1) priceBias = 12;
@@ -424,6 +433,7 @@ function broadcastExplosionScan() {
   }
 }
 
+// تحميل العملات بالتوازي (دفعات) ثم الفحص المبكر
 (async () => {
   const batchSize = 10;
   const symbols = [...SCAN_SYMBOLS];
@@ -434,6 +444,7 @@ function broadcastExplosionScan() {
   runExplosionScan();
 })();
 
+// فحص كل 10 ثوانٍ حتى تظهر 3 عملات، ثم كل 5 دقائق
 let scanInterval = setInterval(() => {
   if (explosionRanking.length < 3) {
     runExplosionScan();
@@ -442,7 +453,7 @@ let scanInterval = setInterval(() => {
     setInterval(runExplosionScan, 5 * 60 * 1000);
   }
 }, 10000);
-
+// ── دوال المصادر التاريخية والبث اللحظي ─────────────────────────────────────────
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const { data } = await axios.get(url, { timeout: 8000 });
@@ -603,6 +614,8 @@ function connectOkxStream(symbol, interval) {
   });
 }
 
+// ── Broadcast ─────────────────────────────────────────────────────────────────
+
 function computeIndicatorsFixedReversal(symbol, interval, candles) {
   const indicators = computeIndicators(candles);
   if (!indicators) return indicators;
@@ -701,6 +714,8 @@ function broadcastMtfUpdate(symbol, force = false) {
     if (client.readyState === WebSocket.OPEN && sub.symbol === symbol) client.send(payload);
   }
 }
+
+// ── Indicators ────────────────────────────────────────────────────────────────
 
 function last(arr) { return arr && arr.length ? arr[arr.length - 1] : undefined; }
 
@@ -956,162 +971,7 @@ function computeIndicators(candles) {
     }
   }
 
-  // ═══ المؤشرات الجديدة ═══
-  let mfi = null;
-  {
-    const period = 14;
-    const typicalPrices = closes.map((c, i) => (highs[i] + lows[i] + c) / 3);
-    const rawMF = typicalPrices.map((tp, i) => tp * volumes[i]);
-    if (n > period) {
-      let posMF = 0, negMF = 0;
-      for (let i = n - period; i < n; i++) {
-        if (typicalPrices[i] > typicalPrices[i - 1]) posMF += rawMF[i];
-        else if (typicalPrices[i] < typicalPrices[i - 1]) negMF += rawMF[i];
-      }
-      mfi = negMF === 0 ? 100 : 100 - (100 / (1 + posMF / negMF));
-    }
-  }
-
-  let cci = null;
-  {
-    const period = 20;
-    if (n >= period) {
-      const typicalPrices = closes.map((c, i) => (highs[i] + lows[i] + c) / 3);
-      const lastTP = typicalPrices[n - 1];
-      const smaTP = typicalPrices.slice(-period).reduce((a, b) => a + b, 0) / period;
-      const meanDev = typicalPrices.slice(-period).reduce((s, tp) => s + Math.abs(tp - smaTP), 0) / period;
-      cci = meanDev === 0 ? 0 : (lastTP - smaTP) / (0.015 * meanDev);
-    }
-  }
-
-  let roc = null;
-  if (n >= 10) {
-    roc = ((closes[n - 1] - closes[n - 10]) / closes[n - 10]) * 100;
-  }
-
-  let awesomeOscillator = null;
-  if (n >= 34) {
-    const sma5 = closes.slice(-5).reduce((a, b) => a + b, 0) / 5;
-    const sma34 = closes.slice(-34).reduce((a, b) => a + b, 0) / 34;
-    awesomeOscillator = sma5 - sma34;
-  }
-
-  let aroon = null;
-  if (n >= 25) {
-    const period = 25;
-    const highSlice = highs.slice(-period - 1);
-    const lowSlice = lows.slice(-period - 1);
-    const maxHighIndex = highSlice.length - 1 - highSlice.lastIndexOf(Math.max(...highSlice));
-    const minLowIndex = lowSlice.length - 1 - lowSlice.lastIndexOf(Math.min(...lowSlice));
-    aroon = { up: ((period - maxHighIndex) / period) * 100, down: ((period - minLowIndex) / period) * 100 };
-  }
-
-  let keltner = null;
-  if (n >= 20) {
-    const ema20 = last(EMA.calculate({ values: closes, period: 20 }));
-    const atrVal = atr ? atr.value : null;
-    if (ema20 != null && atrVal != null) {
-      keltner = { upper: ema20 + 2 * atrVal, middle: ema20, lower: ema20 - 2 * atrVal };
-    }
-  }
-
-  let parabolicSAR = null;
-  {
-    const step = 0.02, maxStep = 0.2;
-    let isUp = closes[1] > closes[0];
-    let sar = isUp ? Math.min(lows[0], lows[1]) : Math.max(highs[0], highs[1]);
-    let ep = isUp ? Math.max(...highs.slice(0, 2)) : Math.min(...lows.slice(0, 2));
-    let af = step;
-    const sarArr = [sar];
-    for (let i = 2; i < n; i++) {
-      const prevSar = sar;
-      const prevHigh = highs[i - 1];
-      const prevLow = lows[i - 1];
-      sar = prevSar + af * (ep - prevSar);
-      if (isUp) {
-        if (sar > prevLow) sar = prevLow;
-        if (lows[i] < sar) { isUp = false; sar = ep; ep = Math.min(...lows.slice(Math.max(0, i - 5), i + 1)); af = step; }
-        else if (highs[i] > ep) { ep = highs[i]; af = Math.min(af + step, maxStep); }
-      } else {
-        if (sar < prevHigh) sar = prevHigh;
-        if (highs[i] > sar) { isUp = true; sar = ep; ep = Math.max(...highs.slice(Math.max(0, i - 5), i + 1)); af = step; }
-        else if (lows[i] < ep) { ep = lows[i]; af = Math.min(af + step, maxStep); }
-      }
-      sarArr.push(sar);
-    }
-    parabolicSAR = { value: sarArr[sarArr.length - 1], trendUp: closes[n - 1] > sarArr[sarArr.length - 1] };
-  }
-
-  let stdDev = null;
-  if (n >= 20) {
-    const sma = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    stdDev = Math.sqrt(closes.slice(-20).reduce((s, c) => s + Math.pow(c - sma, 2), 0) / 20);
-  }
-
-  // ═══ مؤشرات هيكلية مبسطة ═══
-  let orderBlock = null;
-  if (n >= 5) {
-    const lastCandle = candles[n - 1];
-    const prevCandle = candles[n - 2];
-    if (lastCandle.close > lastCandle.open && prevCandle.close < prevCandle.open) {
-      orderBlock = { type: 'bullish', price: prevCandle.low };
-    } else if (lastCandle.close < lastCandle.open && prevCandle.close > prevCandle.open) {
-      orderBlock = { type: 'bearish', price: prevCandle.high };
-    }
-  }
-
-  let fvg = null;
-  if (n >= 3) {
-    const c1 = candles[n - 3], c2 = candles[n - 2], c3 = candles[n - 1];
-    if (c3.low > c1.high) fvg = { type: 'bullish', top: c3.low, bottom: c1.high };
-    else if (c3.high < c1.low) fvg = { type: 'bearish', top: c1.low, bottom: c3.high };
-  }
-
-  let marketStructure = null;
-  if (n >= 10) {
-    const recentHighs = highs.slice(-10);
-    const recentLows = lows.slice(-10);
-    const highest = Math.max(...recentHighs);
-    const lowest = Math.min(...recentLows);
-    const currentPrice = closes[n - 1];
-    if (currentPrice > highest) marketStructure = { type: 'bullish', break: true };
-    else if (currentPrice < lowest) marketStructure = { type: 'bearish', break: true };
-    else {
-      const mid = (highest + lowest) / 2;
-      marketStructure = { type: currentPrice > mid ? 'bullish' : 'bearish', break: false };
-    }
-  }
-
-  let liquidityPool = null;
-  if (n >= 20) {
-    const highs20 = highs.slice(-20);
-    const lows20 = lows.slice(-20);
-    liquidityPool = { above: Math.max(...highs20), below: Math.min(...lows20) };
-  }
-
-  let fibonacci = null;
-  if (n >= 50) {
-    const high = Math.max(...highs.slice(-50));
-    const low = Math.min(...lows.slice(-50));
-    const diff = high - low;
-    if (diff > 0) {
-      fibonacci = {
-        fib382: high - diff * 0.382,
-        fib500: high - diff * 0.5,
-        fib618: high - diff * 0.618,
-      };
-    }
-  }
-
-  return {
-    rsi, macd, bb, ema50, ema200,
-    sma20, vwap, stochastic, adx, obv, obvPrev, obvTrendRef, supertrend, ichimoku, volumeProfile,
-    pivot, candleCompare, accDist, cvd,
-    stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr,
-    mfi, cci, roc, awesomeOscillator, aroon, keltner, parabolicSAR, stdDev,
-    orderBlock, fvg, marketStructure, liquidityPool, fibonacci,
-    currentPrice: closes[closes.length - 1],
-  };
+  return { rsi, macd, bb, ema50, ema200, sma20, vwap, stochastic, adx, obv, obvPrev, obvTrendRef, supertrend, ichimoku, volumeProfile, pivot, candleCompare, accDist, cvd, stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr, currentPrice: closes[closes.length - 1] };
 }
 
 function computeSupertrend(candles, period = 10, multiplier = 3) {
@@ -1166,58 +1026,50 @@ function computeVolumeProfile(candles, buckets = 24) {
   return { pocPrice, rangeHigh: max, rangeLow: min };
 }
 
+// ── Decision Engine ───────────────────────────────────────────────────────────
+
 function computeEarlySignal(indicators) {
   if (!indicators) return null;
   let bull = 0, bear = 0;
   const reasons = [];
 
-  if (indicators.orderBlock) {
-    if (indicators.orderBlock.type === 'bullish') { bull += 3; reasons.push('Order Block صاعد'); }
-    else if (indicators.orderBlock.type === 'bearish') { bear += 3; reasons.push('Order Block هابط'); }
+  if (indicators.rsiDivergence) {
+    if (indicators.rsiDivergence.type === 'bullish') { bull += 3; reasons.push('تباعد RSI إيجابي'); }
+    else if (indicators.rsiDivergence.type === 'bearish') { bear += 3; reasons.push('تباعد RSI سلبي'); }
   }
-  if (indicators.fvg) {
-    if (indicators.fvg.type === 'bullish') { bull += 2; reasons.push('Fair Value Gap صاعد'); }
-    else if (indicators.fvg.type === 'bearish') { bear += 2; reasons.push('Fair Value Gap هابط'); }
+  if (indicators.stochRsi) {
+    if (indicators.stochRsi.crossUp) { bull += 2; reasons.push('StochRSI عبور صاعد'); }
+    else if (indicators.stochRsi.crossDown) { bear += 2; reasons.push('StochRSI عبور هابط'); }
+    else if (indicators.stochRsi.zoneUp) { bull += 1; reasons.push('StochRSI تشبع بيعي'); }
+    else if (indicators.stochRsi.zoneDown) { bear += 1; reasons.push('StochRSI تشبع شرائي'); }
   }
-  if (indicators.marketStructure) {
-    if (indicators.marketStructure.type === 'bullish' && indicators.marketStructure.break) { bull += 3; reasons.push('كسر هيكل صاعد (BOS)'); }
-    else if (indicators.marketStructure.type === 'bearish' && indicators.marketStructure.break) { bear += 3; reasons.push('كسر هيكل هابط (BOS)'); }
+  if (indicators.williamsR) {
+    if (indicators.williamsR.crossUpFrom80) { bull += 2; reasons.push('Williams %R خرج من تشبع بيعي'); }
+    else if (indicators.williamsR.crossDownFrom20) { bear += 2; reasons.push('Williams %R خرج من تشبع شرائي'); }
+    else if (indicators.williamsR.zoneUp) { bull += 1; reasons.push('Williams %R تشبع بيعي'); }
+    else if (indicators.williamsR.zoneDown) { bear += 1; reasons.push('Williams %R تشبع شرائي'); }
   }
-  if (indicators.liquidityPool) {
-    if (indicators.currentPrice > indicators.liquidityPool.above * 0.99) { bull += 2; reasons.push('اختراق منطقة سيولة علوية'); }
-    else if (indicators.currentPrice < indicators.liquidityPool.below * 1.01) { bear += 2; reasons.push('كسر منطقة سيولة سفلية'); }
+  if (indicators.bbPercentB) {
+    if (indicators.bbPercentB.crossedUpFromZero) { bull += 2; reasons.push('Bollinger %B عبور صاعد من الصفر'); }
+    else if (indicators.bbPercentB.crossedDownFromOne) { bear += 2; reasons.push('Bollinger %B هبوط من 1'); }
+    else if (indicators.bbPercentB.zoneUp) { bull += 1; reasons.push('قرب الحد السفلي لبولينجر'); }
+    else if (indicators.bbPercentB.zoneDown) { bear += 1; reasons.push('قرب الحد العلوي لبولينجر'); }
   }
-  if (indicators.fibonacci) {
-    if (indicators.currentPrice <= indicators.fibonacci.fib618) { bull += 1; reasons.push('قرب تصحيح فيبوناتشي 61.8%'); }
-    else if (indicators.currentPrice >= indicators.fibonacci.fib382) { bear += 1; reasons.push('قرب مقاومة فيبوناتشي 38.2%'); }
+  if (indicators.cvd) {
+    if (indicators.cvd.signal === 'bullish_divergence') { bull += 3; reasons.push('CVD امتصاص مؤسسي صاعد'); }
+    else if (indicators.cvd.signal === 'bearish_divergence') { bear += 3; reasons.push('CVD توزيع/تباعد سلبي'); }
   }
-  if (indicators.parabolicSAR) {
-    if (indicators.parabolicSAR.trendUp) { bull += 2; reasons.push('Parabolic SAR صاعد'); }
-    else { bear += 2; reasons.push('Parabolic SAR هابط'); }
+  if (indicators.accDist) {
+    if (indicators.accDist.zone === 'تجميع (Accumulation)') { bull += 2; reasons.push('تجميع A/D'); }
+    else if (indicators.accDist.zone === 'تصريف (Distribution)') { bear += 2; reasons.push('تصريف A/D'); }
   }
-  if (indicators.keltner) {
-    if (indicators.currentPrice < indicators.keltner.lower) { bull += 2; reasons.push('السعر تحت قناة كيلتنر السفلى'); }
-    else if (indicators.currentPrice > indicators.keltner.upper) { bear += 2; reasons.push('السعر فوق قناة كيلتنر العليا'); }
+  if (indicators.candleCompare) {
+    if (indicators.candleCompare.bullEngulf) { bull += 3; reasons.push('شمعة ابتلاع صاعدة'); }
+    else if (indicators.candleCompare.bearEngulf) { bear += 3; reasons.push('شمعة ابتلاع هابطة'); }
   }
-  if (indicators.aroon) {
-    if (indicators.aroon.up > 70 && indicators.aroon.down < 30) { bull += 2; reasons.push('Aroon صاعد قوي'); }
-    else if (indicators.aroon.down > 70 && indicators.aroon.up < 30) { bear += 2; reasons.push('Aroon هابط قوي'); }
-  }
-  if (indicators.cci != null) {
-    if (indicators.cci < -100) { bull += 2; reasons.push('CCI تشبع بيعي'); }
-    else if (indicators.cci > 100) { bear += 2; reasons.push('CCI تشبع شرائي'); }
-  }
-  if (indicators.mfi != null) {
-    if (indicators.mfi < 20) { bull += 2; reasons.push('MFI تشبع بيعي'); }
-    else if (indicators.mfi > 80) { bear += 2; reasons.push('MFI تشبع شرائي'); }
-  }
-  if (indicators.awesomeOscillator != null) {
-    if (indicators.awesomeOscillator > 0) { bull += 1; reasons.push('Awesome Oscillator موجب'); }
-    else { bear += 1; reasons.push('Awesome Oscillator سالب'); }
-  }
-  if (indicators.roc != null) {
-    if (indicators.roc > 2) { bull += 1; reasons.push('ROC زخم صاعد'); }
-    else if (indicators.roc < -2) { bear += 1; reasons.push('ROC زخم هابط'); }
+  if (indicators.obvTrendRef != null && indicators.obv != null) {
+    if (indicators.obv > indicators.obvTrendRef) { bull += 1; reasons.push('OBV إيجابي'); }
+    else { bear += 1; reasons.push('OBV سلبي'); }
   }
 
   const total = bull + bear;
@@ -1323,6 +1175,8 @@ function makeDecision(indicators) {
   const early = computeEarlySignal(indicators);
   return { trend, action, confidence, notes, buyZone, sellZone, early };
 }
+
+// ── بوت التداول ──────────────────────────────────────────────────────────────
 
 let botState = {
   enabled: false,
@@ -1520,6 +1374,8 @@ function computeBuyPoints(candles, indicators, sig) {
     { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && indicators.candleCompare?.bullEngulf },
   ];
 }
+
+// ── أوامر API ────────────────────────────────────────────────────────────────
 
 function mexcSignedQuery(params) {
   const qs = new URLSearchParams(params).toString();
@@ -1795,9 +1651,15 @@ async function evaluateBotSignal(symbol) {
 
   let strongReversalUp = false;
   let strongReversalDown = false;
-  if (indicators.early) {
-    if (indicators.early.verdict === 'bull' && indicators.early.strength >= 60) strongReversalUp = true;
-    else if (indicators.early.verdict === 'bear' && indicators.early.strength >= 60) strongReversalDown = true;
+  if (indicators.stochRsi?.crossUp || indicators.williamsR?.crossUpFrom80 ||
+      indicators.bbPercentB?.crossedUpFromZero || indicators.candleCompare?.bullEngulf ||
+      indicators.rsiDivergence?.type === 'bullish') {
+    strongReversalUp = true;
+  }
+  if (indicators.stochRsi?.crossDown || indicators.williamsR?.crossDownFrom20 ||
+      indicators.bbPercentB?.crossedDownFromOne || indicators.candleCompare?.bearEngulf ||
+      indicators.rsiDivergence?.type === 'bearish') {
+    strongReversalDown = true;
   }
 
   if (strongReversalUp && action !== 'sell') {
@@ -1808,7 +1670,7 @@ async function evaluateBotSignal(symbol) {
 
   let filter = passesEntryFilters(candles);
   if (strongReversalUp && !filter.ok) {
-    filter = { ok: true, reason: 'إشارة إنذار مبكر قوية (تجاوز الفلاتر)' };
+    filter = { ok: true, reason: 'إشارة ارتداد قوية (تجاوز الفلاتر)' };
   } else if (strongReversalDown && !filter.ok) {
     filter = { ok: true, reason: 'إشارة انعكاس هبوطي قوية' };
   }
@@ -1842,6 +1704,6 @@ function broadcastBotStatus() {
   }
 }
 
-setInterval(runBotCycle, 30 * 1000);
+setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية
 
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));
