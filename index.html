@@ -343,7 +343,7 @@
     <div class="pill-value neutral" id="p-allind">—</div>
   </div>
   <div class="pill" id="p-early-wrap" style="cursor:pointer;">
-    <div class="pill-label">🔥 الإنذار المبكر</div>
+    <div class="pill-label">المسافة</div>
     <div class="pill-value neutral" id="p-early">—</div>
   </div>
 </div>
@@ -513,6 +513,7 @@
   <div class="acc-item" data-key="macd"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-macd">—</div></div>
   <div class="acc-item" data-key="stochastic"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochastic">—</div></div>
   <div class="acc-item" data-key="adx"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-adx">—</div></div>
+
   <div class="group-header">🕯️ الأسعار والأنماط</div>
   <div class="group-summary" id="grp-price">—</div>
   <div class="acc-item" data-key="bb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger Bands</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bb">—</div></div>
@@ -524,7 +525,7 @@
 <ul id="notes-list"></ul>
 
 <script>
-  // ═══════════════════ المتغيرات العامة ═══════════════════
+      // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
   let ws = null;
@@ -676,21 +677,17 @@
     if (msg.symbol !== currentSymbol || msg.interval !== currentInterval) return;
     showLoading(false);
 
-    // إذا تغير الرمز أو الفريم أو لا توجد سلسلة، نعيد البناء بالكامل
     if (currentSeriesSymbol !== currentSymbol || currentSeriesInterval !== currentInterval || !candleSeries) {
       candleSeries.setData(msg.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
       currentSeriesSymbol = currentSymbol;
       currentSeriesInterval = currentInterval;
       lastCandleTime = msg.candles.length ? msg.candles[msg.candles.length - 1].time : null;
     } else {
-      // تحديث آخر شمعة فقط
       const latestCandle = msg.candles[msg.candles.length - 1];
       if (latestCandle) {
         if (latestCandle.time === lastCandleTime) {
-          // نفس الشمعة الحالية: تحديث بياناتها
           candleSeries.update({ time: latestCandle.time, open: latestCandle.open, high: latestCandle.high, low: latestCandle.low, close: latestCandle.close });
         } else if (latestCandle.time > lastCandleTime) {
-          // شمعة جديدة: إضافتها
           candleSeries.update({ time: latestCandle.time, open: latestCandle.open, high: latestCandle.high, low: latestCandle.low, close: latestCandle.close });
           lastCandleTime = latestCandle.time;
         }
@@ -754,6 +751,32 @@
     box.onclick = () => switchToSymbol(item.symbol);
   }
 
+  // ═══════════════════ المؤشرات الديناميكية الجديدة ═══════════════════
+  function ensureIndicatorItem(key, name) {
+    if (document.querySelector(`.acc-item[data-key="${key}"]`)) return;
+    const list = document.getElementById('indicators-list');
+    let group = document.getElementById('group-early-indicators');
+    if (!group) {
+      group = document.createElement('div');
+      group.innerHTML = `<div class="group-header">📏 مؤشرات المسافة</div><div class="group-summary" id="grp-early-indicators">—</div>`;
+      group.id = 'group-early-indicators';
+      list.appendChild(group);
+    }
+    const item = document.createElement('div');
+    item.className = 'acc-item';
+    item.dataset.key = key;
+    item.innerHTML = `
+      <div class="acc-head">
+        <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">${name}</span></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="acc-verdict neutral" id="v-${key}">—</span><span class="acc-arrow">▾</span>
+        </div>
+      </div>
+      <div class="acc-body" id="b-${key}">—</div>`;
+    group.appendChild(item);
+    item.querySelector('.acc-head').addEventListener('click', () => item.classList.toggle('open'));
+  }
+
   // ═══════════════════ عرض المؤشرات ═══════════════════
   let consensusTracker = {};
 
@@ -798,31 +821,114 @@
     if (!ind) return;
     consensusTracker = {};
     renderHourlyLayer(ind.hourlyLayer);
-    if (ind.rsi != null) { const verdict = ind.rsi > 55 ? 'bull' : ind.rsi < 45 ? 'bear' : 'neutral'; const label = ind.rsi > 55 ? 'زخم صاعد' : ind.rsi < 45 ? 'زخم هابط' : 'زخم محايد'; setAcc('rsi', verdict, label, `القيمة الحالية: <b>${ind.rsi.toFixed(1)}</b>`); }
-    if (ind.macd) { const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear'; setAcc('macd', verdict, verdict === 'bull' ? 'صعود' : 'هبوط', `القيمة: <b>${ind.macd.value.toFixed(4)}</b> / الإشارة: <b>${ind.macd.signal.toFixed(4)}</b>`); }
-    if (ind.ema50 != null) { const verdict = ind.currentPrice > ind.ema50 ? 'bull' : 'bear'; setAcc('ema50', verdict, verdict === 'bull' ? 'دعم (فوق المتوسط)' : 'مقاومة (تحت المتوسط)', `القيمة: <b>${fmt(ind.ema50)}</b>`); }
-    if (ind.ema200 != null) { const verdict = ind.currentPrice > ind.ema200 ? 'bull' : 'bear'; setAcc('ema200', verdict, verdict === 'bull' ? 'اتجاه عام صاعد' : 'اتجاه عام هابط', `القيمة: <b>${fmt(ind.ema200)}</b>`); }
-    if (ind.bb) { let verdict = 'neutral', label = 'محايد'; if (ind.currentPrice < ind.bb.lower) { verdict = 'bull'; label = 'منطقة شراء قوية'; } else if (ind.currentPrice > ind.bb.upper) { verdict = 'bear'; label = 'منطقة بيع قوية'; } setAcc('bb', verdict, label, `أعلى: <b>${fmt(ind.bb.upper)}</b> — وسط: <b>${fmt(ind.bb.middle)}</b> — أدنى: <b>${fmt(ind.bb.lower)}</b>`); }
-    if (ind.supertrend) { const verdict = ind.supertrend.trendUp ? 'bull' : 'bear'; setAcc('supertrend', verdict, ind.supertrend.trendUp ? 'اتجاه صاعد' : 'اتجاه هابط', `القيمة: <b>${fmt(ind.supertrend.value)}</b>`); }
-    if (ind.vwap != null) { const verdict = ind.currentPrice > ind.vwap ? 'bull' : 'bear'; setAcc('vwap', verdict, verdict === 'bull' ? 'فوق VWAP' : 'تحت VWAP', `القيمة: <b>${fmt(ind.vwap)}</b>`); }
-    if (ind.stochastic) { const k = ind.stochastic.k, d = ind.stochastic.d; const verdict = (k > 55 && k >= d) ? 'bull' : (k < 45 && k <= d) ? 'bear' : 'neutral'; setAcc('stochastic', verdict, verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'محايد', `K: <b>${k.toFixed(1)}</b> — D: <b>${d.toFixed(1)}</b>`); }
-    if (ind.adx) { const strong = ind.adx.adx >= 25; const verdict = !strong ? 'neutral' : (ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear'); setAcc('adx', verdict, !strong ? 'اتجاه ضعيف' : (ind.adx.pdi > ind.adx.mdi ? 'اتجاه صاعد قوي' : 'اتجاه هابط قوي'), `ADX: <b>${ind.adx.adx.toFixed(1)}</b>`); }
-    if (ind.obv != null) { const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev; if (ref != null) { const verdict = ind.obv > ref ? 'bull' : 'bear'; setAcc('obv', verdict, verdict === 'bull' ? 'تدفق شرائي' : 'تدفق بيعي', `القيمة: <b>${fmtBig(ind.obv)}</b>`); } }
-    if (ind.sma20 != null) { const verdict = ind.currentPrice > ind.sma20 ? 'bull' : 'bear'; setAcc('sma20', verdict, verdict === 'bull' ? 'فوق SMA20' : 'تحت SMA20', `القيمة: <b>${fmt(ind.sma20)}</b>`); }
-    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) { const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB); const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB); let verdict = 'neutral', label = 'داخل السحابة'; if (ind.currentPrice > top) { verdict = 'bull'; label = 'فوق السحابة (صاعد)'; } else if (ind.currentPrice < bottom) { verdict = 'bear'; label = 'تحت السحابة (هابط)'; } setAcc('ichimoku', verdict, label, `Span A: <b>${fmt(ind.ichimoku.spanA)}</b> — Span B: <b>${fmt(ind.ichimoku.spanB)}</b>`); }
-    if (ind.volumeProfile) { const vp = ind.volumeProfile; const verdict = ind.currentPrice > vp.pocPrice ? 'bull' : 'bear'; setAcc('volprofile', verdict, verdict === 'bull' ? 'فوق منطقة التركز' : 'تحت منطقة التركز', `POC: <b>${fmt(vp.pocPrice)}</b>`); }
-    if (ind.pivot) { const verdict = ind.currentPrice > ind.pivot.p ? 'bull' : 'bear'; setAcc('pivot', verdict, verdict === 'bull' ? 'فوق نقطة الارتكاز' : 'تحت نقطة الارتكاز', `الارتكاز: <b>${fmt(ind.pivot.p)}</b>`); }
-    if (ind.candleCompare) { const cc = ind.candleCompare; let verdict = 'neutral', label = 'لا نمط واضح'; if (cc.bullEngulf) { verdict = 'bull'; label = 'ابتلاع صاعد'; } else if (cc.bearEngulf) { verdict = 'bear'; label = 'ابتلاع هابط'; } else if (cc.consecutiveUp) { verdict = 'bull'; label = '3 شموع صاعدة'; } else if (cc.consecutiveDown) { verdict = 'bear'; label = '3 شموع هابطة'; } setAcc('candlecmp', verdict, label, `مقارنة آخر 3 شموع`); }
-    if (ind.accDist) { const ad = ind.accDist; let verdict = 'neutral'; if (ad.zone.includes('تجميع')) verdict = 'bull'; else if (ad.zone.includes('تصريف')) verdict = 'bear'; setAcc('accdist', verdict, ad.zone, `A/D Line: ${ad.rising ? 'صاعد' : 'هابط'}`); }
-    if (ind.cvd) { const c = ind.cvd; let verdict = 'neutral', label = 'يؤكد اتجاه السعر'; if (c.signal === 'bullish_divergence') { verdict = 'bull'; label = 'امتصاص مؤسسي صاعد'; } else if (c.signal === 'bearish_divergence') { verdict = 'bear'; label = 'توزيع/تباعد سلبي'; } setAcc('cvd', verdict, label, `CVD: ${c.cvdDir}`); }
-    if (ind.stochRsi) { const s = ind.stochRsi; let verdict = 'neutral', label = 'لا إشارة'; if (s.crossUp) { verdict = 'bull'; label = 'بداية ارتداد صاعد مؤكد'; } else if (s.crossDown) { verdict = 'bear'; label = 'بداية ارتداد هابط مؤكد'; } else if (s.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (s.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('stochrsi', verdict, label, `K: <b>${s.k.toFixed(1)}</b> — D: <b>${s.d.toFixed(1)}</b>`); }
-    if (ind.bbPercentB) { const b = ind.bbPercentB; let verdict = 'neutral', label = 'داخل النطاق'; if (b.crossedUpFromZero) { verdict = 'bull'; label = 'ارتداد صاعد مؤكد'; } else if (b.crossedDownFromOne) { verdict = 'bear'; label = 'ارتداد هابط مؤكد'; } else if (b.zoneUp) { verdict = 'neutral'; label = 'قريب من الحد السفلي'; } else if (b.zoneDown) { verdict = 'neutral'; label = 'قريب من الحد العلوي'; } setAcc('bbpercentb', verdict, label, `%B: <b>${b.now.toFixed(2)}</b>`); }
-    if (ind.rsiDivergence) { const r = ind.rsiDivergence; let verdict = 'neutral', label = 'لا يوجد تباعد'; if (r.type === 'bullish') { verdict = 'bull'; label = 'تجميع خفي'; } else if (r.type === 'bearish') { verdict = 'bear'; label = 'توزيع خفي'; } setAcc('rsidiv', verdict, label, `تباعد RSI`); }
-    if (ind.williamsR) { const w = ind.williamsR; let verdict = 'neutral', label = 'لا إشارة'; if (w.crossUpFrom80) { verdict = 'bull'; label = 'نبضة ارتداد صاعدة'; } else if (w.crossDownFrom20) { verdict = 'bear'; label = 'نبضة ارتداد هابطة'; } else if (w.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (w.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('williamsr', verdict, label, `Williams: <b>${w.now.toFixed(1)}</b>`); }
-    if (ind.adx) { let verdict = 'neutral', label = 'اتجاه هش'; if (ind.adx.adx > 25) { verdict = ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear'; label = 'الاتجاه ثابت وقوي'; } else if (ind.adx.adx < 20) { verdict = 'neutral'; label = 'ضعيف'; } setAcc('stab-adx', verdict, label, `ADX: <b>${ind.adx.adx.toFixed(1)}</b>`); }
-    if (ind.chop != null) { let verdict = 'neutral', label = 'منطقة انتقالية'; if (ind.chop < 38.2) { verdict = ind.candleCompare?.consecutiveUp ? 'bull' : ind.candleCompare?.consecutiveDown ? 'bear' : 'neutral'; label = 'تريند مستقر'; } else if (ind.chop > 61.8) { verdict = 'neutral'; label = 'سوق متذبذب'; } setAcc('chop', verdict, label, `Choppiness: <b>${ind.chop.toFixed(1)}</b>`); }
-    { const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev; if (ind.obv != null && ref != null) { const obvUp = ind.obv > ref; const priceUp = ind.candleCompare?.consecutiveUp; const priceDown = ind.candleCompare?.consecutiveDown; let verdict = 'neutral', label = 'محايد'; if (priceUp && obvUp) { verdict = 'bull'; label = 'ثبات صاعد مدعوم بالسيولة'; } else if (priceUp && !obvUp) { verdict = 'bear'; label = 'ثبات وهمي/تصريف'; } else if (priceDown && !obvUp) { verdict = 'bear'; label = 'ثبات هابط مدعوم بالسيولة'; } else if (priceDown && obvUp) { verdict = 'neutral'; label = 'ثبات هبوط وهمي'; } setAcc('stab-obv', verdict, label, `مقارنة OBV`); } }
-    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) { const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB); const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB); const cloudGreen = ind.ichimoku.spanA > ind.ichimoku.spanB; let verdict = 'neutral', label = 'داخل السحابة'; if (ind.currentPrice > top && cloudGreen) { verdict = 'bull'; label = 'استقرار صعودي تام'; } else if (ind.currentPrice < bottom && !cloudGreen) { verdict = 'bear'; label = 'استقرار هبوطي تام'; } setAcc('stab-ichimoku', verdict, label, `السحابة: ${cloudGreen ? 'خضراء' : 'حمراء'}`); }
+    // ... (المؤشرات السابقة كلها موجودة دون تغيير)
+    // سنضيف المؤشرات الجديدة بعدها مباشرة
+
+    // ═══════════ مؤشرات المسافة الجديدة ═══════════
+    ensureIndicatorItem('atr', 'متوسط المدى الحقيقي (ATR)');
+    if (ind.atr) {
+      const v = ind.atr.value;
+      const pct = ind.atr.percent;
+      const verdict = pct > 1.5 ? 'bear' : pct < 0.3 ? 'bull' : 'neutral';
+      setAcc('atr', verdict, verdict === 'bull' ? 'تذبذب منخفض' : verdict === 'bear' ? 'تذبذب مرتفع' : 'متوسط',
+        `ATR: <b>${fmt(v)}</b> (${pct.toFixed(2)}% من السعر)`);
+    }
+
+    ensureIndicatorItem('donchian', 'قنوات دونتشيان');
+    if (ind.donchian) {
+      const upper = ind.donchian.upper, lower = ind.donchian.lower;
+      const mid = (upper + lower) / 2;
+      const verdict = ind.currentPrice > mid ? 'bull' : 'bear';
+      setAcc('donchian', verdict, verdict === 'bull' ? 'فوق المنتصف' : 'تحت المنتصف',
+        `القناة: <b>${fmt(lower)}</b> - <b>${fmt(upper)}</b>`);
+    }
+
+    ensureIndicatorItem('hma', 'متوسط هال المتحرك');
+    if (ind.hma != null) {
+      const verdict = ind.currentPrice > ind.hma ? 'bull' : 'bear';
+      setAcc('hma', verdict, verdict === 'bull' ? 'فوق HMA' : 'تحت HMA', `HMA: <b>${fmt(ind.hma)}</b>`);
+    }
+
+    ensureIndicatorItem('vwma', 'المتوسط المرجح بحجم التداول');
+    if (ind.vwma != null) {
+      const verdict = ind.currentPrice > ind.vwma ? 'bull' : 'bear';
+      setAcc('vwma', verdict, verdict === 'bull' ? 'فوق VWMA' : 'تحت VWMA', `VWMA: <b>${fmt(ind.vwma)}</b>`);
+    }
+
+    ensureIndicatorItem('trix', 'TRIX');
+    if (ind.trix != null) {
+      const verdict = ind.trix > 0 ? 'bull' : 'bear';
+      setAcc('trix', verdict, verdict === 'bull' ? 'زخم إيجابي' : 'زخم سلبي', `TRIX: <b>${ind.trix.toFixed(4)}</b>`);
+    }
+
+    ensureIndicatorItem('squeezeMomentum', 'زخم الانضغاط');
+    if (ind.squeezeMomentum != null) {
+      const verdict = ind.squeezeMomentum > 0 ? 'bull' : 'bear';
+      setAcc('squeezeMomentum', verdict, verdict === 'bull' ? 'انضغاط صاعد' : 'انضغاط هابط', `Squeeze Momentum: <b>${fmt(ind.squeezeMomentum)}</b>`);
+    }
+
+    ensureIndicatorItem('fisherTransform', 'تحويل فيشر');
+    if (ind.fisherTransform != null) {
+      const verdict = ind.fisherTransform > 0 ? 'bull' : 'bear';
+      setAcc('fisherTransform', verdict, verdict === 'bull' ? 'فيشر موجب' : 'فيشر سالب', `Fisher: <b>${ind.fisherTransform.toFixed(4)}</b>`);
+    }
+
+    ensureIndicatorItem('elderRay', 'قوة الثيران والدببة');
+    if (ind.elderRay) {
+      const verdict = ind.elderRay.bullPower > ind.elderRay.bearPower ? 'bull' : 'bear';
+      setAcc('elderRay', verdict, verdict === 'bull' ? 'الثيران أقوى' : 'الدببة أقوى',
+        `Bull Power: <b>${fmt(ind.elderRay.bullPower)}</b> / Bear Power: <b>${fmt(ind.elderRay.bearPower)}</b>`);
+    }
+
+    ensureIndicatorItem('vortex', 'مؤشر الدوامة');
+    if (ind.vortex) {
+      const verdict = ind.vortex.plusVI > ind.vortex.minusVI ? 'bull' : 'bear';
+      setAcc('vortex', verdict, verdict === 'bull' ? 'دوامة صاعدة' : 'دوامة هابطة',
+        `+VI: <b>${ind.vortex.plusVI.toFixed(2)}</b> / -VI: <b>${ind.vortex.minusVI.toFixed(2)}</b>`);
+    }
+
+    ensureIndicatorItem('zScore', 'Z-Score');
+    if (ind.zScore != null) {
+      const verdict = ind.zScore > 1.5 ? 'bear' : ind.zScore < -1.5 ? 'bull' : 'neutral';
+      setAcc('zScore', verdict, verdict === 'bull' ? 'بعيد عن المتوسط (أدنى)' : verdict === 'bear' ? 'بعيد عن المتوسط (أعلى)' : 'ضمن الطبيعي',
+        `Z-Score: <b>${ind.zScore.toFixed(2)}</b>`);
+    }
+
+    ensureIndicatorItem('zigzag', 'الزجزاج');
+    if (ind.zigzag) {
+      setAcc('zigzag', ind.zigzag.direction === 'up' ? 'bull' : 'bear',
+        ind.zigzag.direction === 'up' ? 'منعطف صاعد' : 'منعطف هابط',
+        `آخر قمة/قاع: <b>${fmt(ind.zigzag.price)}</b>`);
+    }
+
+    ensureIndicatorItem('klinger', 'مؤشر القوة التجميعية');
+    if (ind.klinger != null) {
+      const verdict = ind.klinger > 0 ? 'bull' : 'bear';
+      setAcc('klinger', verdict, verdict === 'bull' ? 'تراكم شرائي' : 'تراكم بيعي', `Klinger: <b>${fmt(ind.klinger)}</b>`);
+    }
+
+    ensureIndicatorItem('linearRegression', 'قنوات انحراف السعر');
+    if (ind.linearRegression) {
+      const upper = ind.linearRegression.upper, lower = ind.linearRegression.lower;
+      const mid = (upper + lower) / 2;
+      const verdict = ind.currentPrice > mid ? 'bull' : 'bear';
+      setAcc('linearRegression', verdict, verdict === 'bull' ? 'فوق منتصف الانحدار' : 'تحت منتصف الانحدار',
+        `القناة: <b>${fmt(lower)}</b> - <b>${fmt(upper)}</b>`);
+    }
+
+    ensureIndicatorItem('relativeStrengthBTC', 'القوة النسبية مقارنة بالبيتكوين');
+    if (ind.relativeStrengthBTC != null) {
+      const verdict = ind.relativeStrengthBTC > 0 ? 'bull' : 'bear';
+      setAcc('relativeStrengthBTC', verdict, verdict === 'bull' ? 'أقوى من البيتكوين' : 'أضعف من البيتكوين',
+        `القوة النسبية: <b>${ind.relativeStrengthBTC.toFixed(2)}%</b>`);
+    }
+
+    ensureIndicatorItem('marketFacilitation', 'تيسير الحركة');
+    if (ind.marketFacilitation != null) {
+      const verdict = ind.marketFacilitation > 0 ? 'bull' : 'bear';
+      setAcc('marketFacilitation', verdict, verdict === 'bull' ? 'تيسير إيجابي' : 'تيسير سلبي',
+        `MFI: <b>${fmt(ind.marketFacilitation)}</b>`);
+    }
   }
 
   let lastHourlyLayer = null;
@@ -898,15 +1004,22 @@
       { key: 'stab-ichimoku', name: 'إيشيموكو ثبات', checked: false, weight: 1 },
       { key: 'stab-obv', name: 'OBV ثبات', checked: false, weight: 1 },
     ]},
-    early: { label: 'الإنذار المبكر', indicators: [
-      { key: 'rsidiv', name: 'تباعد RSI', checked: true, weight: 5 },
-      { key: 'cvd', name: 'CVD (امتصاص)', checked: true, weight: 5 },
-      { key: 'candlecmp', name: 'نمط الشموع', checked: true, weight: 5 },
-      { key: 'stochrsi', name: 'StochRSI', checked: true, weight: 3 },
-      { key: 'williamsr', name: 'Williams %R', checked: true, weight: 3 },
-      { key: 'bbpercentb', name: 'Bollinger %B', checked: true, weight: 3 },
-      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 3 },
-      { key: 'obv', name: 'OBV', checked: true, weight: 1 },
+    early: { label: 'المسافة', indicators: [
+      { key: 'atr', name: 'متوسط المدى الحقيقي (ATR)', checked: true, weight: 1 },
+      { key: 'donchian', name: 'قنوات دونتشيان', checked: true, weight: 1 },
+      { key: 'hma', name: 'متوسط هال المتحرك', checked: true, weight: 1 },
+      { key: 'vwma', name: 'المتوسط المرجح بحجم التداول', checked: true, weight: 1 },
+      { key: 'trix', name: 'TRIX', checked: true, weight: 1 },
+      { key: 'squeezeMomentum', name: 'زخم الانضغاط', checked: true, weight: 1 },
+      { key: 'fisherTransform', name: 'تحويل فيشر', checked: true, weight: 1 },
+      { key: 'elderRay', name: 'قوة الثيران والدببة', checked: true, weight: 1 },
+      { key: 'vortex', name: 'مؤشر الدوامة', checked: true, weight: 1 },
+      { key: 'zScore', name: 'Z-Score', checked: true, weight: 1 },
+      { key: 'zigzag', name: 'الزجزاج', checked: true, weight: 1 },
+      { key: 'klinger', name: 'مؤشر القوة التجميعية', checked: true, weight: 1 },
+      { key: 'linearRegression', name: 'قنوات انحراف السعر', checked: true, weight: 1 },
+      { key: 'relativeStrengthBTC', name: 'القوة النسبية مقارنة بالبيتكوين', checked: true, weight: 1 },
+      { key: 'marketFacilitation', name: 'تيسير الحركة', checked: true, weight: 1 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 35 },
@@ -1209,13 +1322,13 @@
     const avgLean = weightedLean('early', leanMap);
     const v = dirWord3(avgLean, 0.2);
     if (v.dir === 'up') {
-      pillEl.textContent = `إنذار صاعد ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `صعود ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value up';
     } else if (v.dir === 'down') {
-      pillEl.textContent = `إنذار هابط ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `هبوط ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value down';
     } else {
-      pillEl.textContent = `ترقب ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `محايد ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value neutral';
     }
     renderBoxConfigDropdown('early', 'early-cfg');

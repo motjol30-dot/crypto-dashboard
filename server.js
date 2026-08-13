@@ -31,7 +31,6 @@ const clientSubs = new Map();
 const app = express();
 const server = http.createServer(app);
 
-// الحماية
 const APP_USER = process.env.APP_USER || 'group';
 const APP_PASS = process.env.APP_PASS || 'change-me-1234';
 const MAX_USERS = parseInt(process.env.MAX_USERS || '12', 10);
@@ -113,7 +112,6 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 
-// نظرة عامة على السوق
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
 
@@ -130,7 +128,6 @@ app.get('/api/market-overview', async (_req, res) => {
   res.json(result);
 });
 
-// الطبقة الكلية
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_KEY || '';
 let macroCache = { data: null, ts: 0 };
 const MACRO_CACHE_MS = 60 * 1000;
@@ -154,7 +151,6 @@ app.get('/api/macro-overview', async (_req, res) => {
   res.json(result);
 });
 
-// فيوتشر متعدد المنصات
 async function fetchBinanceFutures(symbol) {
   const out = {};
   try { const r = await axios.get(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`, { timeout: 8000 }); if (r.data?.lastFundingRate != null) out.fundingRate = Number(r.data.lastFundingRate) * 100; } catch (e) {}
@@ -301,7 +297,6 @@ wss.on('connection', (ws, req) => {
   ws.on('error', () => clientSubs.delete(ws));
 });
 
-// طبقة أفضل 3 عملات
 const SCAN_INTERVAL = '15m';
 const SCAN_SYMBOLS = SYMBOLS;
 
@@ -389,7 +384,6 @@ function computeExplosionScore(candles) {
   const rsiPenalty = lastRsi != null && lastRsi > 70 ? Math.min(1, (lastRsi-70)/15)*15 : 0;
   score -= rsiPenalty;
 
-  // أفضلية السعر المنخفض
   const price = closes[n-1];
   let priceBias = 0;
   if (price < 1) priceBias = 12;
@@ -433,7 +427,6 @@ function broadcastExplosionScan() {
   }
 }
 
-// تحميل العملات بالتوازي (دفعات) ثم الفحص المبكر
 (async () => {
   const batchSize = 10;
   const symbols = [...SCAN_SYMBOLS];
@@ -444,7 +437,6 @@ function broadcastExplosionScan() {
   runExplosionScan();
 })();
 
-// فحص كل 10 ثوانٍ حتى تظهر 3 عملات، ثم كل 5 دقائق
 let scanInterval = setInterval(() => {
   if (explosionRanking.length < 3) {
     runExplosionScan();
@@ -453,7 +445,6 @@ let scanInterval = setInterval(() => {
     setInterval(runExplosionScan, 5 * 60 * 1000);
   }
 }, 10000);
-// ── دوال المصادر التاريخية والبث اللحظي ─────────────────────────────────────────
 
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -615,8 +606,6 @@ function connectOkxStream(symbol, interval) {
   });
 }
 
-// ── Broadcast ─────────────────────────────────────────────────────────────────
-
 function computeIndicatorsFixedReversal(symbol, interval, candles) {
   const indicators = computeIndicators(candles);
   if (!indicators) return indicators;
@@ -719,6 +708,14 @@ function broadcastMtfUpdate(symbol, force = false) {
 // ── Indicators ────────────────────────────────────────────────────────────────
 
 function last(arr) { return arr && arr.length ? arr[arr.length - 1] : undefined; }
+
+function computeWMA(values, period) {
+  const w = [];
+  for (let i = 0; i < values.length; i++) w.push(i + 1);
+  const sumW = w.reduce((a, b) => a + b, 0);
+  const sumWV = values.reduce((s, v, i) => s + v * w[i], 0);
+  return sumWV / sumW;
+}
 
 function computeIndicators(candles) {
   if (candles.length < 30) return null;
@@ -972,7 +969,161 @@ function computeIndicators(candles) {
     }
   }
 
-  return { rsi, macd, bb, ema50, ema200, sma20, vwap, stochastic, adx, obv, obvPrev, obvTrendRef, supertrend, ichimoku, volumeProfile, pivot, candleCompare, accDist, cvd, stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr, currentPrice: closes[closes.length - 1] };
+  // ═══════════ المؤشرات الخمسة عشر الجديدة ═══════════
+  let donchian = null;
+  if (n >= 20) {
+    const period = 20;
+    donchian = { upper: Math.max(...highs.slice(-period)), lower: Math.min(...lows.slice(-period)) };
+  }
+
+  let hma = null;
+  if (n >= 20) {
+    const period = 20;
+    const half = Math.floor(period / 2);
+    const wmaHalf = computeWMA(closes.slice(-half), half);
+    const wmaFull = computeWMA(closes.slice(-period), period);
+    hma = 2 * wmaHalf - wmaFull;
+  }
+
+  let vwma = null;
+  if (n >= 20) {
+    const period = 20;
+    const closes20 = closes.slice(-period);
+    const volumes20 = volumes.slice(-period);
+    let sumPV = 0, sumV = 0;
+    for (let i = 0; i < period; i++) { sumPV += closes20[i] * volumes20[i]; sumV += volumes20[i]; }
+    vwma = sumV > 0 ? sumPV / sumV : null;
+  }
+
+  let trix = null;
+  if (n >= 30) {
+    const ema1Arr = EMA.calculate({ values: closes, period: 15 });
+    const ema2Arr = EMA.calculate({ values: ema1Arr, period: 15 });
+    const ema3Arr = EMA.calculate({ values: ema2Arr, period: 15 });
+    if (ema3Arr.length >= 2) {
+      const prev = ema3Arr[ema3Arr.length - 2];
+      const curr = ema3Arr[ema3Arr.length - 1];
+      trix = prev !== 0 ? ((curr - prev) / prev) * 100 : 0;
+    }
+  }
+
+  // نحتاج keltner لاحقاً لحساب squeeze momentum
+  let keltner = null;
+  if (n >= 20 && atr) {
+    const ema20 = last(EMA.calculate({ values: closes, period: 20 }));
+    if (ema20 != null) keltner = { upper: ema20 + 2 * atr.value, lower: ema20 - 2 * atr.value, middle: ema20 };
+  }
+
+  let squeezeMomentum = null;
+  if (n >= 20 && keltner && bb) {
+    const bbWidth = bb.upper - bb.lower;
+    const kcWidth = keltner.upper - keltner.lower;
+    squeezeMomentum = kcWidth > 0 ? bbWidth / kcWidth : 0;
+  }
+
+  let fisherTransform = null;
+  if (n >= 10) {
+    const prices = closes.slice(-10);
+    const maxPrice = Math.max(...prices);
+    const minPrice = Math.min(...prices);
+    const range = maxPrice - minPrice;
+    if (range > 0) {
+      const normalized = ((closes[n - 1] - minPrice) / range) * 2 - 1;
+      const clamped = Math.max(-0.999, Math.min(0.999, normalized));
+      fisherTransform = 0.5 * Math.log((1 + clamped) / (1 - clamped));
+    }
+  }
+
+  let elderRay = null;
+  if (n >= 13) {
+    const ema13 = last(EMA.calculate({ values: closes, period: 13 }));
+    if (ema13 != null) {
+      elderRay = { bullPower: closes[n - 1] - ema13, bearPower: lows[n - 1] - ema13 };
+    }
+  }
+
+  let vortex = null;
+  if (n >= 15) {
+    const period = 14;
+    let plusVM = 0, minusVM = 0, trSum = 0;
+    for (let i = n - period; i < n; i++) {
+      const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]));
+      plusVM += Math.abs(highs[i] - lows[i - 1]);
+      minusVM += Math.abs(lows[i] - highs[i - 1]);
+      trSum += tr;
+    }
+    if (trSum > 0) vortex = { plusVI: plusVM / trSum, minusVI: minusVM / trSum };
+  }
+
+  let zScore = null;
+  if (n >= 20) {
+    const closes20 = closes.slice(-20);
+    const mean = closes20.reduce((a, b) => a + b, 0) / 20;
+    const std = Math.sqrt(closes20.reduce((s, c) => s + Math.pow(c - mean, 2), 0) / 20);
+    zScore = std !== 0 ? (closes[n - 1] - mean) / std : 0;
+  }
+
+  let zigzag = null;
+  if (n >= 5) {
+    const lastHigh = Math.max(...highs.slice(-5));
+    const lastLow = Math.min(...lows.slice(-5));
+    const range = lastHigh - lastLow;
+    const price = closes[n - 1];
+    if (range > 0) {
+      const pos = (price - lastLow) / range;
+      if (pos > 0.7) zigzag = { direction: 'up', price };
+      else if (pos < 0.3) zigzag = { direction: 'down', price };
+    }
+  }
+
+  let klinger = null;
+  if (n >= 55) {
+    const ema34 = last(EMA.calculate({ values: closes, period: 34 }));
+    const ema55 = last(EMA.calculate({ values: closes, period: 55 }));
+    if (ema34 != null && ema55 != null) klinger = ema34 - ema55;
+  }
+
+  let linearRegression = null;
+  if (n >= 20 && atr) {
+    const period = 20;
+    const closes20 = closes.slice(-period);
+    const x = Array.from({ length: period }, (_, i) => i + 1);
+    const sumX = x.reduce((a, b) => a + b, 0);
+    const sumY = closes20.reduce((a, b) => a + b, 0);
+    const sumXY = x.reduce((s, xi, i) => s + xi * closes20[i], 0);
+    const sumX2 = x.reduce((s, xi) => s + xi * xi, 0);
+    const slope = (period * sumXY - sumX * sumY) / (period * sumX2 - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / period;
+    const mid = intercept + slope * period;
+    const halfRange = 2 * atr.value;
+    linearRegression = { upper: mid + halfRange, lower: mid - halfRange };
+  }
+
+  let relativeStrengthBTC = null;
+  {
+    const btcCandles = candleStore[`BTCUSDT_${SCAN_INTERVAL}`];
+    if (btcCandles && btcCandles.length >= 11 && n >= 11) {
+      const btcReturn = (btcCandles[btcCandles.length - 1].close - btcCandles[btcCandles.length - 11].close) / btcCandles[btcCandles.length - 11].close * 100;
+      const coinReturn = (closes[n - 1] - closes[n - 10]) / closes[n - 10] * 100;
+      relativeStrengthBTC = coinReturn - btcReturn;
+    }
+  }
+
+  let marketFacilitation = null;
+  if (n >= 2) {
+    const curVol = volumes[n - 1], prevVol = volumes[n - 2];
+    const curRange = highs[n - 1] - lows[n - 1], prevRange = highs[n - 2] - lows[n - 2];
+    if (curVol > prevVol && curRange > prevRange) marketFacilitation = 1;
+    else if (curVol < prevVol && curRange < prevRange) marketFacilitation = -1;
+    else marketFacilitation = 0;
+  }
+
+  return {
+    rsi, macd, bb, ema50, ema200, sma20, vwap, stochastic, adx, obv, obvPrev, obvTrendRef, supertrend, ichimoku, volumeProfile,
+    pivot, candleCompare, accDist, cvd, stochRsi, bbPercentB, rsiDivergence, williamsR, chop, atr,
+    donchian, hma, vwma, trix, squeezeMomentum, fisherTransform, elderRay, vortex, zScore, zigzag, klinger, linearRegression, relativeStrengthBTC, marketFacilitation,
+    currentPrice: closes[closes.length - 1]
+  };
 }
 
 function computeSupertrend(candles, period = 10, multiplier = 3) {
@@ -1034,43 +1185,65 @@ function computeEarlySignal(indicators) {
   let bull = 0, bear = 0;
   const reasons = [];
 
-  if (indicators.rsiDivergence) {
-    if (indicators.rsiDivergence.type === 'bullish') { bull += 3; reasons.push('تباعد RSI إيجابي'); }
-    else if (indicators.rsiDivergence.type === 'bearish') { bear += 3; reasons.push('تباعد RSI سلبي'); }
+  if (indicators.donchian) {
+    const mid = (indicators.donchian.upper + indicators.donchian.lower) / 2;
+    if (indicators.currentPrice > mid) { bull += 1; reasons.push('فوق منتصف دونتشيان'); }
+    else { bear += 1; reasons.push('تحت منتصف دونتشيان'); }
   }
-  if (indicators.stochRsi) {
-    if (indicators.stochRsi.crossUp) { bull += 2; reasons.push('StochRSI عبور صاعد'); }
-    else if (indicators.stochRsi.crossDown) { bear += 2; reasons.push('StochRSI عبور هابط'); }
-    else if (indicators.stochRsi.zoneUp) { bull += 1; reasons.push('StochRSI تشبع بيعي'); }
-    else if (indicators.stochRsi.zoneDown) { bear += 1; reasons.push('StochRSI تشبع شرائي'); }
+  if (indicators.hma != null) {
+    if (indicators.currentPrice > indicators.hma) { bull += 1; reasons.push('فوق HMA'); }
+    else { bear += 1; reasons.push('تحت HMA'); }
   }
-  if (indicators.williamsR) {
-    if (indicators.williamsR.crossUpFrom80) { bull += 2; reasons.push('Williams %R خرج من تشبع بيعي'); }
-    else if (indicators.williamsR.crossDownFrom20) { bear += 2; reasons.push('Williams %R خرج من تشبع شرائي'); }
-    else if (indicators.williamsR.zoneUp) { bull += 1; reasons.push('Williams %R تشبع بيعي'); }
-    else if (indicators.williamsR.zoneDown) { bear += 1; reasons.push('Williams %R تشبع شرائي'); }
+  if (indicators.vwma != null) {
+    if (indicators.currentPrice > indicators.vwma) { bull += 1; reasons.push('فوق VWMA'); }
+    else { bear += 1; reasons.push('تحت VWMA'); }
   }
-  if (indicators.bbPercentB) {
-    if (indicators.bbPercentB.crossedUpFromZero) { bull += 2; reasons.push('Bollinger %B عبور صاعد من الصفر'); }
-    else if (indicators.bbPercentB.crossedDownFromOne) { bear += 2; reasons.push('Bollinger %B هبوط من 1'); }
-    else if (indicators.bbPercentB.zoneUp) { bull += 1; reasons.push('قرب الحد السفلي لبولينجر'); }
-    else if (indicators.bbPercentB.zoneDown) { bear += 1; reasons.push('قرب الحد العلوي لبولينجر'); }
+  if (indicators.trix != null) {
+    if (indicators.trix > 0) { bull += 1; reasons.push('TRIX موجب'); }
+    else { bear += 1; reasons.push('TRIX سالب'); }
   }
-  if (indicators.cvd) {
-    if (indicators.cvd.signal === 'bullish_divergence') { bull += 3; reasons.push('CVD امتصاص مؤسسي صاعد'); }
-    else if (indicators.cvd.signal === 'bearish_divergence') { bear += 3; reasons.push('CVD توزيع/تباعد سلبي'); }
+  if (indicators.squeezeMomentum != null) {
+    if (indicators.squeezeMomentum < 0.5) {
+      if (indicators.currentPrice > indicators.hma) { bull += 1; reasons.push('انضغاط صاعد'); }
+      else { bear += 1; reasons.push('انضغاط هابط'); }
+    }
   }
-  if (indicators.accDist) {
-    if (indicators.accDist.zone === 'تجميع (Accumulation)') { bull += 2; reasons.push('تجميع A/D'); }
-    else if (indicators.accDist.zone === 'تصريف (Distribution)') { bear += 2; reasons.push('تصريف A/D'); }
+  if (indicators.fisherTransform != null) {
+    if (indicators.fisherTransform > 0) { bull += 1; reasons.push('Fisher موجب'); }
+    else { bear += 1; reasons.push('Fisher سالب'); }
   }
-  if (indicators.candleCompare) {
-    if (indicators.candleCompare.bullEngulf) { bull += 3; reasons.push('شمعة ابتلاع صاعدة'); }
-    else if (indicators.candleCompare.bearEngulf) { bear += 3; reasons.push('شمعة ابتلاع هابطة'); }
+  if (indicators.elderRay) {
+    if (indicators.elderRay.bullPower > indicators.elderRay.bearPower) { bull += 1; reasons.push('الثيران أقوى'); }
+    else { bear += 1; reasons.push('الدببة أقوى'); }
   }
-  if (indicators.obvTrendRef != null && indicators.obv != null) {
-    if (indicators.obv > indicators.obvTrendRef) { bull += 1; reasons.push('OBV إيجابي'); }
-    else { bear += 1; reasons.push('OBV سلبي'); }
+  if (indicators.vortex) {
+    if (indicators.vortex.plusVI > indicators.vortex.minusVI) { bull += 1; reasons.push('Vortex صاعد'); }
+    else { bear += 1; reasons.push('Vortex هابط'); }
+  }
+  if (indicators.zScore != null) {
+    if (indicators.zScore < -1.5) { bull += 1; reasons.push('Z-Score متطرف أدنى'); }
+    else if (indicators.zScore > 1.5) { bear += 1; reasons.push('Z-Score متطرف أعلى'); }
+  }
+  if (indicators.zigzag) {
+    if (indicators.zigzag.direction === 'up') { bull += 1; reasons.push('زجزاج صاعد'); }
+    else { bear += 1; reasons.push('زجزاج هابط'); }
+  }
+  if (indicators.klinger != null) {
+    if (indicators.klinger > 0) { bull += 1; reasons.push('Klinger موجب'); }
+    else { bear += 1; reasons.push('Klinger سالب'); }
+  }
+  if (indicators.linearRegression) {
+    const mid = (indicators.linearRegression.upper + indicators.linearRegression.lower) / 2;
+    if (indicators.currentPrice > mid) { bull += 1; reasons.push('فوق منتصف الانحدار'); }
+    else { bear += 1; reasons.push('تحت منتصف الانحدار'); }
+  }
+  if (indicators.relativeStrengthBTC != null) {
+    if (indicators.relativeStrengthBTC > 0) { bull += 1; reasons.push('أقوى من BTC'); }
+    else { bear += 1; reasons.push('أضعف من BTC'); }
+  }
+  if (indicators.marketFacilitation != null) {
+    if (indicators.marketFacilitation > 0) { bull += 1; reasons.push('تيسير إيجابي'); }
+    else if (indicators.marketFacilitation < 0) { bear += 1; reasons.push('تيسير سلبي'); }
   }
 
   const total = bull + bear;
@@ -1080,7 +1253,6 @@ function computeEarlySignal(indicators) {
     strength = Math.max(bull, bear) / total;
     verdict = bull > bear ? 'bull' : bull < bear ? 'bear' : 'neutral';
   }
-
   return { verdict, bull, bear, total, strength: Math.round(strength * 100), reasons };
 }
 
@@ -1652,15 +1824,9 @@ async function evaluateBotSignal(symbol) {
 
   let strongReversalUp = false;
   let strongReversalDown = false;
-  if (indicators.stochRsi?.crossUp || indicators.williamsR?.crossUpFrom80 ||
-      indicators.bbPercentB?.crossedUpFromZero || indicators.candleCompare?.bullEngulf ||
-      indicators.rsiDivergence?.type === 'bullish') {
-    strongReversalUp = true;
-  }
-  if (indicators.stochRsi?.crossDown || indicators.williamsR?.crossDownFrom20 ||
-      indicators.bbPercentB?.crossedDownFromOne || indicators.candleCompare?.bearEngulf ||
-      indicators.rsiDivergence?.type === 'bearish') {
-    strongReversalDown = true;
+  if (indicators.early) {
+    if (indicators.early.verdict === 'bull' && indicators.early.strength >= 60) strongReversalUp = true;
+    else if (indicators.early.verdict === 'bear' && indicators.early.strength >= 60) strongReversalDown = true;
   }
 
   if (strongReversalUp && action !== 'sell') {
@@ -1671,7 +1837,7 @@ async function evaluateBotSignal(symbol) {
 
   let filter = passesEntryFilters(candles);
   if (strongReversalUp && !filter.ok) {
-    filter = { ok: true, reason: 'إشارة ارتداد قوية (تجاوز الفلاتر)' };
+    filter = { ok: true, reason: 'إشارة إنذار مبكر قوية (تجاوز الفلاتر)' };
   } else if (strongReversalDown && !filter.ok) {
     filter = { ok: true, reason: 'إشارة انعكاس هبوطي قوية' };
   }
