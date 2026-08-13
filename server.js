@@ -1258,7 +1258,8 @@ async function computeBotOwnSignal(indicators, candles, symbol) {
   return totalWeight > 0 ? rawScore / totalWeight : 0;
 }
 
-const MIN_LIQUIDITY_USDT = 200000;
+const MIN_LIQUIDITY_USDT = 100000; // تم تخفيضها من 200000
+
 function passesEntryFilters(candles) {
   if (!candles || candles.length < 11) return { ok: false, reason: 'بيانات غير كافية' };
   const last10 = candles.slice(-11, -1);
@@ -1269,13 +1270,16 @@ function passesEntryFilters(candles) {
   const rangeLow = Math.min(...last10.map(c => c.low));
   const posInRange = rangeHigh > rangeLow ? (currentPrice - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const avgQuoteVolume = last10.reduce((s, c) => s + c.volume * c.close, 0) / last10.length;
-  const declineConfirmed = changePct < -0.3;
-  const nearLowerZone = posInRange <= 0.4;
+
+  // تخفيف الشروط:
+  const declineConfirmed = changePct < -0.15;
+  const nearLowerZone = posInRange <= 0.55;
   const liquidOk = avgQuoteVolume >= MIN_LIQUIDITY_USDT;
-  if (!declineConfirmed) return { ok: false, reason: `ما فيه نزول واضح (${changePct.toFixed(2)}%)` };
+
+  if (!declineConfirmed) return { ok: false, reason: `ما فيه نزول كافٍ (${changePct.toFixed(2)}%)` };
   if (!nearLowerZone) return { ok: false, reason: `السعر مو بأدنى المدى (${(posInRange * 100).toFixed(0)}%)` };
   if (!liquidOk) return { ok: false, reason: `سيولة ضعيفة (${fmtBig(avgQuoteVolume)} USDT)` };
-  return { ok: true, reason: `تأكيد نزول ${changePct.toFixed(2)}% + السعر بأدنى ${(posInRange * 100).toFixed(0)}% + سيولة ${fmtBig(avgQuoteVolume)} USDT` };
+  return { ok: true, reason: `نزول ${changePct.toFixed(2)}% + السعر بأدنى ${(posInRange * 100).toFixed(0)}% + سيولة ${fmtBig(avgQuoteVolume)} USDT` };
 }
 
 function fmtBig(n) {
@@ -1439,13 +1443,39 @@ async function placeBotLimitBuy(sig) {
   const buyPrice = roundPrice(buyPoint?.price || sig.price);
   const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
   if (!qty || qty <= 0) return;
+
   try {
-    const data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
-    if (!data.orderId) return;
-    botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
-    botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange, reason: `أمر شراء محدّد (${buyPoint?.label || 'نقطة عامة'}) عند ${buyPrice} — ${sig.filterReason}` });
+    let data;
+    // إذا كانت إشارة ارتداد قوية نستخدم Market لضمان التنفيذ الفوري
+    if (sig.strongReversalUp) {
+      data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
+      const executedQty = parseFloat(data.executedQty || qty);
+      const quoteAmount = parseFloat(data.cummulativeQuoteQty || botState.tradeSizeUsdt);
+      const fillPrice = executedQty > 0 ? quoteAmount / executedQty : buyPrice;
+      botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
+      botState.tradeLog.unshift({
+        time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty,
+        quoteAmount, exchange: botState.exchange,
+        reason: `شراء فوري (Market) بسبب إشارة ارتداد قوية — ${sig.filterReason}`,
+      });
+      await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
+    } else {
+      data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
+      if (!data.orderId) return;
+      botState.pendingOrders[symbol] = {
+        orderId: data.orderId, side: 'BUY', price: buyPrice, qty,
+        placedAt: Date.now(), exchange: botState.exchange,
+      };
+      botState.tradeLog.unshift({
+        time: Date.now(), symbol, type: 'order', side: 'BUY',
+        price: buyPrice, qty, exchange: botState.exchange,
+        reason: `أمر شراء Limit (${buyPoint?.label || 'نقطة عامة'}) عند ${buyPrice} — ${sig.filterReason}`,
+      });
+    }
     botState.tradeLog = botState.tradeLog.slice(0, 50);
-  } catch (err) { logBotError(symbol, err); }
+  } catch (err) {
+    logBotError(symbol, err);
+  }
 }
 
 async function checkPendingOrders(symbol) {
@@ -1501,10 +1531,14 @@ async function checkPendingOrders(symbol) {
 
 async function runBotCycle() {
   if (!botState.enabled) return;
+
   const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
   for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
+
+  // نبدأ بأفضل 3 عملات مرشحة ثم باقي العملات
+  const scanSymbols = explosionRanking.length ? explosionRanking.map(p => p.symbol) : SCAN_SYMBOLS;
   const candidates = [];
-  for (const symbol of SCAN_SYMBOLS) {
+  for (const symbol of scanSymbols) {
     try {
       const sig = await evaluateBotSignal(symbol);
       if (!sig) continue;
@@ -1513,12 +1547,14 @@ async function runBotCycle() {
       if (!alreadyOpen && sig.action === 'buy' && sig.passesFilters) candidates.push(sig);
     } catch (err) { logBotError(symbol, err); }
   }
+
   const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
   if (openCount < botState.maxConcurrentPositions && candidates.length) {
     candidates.sort((a, b) => a.price - b.price);
     const pick = candidates[0];
     await placeBotLimitBuy(pick);
   }
+
   broadcastBotStatus();
 }
 
@@ -1540,9 +1576,46 @@ async function evaluateBotSignal(symbol) {
   let action = 'hold';
   if (composite >= BOT_BUY_THRESHOLD) action = 'buy';
   else if (composite <= BOT_SELL_THRESHOLD) action = 'sell';
-  const filter = passesEntryFilters(candles);
+
+  // ⭐ إشارة ارتداد قوية تفرض الشراء أو البيع
+  let strongReversalUp = false;
+  let strongReversalDown = false;
+  if (indicators.stochRsi?.crossUp || indicators.williamsR?.crossUpFrom80 ||
+      indicators.bbPercentB?.crossedUpFromZero || indicators.candleCompare?.bullEngulf ||
+      indicators.rsiDivergence?.type === 'bullish') {
+    strongReversalUp = true;
+  }
+  if (indicators.stochRsi?.crossDown || indicators.williamsR?.crossDownFrom20 ||
+      indicators.bbPercentB?.crossedDownFromOne || indicators.candleCompare?.bearEngulf ||
+      indicators.rsiDivergence?.type === 'bearish') {
+    strongReversalDown = true;
+  }
+
+  if (strongReversalUp && action !== 'sell') {
+    action = 'buy';
+  } else if (strongReversalDown && action !== 'buy') {
+    action = 'sell';
+  }
+
+  // فلتر الدخول: السماح بالشراء عند إشارة ارتداد قوية حتى لو لم تتحقق كل الشروط
+  let filter = passesEntryFilters(candles);
+  if (strongReversalUp && !filter.ok) {
+    filter = { ok: true, reason: 'إشارة ارتداد قوية (تجاوز الفلاتر)' };
+  } else if (strongReversalDown && !filter.ok) {
+    filter = { ok: true, reason: 'إشارة انعكاس هبوطي قوية' };
+  }
+
   const buyPoints = computeBuyPoints(candles, indicators, { action, passesFilters: filter.ok, price: indicators.currentPrice });
-  return { symbol, decision7Signal, fourBoxSignal, secondarySignal, frameSignal, dashboardSignal, botOwnSignal, composite, action, price: indicators.currentPrice, buyZone: decision.buyZone, sellZone: decision.sellZone, passesFilters: filter.ok, filterReason: filter.reason, buyPoints };
+
+  return {
+    symbol, decision7Signal, fourBoxSignal, secondarySignal, frameSignal, dashboardSignal, botOwnSignal, composite, action,
+    price: indicators.currentPrice,
+    buyZone: decision.buyZone, sellZone: decision.sellZone,
+    passesFilters: filter.ok, filterReason: filter.reason,
+    buyPoints,
+    strongReversalUp,
+    strongReversalDown,
+  };
 }
 
 function botStatusPayload() {
@@ -1561,5 +1634,6 @@ function broadcastBotStatus() {
   }
 }
 
-setInterval(runBotCycle, 60 * 1000);
+setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية بدلاً من دقيقة
+
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));

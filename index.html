@@ -531,6 +531,9 @@
   let lastPrice = null;
   let lastBotStatus = null;
   let lastMtfSnapshot = null;
+  let lastCandleTime = null;
+  let currentSeriesSymbol = null;
+  let currentSeriesInterval = null;
 
   let btcRefPrice = null;
   let btcArrowState = 'flat';
@@ -668,7 +671,28 @@
   function handleUpdate(msg) {
     if (msg.symbol !== currentSymbol || msg.interval !== currentInterval) return;
     showLoading(false);
-    candleSeries.setData(msg.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+
+    // إذا تغير الرمز أو الفريم أو لا توجد سلسلة، نعيد البناء بالكامل
+    if (currentSeriesSymbol !== currentSymbol || currentSeriesInterval !== currentInterval || !candleSeries) {
+      candleSeries.setData(msg.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+      currentSeriesSymbol = currentSymbol;
+      currentSeriesInterval = currentInterval;
+      lastCandleTime = msg.candles.length ? msg.candles[msg.candles.length - 1].time : null;
+    } else {
+      // تحديث آخر شمعة فقط
+      const latestCandle = msg.candles[msg.candles.length - 1];
+      if (latestCandle) {
+        if (latestCandle.time === lastCandleTime) {
+          // نفس الشمعة الحالية: تحديث بياناتها
+          candleSeries.update({ time: latestCandle.time, open: latestCandle.open, high: latestCandle.high, low: latestCandle.low, close: latestCandle.close });
+        } else if (latestCandle.time > lastCandleTime) {
+          // شمعة جديدة: إضافتها
+          candleSeries.update({ time: latestCandle.time, open: latestCandle.open, high: latestCandle.high, low: latestCandle.low, close: latestCandle.close });
+          lastCandleTime = latestCandle.time;
+        }
+      }
+    }
+
     const latest = msg.candles[msg.candles.length - 1];
     if (latest) {
       const priceEl = document.getElementById('chart-price');
@@ -770,7 +794,6 @@
     if (!ind) return;
     consensusTracker = {};
     renderHourlyLayer(ind.hourlyLayer);
-    // سنملأ هنا كل المؤشرات بواسطة setAcc
     if (ind.rsi != null) { const verdict = ind.rsi > 55 ? 'bull' : ind.rsi < 45 ? 'bear' : 'neutral'; const label = ind.rsi > 55 ? 'زخم صاعد' : ind.rsi < 45 ? 'زخم هابط' : 'زخم محايد'; setAcc('rsi', verdict, label, `القيمة الحالية: <b>${ind.rsi.toFixed(1)}</b>`); }
     if (ind.macd) { const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear'; setAcc('macd', verdict, verdict === 'bull' ? 'صعود' : 'هبوط', `القيمة: <b>${ind.macd.value.toFixed(4)}</b> / الإشارة: <b>${ind.macd.signal.toFixed(4)}</b>`); }
     if (ind.ema50 != null) { const verdict = ind.currentPrice > ind.ema50 ? 'bull' : 'bear'; setAcc('ema50', verdict, verdict === 'bull' ? 'دعم (فوق المتوسط)' : 'مقاومة (تحت المتوسط)', `القيمة: <b>${fmt(ind.ema50)}</b>`); }
@@ -1289,6 +1312,8 @@
   function switchInterval(iv) {
     if (!iv || iv === currentInterval) return;
     currentInterval = iv;
+    currentSeriesInterval = null;
+    lastCandleTime = null;
     lastPrice = null;
     showLoading(true);
     document.querySelectorAll('.tf-box').forEach(b => b.classList.toggle('active', b.dataset.interval === iv));
@@ -1309,6 +1334,8 @@
   function switchToSymbol(v) {
     if (!v || v === currentSymbol) return;
     currentSymbol = v;
+    currentSeriesSymbol = null;
+    lastCandleTime = null;
     lastPrice = null;
     showLoading(true);
     document.getElementById('symbol-input').value = v;
