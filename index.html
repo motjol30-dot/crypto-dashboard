@@ -7,69 +7,23 @@
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface2: #1c2229;
-    --border: #21262d;
-    --text: #e6edf3;
-    --muted: #7d8590;
-    --accent: #58a6ff;
-    --green: #3fb950;
-    --red: #f85149;
-    --yellow: #e3b341;
-    --buy-bg: rgba(63,185,80,0.16);
-    --sell-bg: rgba(248,81,73,0.16);
-    --wait-bg: rgba(227,179,65,0.14);
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2229;
+    --border: #21262d; --text: #e6edf3; --muted: #7d8590;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #e3b341;
+    --buy-bg: rgba(63,185,80,0.16); --sell-bg: rgba(248,81,73,0.16); --wait-bg: rgba(227,179,65,0.14);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: var(--bg);
-    color: var(--text);
+    background: var(--bg); color: var(--text);
     font-family: 'Segoe UI', 'Cairo', Tahoma, Arial, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
+    min-height: 100vh; display: flex; flex-direction: column;
   }
   header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 8px 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 30;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 8px 10px; display: flex; align-items: center; gap: 8px;
+    flex-shrink: 0; position: relative; z-index: 30; flex-wrap: nowrap;
   }
-  #btc-ticker {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 10px; flex-shrink: 0;
-  }
-  #btc-ticker .label { font-size: 0.65rem; color: var(--muted); font-weight: 700; }
-  #btc-ticker .price  { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #btc-arrow { font-size: 1rem; font-weight: 900; transition: color .25s; }
-  #btc-arrow.up   { color: var(--green); }
-  #btc-arrow.down { color: var(--red); }
-  #btc-arrow.flat { color: var(--muted); }
-  #macro-row {
-    flex: 1; display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-  }
-  .macro-box {
-    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 5px 4px; background: var(--bg); border-left: 1px solid var(--border); min-width: 0;
-  }
-  .macro-box:last-child { border-left: none; }
-  .macro-label { font-size: 0.6rem; color: var(--muted); font-weight: 800; }
-  .macro-price { font-size: 0.78rem; font-weight: 800; font-family: 'Courier New', monospace; white-space: nowrap; }
-  .macro-arrow { font-size: 0.8rem; font-weight: 900; }
-  .macro-arrow.up   { color: var(--green); }
-  .macro-arrow.down { color: var(--red); }
-  .macro-arrow.flat { color: var(--muted); }
-  #symbol-row {
-    background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 10px;
-  }
-  #symbol-wrap { width: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #symbol-selector { flex: 2; min-width: 0; }
   #symbol-input {
     width: 100%; background: var(--bg); border: 1px solid var(--border);
     color: var(--text); padding: 8px 10px; border-radius: 8px;
@@ -81,55 +35,53 @@
     color: var(--muted); transition: color .3s;
   }
   #symbol-live-price .updated-at { font-size: 0.6rem; color: var(--muted); font-weight: 400; margin-right: 4px; }
-  #tf-bar-wrap { padding: 8px 10px 0; }
-  #tf-bar-label {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 0.65rem; color: var(--muted); margin-bottom: 5px;
+  #btc-ticker {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; min-width: 0;
   }
-  #tf-bar { display: flex; gap: 4px; }
+  #btc-ticker .label { font-size: 0.65rem; color: var(--muted); font-weight: 700; }
+  #btc-ticker .price  { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; }
+  #btc-arrow { font-size: 1rem; font-weight: 900; transition: color .25s; }
+  #btc-arrow.up   { color: var(--green); }
+  #btc-arrow.down { color: var(--red); }
+  #btc-arrow.flat { color: var(--muted); }
+  #menu-btn {
+    flex: 0 0 auto; width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; font-size: 1.4rem; color: var(--text);
+  }
+  #menu-btn:hover { background: var(--surface2); }
+  #menu-dropdown {
+    display: none; position: absolute; top: 55px; left: 10px; width: 200px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px; z-index: 100; box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+  }
+  #menu-dropdown.open { display: block; }
+  .menu-item { padding: 8px 12px; font-size: 0.8rem; cursor: pointer; border-radius: 6px; color: var(--text); }
+  .menu-item:hover { background: var(--surface); color: var(--accent); }
+
+  #tf-bar-wrap { padding: 8px 10px 0; }
+  #tf-bar-label { display: flex; align-items: center; justify-content: space-between; font-size: 0.65rem; color: var(--muted); margin-bottom: 5px; }
+  #tf-bar { display: flex; gap: 4px; flex-wrap: nowrap; }
   .tf-box {
     flex: 1; text-align: center; padding: 7px 2px; border-radius: 7px;
     font-size: 0.75rem; font-weight: 800; cursor: pointer;
     background: var(--surface); border: 1px solid var(--border); color: var(--muted);
-    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    transition: background 0.2s, color 0.2s, border-color 0.2s; white-space: nowrap;
   }
   .tf-box.green  { background: rgba(63,185,80,0.18);  border-color: rgba(63,185,80,0.5);  color: var(--green); }
   .tf-box.red    { background: rgba(248,81,73,0.18);  border-color: rgba(248,81,73,0.5);  color: var(--red); }
   .tf-box.yellow { background: rgba(227,179,65,0.18); border-color: rgba(227,179,65,0.5); color: var(--yellow); }
   .tf-box.active { outline: 2px solid var(--text); }
-  #conn-dot {
-    width: 9px; height: 9px; border-radius: 50%; background: var(--red); flex-shrink: 0;
-    transition: background .3s;
-  }
-  #conn-dot.connected { background: var(--green); }
-  #conn-dot.connecting { background: var(--yellow); }
-  #chart-header {
-    padding: 6px 12px; display: flex; align-items: baseline; gap: 10px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-  }
-  #chart-symbol { font-size: 1rem; font-weight: 700; }
-  #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #chart-change { font-size: 0.8rem; font-weight: 700; }
-  #chart-container { position: relative; height: 46vh; min-height: 260px; }
-  #loading {
-    position: absolute; inset: 0; background: rgba(13,17,23,0.85);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 10px; z-index: 10;
-  }
-  #loading.hidden { display: none; }
-  .spinner {
-    width: 30px; height: 30px; border: 3px solid var(--border);
-    border-top-color: var(--accent); border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #loading p { color: var(--muted); font-size: 0.85rem; }
-  #status-row, #status-row-lower {
-    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
+
+  #status-row {
+    display: flex; flex-wrap: nowrap; gap: 6px; padding: 8px 10px;
+    background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto;
   }
   .pill {
-    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
+    flex: 1 0 auto; min-width: 80px; background: var(--bg); border: 1px solid var(--border);
     border-radius: 8px; padding: 6px 8px; text-align: center;
   }
   .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
@@ -137,41 +89,48 @@
   .pill-value.up, .pill-value.pos   { color: var(--green); }
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
-  .cfg-dropdown {
-    display: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px; padding: 8px 10px; margin: 4px 10px 8px; font-size: 0.72rem;
+
+  #conn-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--red); flex-shrink: 0;
+    transition: background .3s;
   }
+  #conn-dot.connected { background: var(--green); }
+  #conn-dot.connecting { background: var(--yellow); }
+
+  #chart-header { padding: 6px 12px; display: flex; align-items: baseline; gap: 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  #chart-symbol { font-size: 1rem; font-weight: 700; }
+  #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
+  #chart-change { font-size: 0.8rem; font-weight: 700; }
+  #chart-container { position: relative; height: 46vh; min-height: 260px; }
+  #loading { position: absolute; inset: 0; background: rgba(13,17,23,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; z-index: 10; }
+  #loading.hidden { display: none; }
+  .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { color: var(--muted); font-size: 0.85rem; }
+
+  .cfg-dropdown { display: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; margin: 4px 10px 8px; font-size: 0.72rem; }
   .cfg-dropdown.open { display: block; }
   .cfg-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
   .cfg-row:last-of-type { border-bottom: none; }
   .cfg-check { width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
   .cfg-name { flex: 1; color: var(--text); text-align: right; }
-  .cfg-weight {
-    width: 52px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
-  }
+  .cfg-weight { width: 52px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem; }
   .cfg-pct-sign { color: var(--muted); }
   .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
-  .cfg-save-btn {
-    width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
-    color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
-  }
+  .cfg-save-btn { width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+
   #final-row-wrap { display: flex; align-items: stretch; background: var(--surface2); border-bottom: 2px solid var(--accent); }
-  #final-verdict-row {
-    flex: 1; padding: 10px; text-align: center; cursor: pointer;
-  }
+  #final-verdict-row { flex: 1; padding: 10px; text-align: center; cursor: pointer; }
   .final-label { font-size: 0.68rem; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
   .final-value { font-size: 1.3rem; font-weight: 900; }
   .final-value.pos { color: var(--green); }
   .final-value.neg { color: var(--red); }
   .final-value.neutral { color: var(--yellow); }
-  .early-box {
-    width: 60px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-    cursor: pointer; border-left: 1px solid var(--border); border-right: 1px solid var(--border);
-  }
+  .early-box { width: 60px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
   .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
+
   #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
   .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
   .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
@@ -180,6 +139,7 @@
   .zone-box.buy .zt  { color: var(--green); }
   .zone-box.sell .zt { color: var(--red); }
   .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
+
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
@@ -204,12 +164,9 @@
   .bot-log-row.buy-row { color: var(--green); }
   .bot-log-row.sell-row { color: var(--red); }
   .bot-log-row.error-row { color: var(--yellow); }
+
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; }
-  .explosion-box {
-    flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
-    background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
-    transition: transform 0.15s, background 0.15s;
-  }
+  .explosion-box { flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer; background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35); transition: transform 0.15s, background 0.15s; }
   .explosion-box:active { transform: scale(0.97); background: rgba(240,136,62,0.18); }
   .explosion-box .explosion-rank { font-size: 0.65rem; color: #f0883e; font-weight: 700; }
   .explosion-box .explosion-symbol { font-size: 0.95rem; font-weight: 800; color: var(--text); margin: 2px 0; }
@@ -217,11 +174,9 @@
   .explosion-box.dir-up .explosion-symbol { color: var(--green); }
   .explosion-box.dir-down .explosion-symbol { color: var(--red); }
   .explosion-box.empty { opacity: 0.5; cursor: default; }
+
   #indicators-list { padding: 4px 10px 10px; }
-  .group-header {
-    font-size: 0.8rem; font-weight: 800; color: var(--accent);
-    margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
-  }
+  .group-header { font-size: 0.8rem; font-weight: 800; color: var(--accent); margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
   .group-header:first-child { margin-top: 0; }
   .group-summary { font-size: 0.68rem; color: var(--muted); margin-bottom: 6px; }
   .group-summary.pos { color: var(--green); }
@@ -243,11 +198,8 @@
   .acc-body { display: none; padding: 0 12px 10px; font-size: 0.78rem; color: var(--muted); line-height: 1.7; }
   .acc-item.open .acc-body { display: block; }
   .acc-body b { color: var(--text); font-family: 'Courier New', monospace; }
-  #notes-toggle {
-    width: calc(100% - 20px); margin: 0 10px 10px; background: var(--surface);
-    border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
-    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
-  }
+
+  #notes-toggle { width: calc(100% - 20px); margin: 0 10px 10px; background: var(--surface); border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; }
   #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
   #notes-list.open { display: flex; }
   #notes-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
@@ -263,28 +215,7 @@
 <body>
 
 <header>
-  <div id="macro-row">
-    <div class="macro-box" id="macro-btc">
-      <span class="macro-label">BTC</span>
-      <span class="macro-price" id="macro-btc-price">—</span>
-      <span class="macro-arrow flat" id="macro-btc-arrow">▬</span>
-    </div>
-    <div class="macro-box" id="macro-gold">
-      <span class="macro-label">🥇XAU</span>
-      <span class="macro-price" id="macro-gold-price">—</span>
-      <span class="macro-arrow flat" id="macro-gold-arrow">▬</span>
-    </div>
-    <div class="macro-box" id="macro-dxy">
-      <span class="macro-label">DXY</span>
-      <span class="macro-price" id="macro-dxy-price">—</span>
-      <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
-    </div>
-  </div>
-  <div id="conn-dot"></div>
-</header>
-
-<div id="symbol-row">
-  <div id="symbol-wrap">
+  <div id="symbol-selector">
     <input id="symbol-input" list="symbol-suggestions" placeholder="اكتب رمز العملة… BTCUSDT" value="BTCUSDT" autocomplete="off" />
     <span id="symbol-live-price">— <span class="updated-at" id="symbol-live-time"></span></span>
     <datalist id="symbol-suggestions">
@@ -296,7 +227,19 @@
       <option value="JASMYUSDT"><option value="IOTXUSDT"><option value="ASTRUSDT"><option value="CKBUSDT"><option value="ACHUSDT">
     </datalist>
   </div>
-</div>
+
+  <div id="btc-ticker">
+    <span class="label">BTC</span>
+    <span class="price" id="macro-btc-price">—</span>
+    <span class="macro-arrow flat" id="macro-btc-arrow">▬</span>
+  </div>
+
+  <div id="menu-btn">☰</div>
+  <div id="menu-dropdown">
+    <div class="menu-item" data-action="refresh">🔄 تحديث البيانات</div>
+    <div class="menu-item" data-action="fullscreen">⛶ ملء الشاشة</div>
+  </div>
+</header>
 
 <div id="explosion-row">
   <div class="explosion-box" id="explosion-box-1">
@@ -343,7 +286,7 @@
     <div class="pill-value neutral" id="p-allind">—</div>
   </div>
   <div class="pill" id="p-early-wrap" style="cursor:pointer;">
-    <div class="pill-label">🔥 الإنذار المبكر</div>
+    <div class="pill-label">المسافة</div>
     <div class="pill-value neutral" id="p-early">—</div>
   </div>
 </div>
@@ -371,7 +314,7 @@
     <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
   </div>
   <div id="final-verdict-row" style="cursor:pointer;">
-    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 4 مربعات)</div>
+    <div class="final-label" id="final-label">🎯 القرار النهائي</div>
     <div class="final-value neutral" id="p-final">—</div>
   </div>
   <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
@@ -448,78 +391,6 @@
   </div>
 </div>
 
-<div style="padding:8px 10px 0; font-size:0.68rem; color:var(--muted); font-weight:800;">📋 بقية المربعات التفصيلية</div>
-<div id="status-row-lower">
-  <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
-  <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
-  <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
-  <div class="pill"><div class="pill-label">التحليل</div><div class="pill-value neutral" id="p-overall">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الزخم</div><div class="pill-value neutral" id="p-momentum">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الحجم</div><div class="pill-value neutral" id="p-volume">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الارتداد</div><div class="pill-value neutral" id="p-reversal">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الثبات</div><div class="pill-value neutral" id="p-stability">—</div></div>
-  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
-</div>
-
-<div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
-
-<div id="indicators-list">
-  <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
-  <div class="group-summary" id="grp-reversal">—</div>
-  <div class="acc-item" data-key="stochrsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochrsi">—</div></div>
-  <div class="acc-item" data-key="bbpercentb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger %B</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bbpercentb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bbpercentb">—</div></div>
-  <div class="acc-item" data-key="rsidiv"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI Divergence</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-rsidiv">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-rsidiv">—</div></div>
-  <div class="acc-item" data-key="williamsr"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Williams %R</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-williamsr">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-williamsr">—</div></div>
-
-  <div class="group-header">🔒 ثبات الاتجاه</div>
-  <div class="group-summary" id="grp-stability">—</div>
-  <div class="acc-item" data-key="stab-adx"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX (ثبات)</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stab-adx">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stab-adx">—</div></div>
-  <div class="acc-item" data-key="chop"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Choppiness</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-chop">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-chop">—</div></div>
-  <div class="acc-item" data-key="stab-obv"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV ثبات</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stab-obv">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stab-obv">—</div></div>
-  <div class="acc-item" data-key="stab-ichimoku"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">إيشيموكو (استقرار)</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stab-ichimoku">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stab-ichimoku">—</div></div>
-
-  <div class="group-header">₿ طبقة البيتكوين</div>
-  <div class="group-summary" id="grp-btc">—</div>
-  <div class="acc-item" data-key="btclayer"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">قوة حركة البيتكوين</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-btclayer">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-btclayer">—</div></div>
-
-  <div class="group-header">🌍 بيانات السوق الكلية</div>
-  <div class="group-summary" id="grp-macro">—</div>
-  <div class="acc-item" data-key="btc120"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">بيتكوين ±120$</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-btc120">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-btc120">—</div></div>
-  <div class="acc-item" data-key="feargreed"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">الخوف والطمع</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-feargreed">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-feargreed">—</div></div>
-  <div class="acc-item" data-key="dominance"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">هيمنة البيتكوين</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-dominance">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-dominance">—</div></div>
-  <div class="acc-item" data-key="futures"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">مناطق الفيوتشر</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-futures">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-futures">—</div></div>
-
-  <div class="group-header">📈 المتوسطات والاتجاه</div>
-  <div class="group-summary" id="grp-trend">—</div>
-  <div class="acc-item" data-key="ema50"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 50</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-ema50">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-ema50">—</div></div>
-  <div class="acc-item" data-key="ema200"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">EMA 200</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-ema200">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-ema200">—</div></div>
-  <div class="acc-item" data-key="sma20"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">SMA 20</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-sma20">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-sma20">—</div></div>
-  <div class="acc-item" data-key="supertrend"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Supertrend</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-supertrend">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-supertrend">—</div></div>
-  <div class="acc-item" data-key="vwap"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">VWAP</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-vwap">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-vwap">—</div></div>
-  <div class="acc-item" data-key="ichimoku"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">سحابة إيشيموكو</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-ichimoku">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-ichimoku">—</div></div>
-
-  <div class="group-header">💧 الحجم والسيولة</div>
-  <div class="group-summary" id="grp-volume">—</div>
-  <div class="acc-item" data-key="obv"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">OBV</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-obv">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-obv">—</div></div>
-  <div class="acc-item" data-key="volprofile"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Volume Profile</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-volprofile">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-volprofile">—</div></div>
-  <div class="acc-item" data-key="accdist"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">A/D</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-accdist">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-accdist">—</div></div>
-  <div class="acc-item" data-key="cvd"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">CVD</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-cvd">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-cvd">—</div></div>
-  <div class="acc-item" data-key="openinterest"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Open Interest</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-openinterest">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-openinterest">—</div></div>
-  <div class="acc-item" data-key="longshort"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Long/Short</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-longshort">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-longshort">—</div></div>
-
-  <div class="group-header">📉 الزخم والتذبذب</div>
-  <div class="group-summary" id="grp-momentum">—</div>
-  <div class="acc-item" data-key="rsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-rsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-rsi">—</div></div>
-  <div class="acc-item" data-key="macd"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">MACD</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-macd">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-macd">—</div></div>
-  <div class="acc-item" data-key="stochastic"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochastic">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochastic">—</div></div>
-  <div class="acc-item" data-key="adx"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">ADX</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-adx">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-adx">—</div></div>
-  <div class="group-header">🕯️ الأسعار والأنماط</div>
-  <div class="group-summary" id="grp-price">—</div>
-  <div class="acc-item" data-key="bb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger Bands</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bb">—</div></div>
-  <div class="acc-item" data-key="pivot"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Pivot Points</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-pivot">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-pivot">—</div></div>
-  <div class="acc-item" data-key="candlecmp"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Candle Compare</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-candlecmp">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-candlecmp">—</div></div>
-</div>
-
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
 <ul id="notes-list"></ul>
 
@@ -529,7 +400,6 @@
   let currentInterval = '5m';
   let ws = null;
   let btcWs = null;
-  let goldWs = null;
   let chart = null;
   let candleSeries = null;
   let lastPrice = null;
@@ -661,36 +531,22 @@
     arrowEl.textContent = btcArrowState === 'up' ? '▲' : btcArrowState === 'down' ? '▼' : '▬';
   }
 
-  // ═══════════════════ اتصال الذهب المستقل ═══════════════════
-  function connectGoldTicker() {
-    if (goldWs) try { goldWs.close(); } catch (e) {}
-    goldWs = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
-    goldWs.onopen = () => goldWs.send(JSON.stringify({ type: 'subscribe', symbol: 'PAXGUSDT', interval: '5m' }));
-    goldWs.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch { return; } if (msg.type === 'update' && msg.symbol === 'PAXGUSDT') { const latest = msg.candles[msg.candles.length-1]; if (latest) { const priceEl = document.getElementById('macro-gold-price'); priceEl.textContent = fmt(latest.close); } } };
-    goldWs.onclose = () => setTimeout(connectGoldTicker, 3000);
-    goldWs.onerror = () => goldWs.close();
-  }
-
   // ═══════════════════ استقبال التحديثات ═══════════════════
   function handleUpdate(msg) {
     if (msg.symbol !== currentSymbol || msg.interval !== currentInterval) return;
     showLoading(false);
 
-    // إذا تغير الرمز أو الفريم أو لا توجد سلسلة، نعيد البناء بالكامل
     if (currentSeriesSymbol !== currentSymbol || currentSeriesInterval !== currentInterval || !candleSeries) {
       candleSeries.setData(msg.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
       currentSeriesSymbol = currentSymbol;
       currentSeriesInterval = currentInterval;
       lastCandleTime = msg.candles.length ? msg.candles[msg.candles.length - 1].time : null;
     } else {
-      // تحديث آخر شمعة فقط
       const latestCandle = msg.candles[msg.candles.length - 1];
       if (latestCandle) {
         if (latestCandle.time === lastCandleTime) {
-          // نفس الشمعة الحالية: تحديث بياناتها
           candleSeries.update({ time: latestCandle.time, open: latestCandle.open, high: latestCandle.high, low: latestCandle.low, close: latestCandle.close });
         } else if (latestCandle.time > lastCandleTime) {
-          // شمعة جديدة: إضافتها
           candleSeries.update({ time: latestCandle.time, open: latestCandle.open, high: latestCandle.high, low: latestCandle.low, close: latestCandle.close });
           lastCandleTime = latestCandle.time;
         }
@@ -754,6 +610,32 @@
     box.onclick = () => switchToSymbol(item.symbol);
   }
 
+  // ═══════════════════ المؤشرات الديناميكية الجديدة ═══════════════════
+  function ensureIndicatorItem(key, name) {
+    if (document.querySelector(`.acc-item[data-key="${key}"]`)) return;
+    const list = document.getElementById('indicators-list');
+    let group = document.getElementById('group-early-indicators');
+    if (!group) {
+      group = document.createElement('div');
+      group.innerHTML = `<div class="group-header">📏 مؤشرات المسافة</div><div class="group-summary" id="grp-early-indicators">—</div>`;
+      group.id = 'group-early-indicators';
+      list.appendChild(group);
+    }
+    const item = document.createElement('div');
+    item.className = 'acc-item';
+    item.dataset.key = key;
+    item.innerHTML = `
+      <div class="acc-head">
+        <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">${name}</span></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="acc-verdict neutral" id="v-${key}">—</span><span class="acc-arrow">▾</span>
+        </div>
+      </div>
+      <div class="acc-body" id="b-${key}">—</div>`;
+    group.appendChild(item);
+    item.querySelector('.acc-head').addEventListener('click', () => item.classList.toggle('open'));
+  }
+
   // ═══════════════════ عرض المؤشرات ═══════════════════
   let consensusTracker = {};
 
@@ -798,31 +680,136 @@
     if (!ind) return;
     consensusTracker = {};
     renderHourlyLayer(ind.hourlyLayer);
-    if (ind.rsi != null) { const verdict = ind.rsi > 55 ? 'bull' : ind.rsi < 45 ? 'bear' : 'neutral'; const label = ind.rsi > 55 ? 'زخم صاعد' : ind.rsi < 45 ? 'زخم هابط' : 'زخم محايد'; setAcc('rsi', verdict, label, `القيمة الحالية: <b>${ind.rsi.toFixed(1)}</b>`); }
-    if (ind.macd) { const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear'; setAcc('macd', verdict, verdict === 'bull' ? 'صعود' : 'هبوط', `القيمة: <b>${ind.macd.value.toFixed(4)}</b> / الإشارة: <b>${ind.macd.signal.toFixed(4)}</b>`); }
-    if (ind.ema50 != null) { const verdict = ind.currentPrice > ind.ema50 ? 'bull' : 'bear'; setAcc('ema50', verdict, verdict === 'bull' ? 'دعم (فوق المتوسط)' : 'مقاومة (تحت المتوسط)', `القيمة: <b>${fmt(ind.ema50)}</b>`); }
-    if (ind.ema200 != null) { const verdict = ind.currentPrice > ind.ema200 ? 'bull' : 'bear'; setAcc('ema200', verdict, verdict === 'bull' ? 'اتجاه عام صاعد' : 'اتجاه عام هابط', `القيمة: <b>${fmt(ind.ema200)}</b>`); }
-    if (ind.bb) { let verdict = 'neutral', label = 'محايد'; if (ind.currentPrice < ind.bb.lower) { verdict = 'bull'; label = 'منطقة شراء قوية'; } else if (ind.currentPrice > ind.bb.upper) { verdict = 'bear'; label = 'منطقة بيع قوية'; } setAcc('bb', verdict, label, `أعلى: <b>${fmt(ind.bb.upper)}</b> — وسط: <b>${fmt(ind.bb.middle)}</b> — أدنى: <b>${fmt(ind.bb.lower)}</b>`); }
-    if (ind.supertrend) { const verdict = ind.supertrend.trendUp ? 'bull' : 'bear'; setAcc('supertrend', verdict, ind.supertrend.trendUp ? 'اتجاه صاعد' : 'اتجاه هابط', `القيمة: <b>${fmt(ind.supertrend.value)}</b>`); }
-    if (ind.vwap != null) { const verdict = ind.currentPrice > ind.vwap ? 'bull' : 'bear'; setAcc('vwap', verdict, verdict === 'bull' ? 'فوق VWAP' : 'تحت VWAP', `القيمة: <b>${fmt(ind.vwap)}</b>`); }
-    if (ind.stochastic) { const k = ind.stochastic.k, d = ind.stochastic.d; const verdict = (k > 55 && k >= d) ? 'bull' : (k < 45 && k <= d) ? 'bear' : 'neutral'; setAcc('stochastic', verdict, verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'محايد', `K: <b>${k.toFixed(1)}</b> — D: <b>${d.toFixed(1)}</b>`); }
-    if (ind.adx) { const strong = ind.adx.adx >= 25; const verdict = !strong ? 'neutral' : (ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear'); setAcc('adx', verdict, !strong ? 'اتجاه ضعيف' : (ind.adx.pdi > ind.adx.mdi ? 'اتجاه صاعد قوي' : 'اتجاه هابط قوي'), `ADX: <b>${ind.adx.adx.toFixed(1)}</b>`); }
-    if (ind.obv != null) { const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev; if (ref != null) { const verdict = ind.obv > ref ? 'bull' : 'bear'; setAcc('obv', verdict, verdict === 'bull' ? 'تدفق شرائي' : 'تدفق بيعي', `القيمة: <b>${fmtBig(ind.obv)}</b>`); } }
-    if (ind.sma20 != null) { const verdict = ind.currentPrice > ind.sma20 ? 'bull' : 'bear'; setAcc('sma20', verdict, verdict === 'bull' ? 'فوق SMA20' : 'تحت SMA20', `القيمة: <b>${fmt(ind.sma20)}</b>`); }
-    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) { const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB); const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB); let verdict = 'neutral', label = 'داخل السحابة'; if (ind.currentPrice > top) { verdict = 'bull'; label = 'فوق السحابة (صاعد)'; } else if (ind.currentPrice < bottom) { verdict = 'bear'; label = 'تحت السحابة (هابط)'; } setAcc('ichimoku', verdict, label, `Span A: <b>${fmt(ind.ichimoku.spanA)}</b> — Span B: <b>${fmt(ind.ichimoku.spanB)}</b>`); }
-    if (ind.volumeProfile) { const vp = ind.volumeProfile; const verdict = ind.currentPrice > vp.pocPrice ? 'bull' : 'bear'; setAcc('volprofile', verdict, verdict === 'bull' ? 'فوق منطقة التركز' : 'تحت منطقة التركز', `POC: <b>${fmt(vp.pocPrice)}</b>`); }
-    if (ind.pivot) { const verdict = ind.currentPrice > ind.pivot.p ? 'bull' : 'bear'; setAcc('pivot', verdict, verdict === 'bull' ? 'فوق نقطة الارتكاز' : 'تحت نقطة الارتكاز', `الارتكاز: <b>${fmt(ind.pivot.p)}</b>`); }
-    if (ind.candleCompare) { const cc = ind.candleCompare; let verdict = 'neutral', label = 'لا نمط واضح'; if (cc.bullEngulf) { verdict = 'bull'; label = 'ابتلاع صاعد'; } else if (cc.bearEngulf) { verdict = 'bear'; label = 'ابتلاع هابط'; } else if (cc.consecutiveUp) { verdict = 'bull'; label = '3 شموع صاعدة'; } else if (cc.consecutiveDown) { verdict = 'bear'; label = '3 شموع هابطة'; } setAcc('candlecmp', verdict, label, `مقارنة آخر 3 شموع`); }
-    if (ind.accDist) { const ad = ind.accDist; let verdict = 'neutral'; if (ad.zone.includes('تجميع')) verdict = 'bull'; else if (ad.zone.includes('تصريف')) verdict = 'bear'; setAcc('accdist', verdict, ad.zone, `A/D Line: ${ad.rising ? 'صاعد' : 'هابط'}`); }
-    if (ind.cvd) { const c = ind.cvd; let verdict = 'neutral', label = 'يؤكد اتجاه السعر'; if (c.signal === 'bullish_divergence') { verdict = 'bull'; label = 'امتصاص مؤسسي صاعد'; } else if (c.signal === 'bearish_divergence') { verdict = 'bear'; label = 'توزيع/تباعد سلبي'; } setAcc('cvd', verdict, label, `CVD: ${c.cvdDir}`); }
-    if (ind.stochRsi) { const s = ind.stochRsi; let verdict = 'neutral', label = 'لا إشارة'; if (s.crossUp) { verdict = 'bull'; label = 'بداية ارتداد صاعد مؤكد'; } else if (s.crossDown) { verdict = 'bear'; label = 'بداية ارتداد هابط مؤكد'; } else if (s.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (s.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('stochrsi', verdict, label, `K: <b>${s.k.toFixed(1)}</b> — D: <b>${s.d.toFixed(1)}</b>`); }
-    if (ind.bbPercentB) { const b = ind.bbPercentB; let verdict = 'neutral', label = 'داخل النطاق'; if (b.crossedUpFromZero) { verdict = 'bull'; label = 'ارتداد صاعد مؤكد'; } else if (b.crossedDownFromOne) { verdict = 'bear'; label = 'ارتداد هابط مؤكد'; } else if (b.zoneUp) { verdict = 'neutral'; label = 'قريب من الحد السفلي'; } else if (b.zoneDown) { verdict = 'neutral'; label = 'قريب من الحد العلوي'; } setAcc('bbpercentb', verdict, label, `%B: <b>${b.now.toFixed(2)}</b>`); }
-    if (ind.rsiDivergence) { const r = ind.rsiDivergence; let verdict = 'neutral', label = 'لا يوجد تباعد'; if (r.type === 'bullish') { verdict = 'bull'; label = 'تجميع خفي'; } else if (r.type === 'bearish') { verdict = 'bear'; label = 'توزيع خفي'; } setAcc('rsidiv', verdict, label, `تباعد RSI`); }
-    if (ind.williamsR) { const w = ind.williamsR; let verdict = 'neutral', label = 'لا إشارة'; if (w.crossUpFrom80) { verdict = 'bull'; label = 'نبضة ارتداد صاعدة'; } else if (w.crossDownFrom20) { verdict = 'bear'; label = 'نبضة ارتداد هابطة'; } else if (w.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (w.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('williamsr', verdict, label, `Williams: <b>${w.now.toFixed(1)}</b>`); }
-    if (ind.adx) { let verdict = 'neutral', label = 'اتجاه هش'; if (ind.adx.adx > 25) { verdict = ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear'; label = 'الاتجاه ثابت وقوي'; } else if (ind.adx.adx < 20) { verdict = 'neutral'; label = 'ضعيف'; } setAcc('stab-adx', verdict, label, `ADX: <b>${ind.adx.adx.toFixed(1)}</b>`); }
-    if (ind.chop != null) { let verdict = 'neutral', label = 'منطقة انتقالية'; if (ind.chop < 38.2) { verdict = ind.candleCompare?.consecutiveUp ? 'bull' : ind.candleCompare?.consecutiveDown ? 'bear' : 'neutral'; label = 'تريند مستقر'; } else if (ind.chop > 61.8) { verdict = 'neutral'; label = 'سوق متذبذب'; } setAcc('chop', verdict, label, `Choppiness: <b>${ind.chop.toFixed(1)}</b>`); }
-    { const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev; if (ind.obv != null && ref != null) { const obvUp = ind.obv > ref; const priceUp = ind.candleCompare?.consecutiveUp; const priceDown = ind.candleCompare?.consecutiveDown; let verdict = 'neutral', label = 'محايد'; if (priceUp && obvUp) { verdict = 'bull'; label = 'ثبات صاعد مدعوم بالسيولة'; } else if (priceUp && !obvUp) { verdict = 'bear'; label = 'ثبات وهمي/تصريف'; } else if (priceDown && !obvUp) { verdict = 'bear'; label = 'ثبات هابط مدعوم بالسيولة'; } else if (priceDown && obvUp) { verdict = 'neutral'; label = 'ثبات هبوط وهمي'; } setAcc('stab-obv', verdict, label, `مقارنة OBV`); } }
-    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) { const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB); const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB); const cloudGreen = ind.ichimoku.spanA > ind.ichimoku.spanB; let verdict = 'neutral', label = 'داخل السحابة'; if (ind.currentPrice > top && cloudGreen) { verdict = 'bull'; label = 'استقرار صعودي تام'; } else if (ind.currentPrice < bottom && !cloudGreen) { verdict = 'bear'; label = 'استقرار هبوطي تام'; } setAcc('stab-ichimoku', verdict, label, `السحابة: ${cloudGreen ? 'خضراء' : 'حمراء'}`); }
+
+    // المؤشرات القديمة (موجودة في HTML)
+    if (ind.rsi != null) { const verdict = ind.rsi > 55 ? 'bull' : ind.rsi < 45 ? 'bear' : 'neutral'; setAcc('rsi', verdict, verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'زخم محايد', `القيمة: <b>${ind.rsi.toFixed(1)}</b>`); }
+    if (ind.macd) { const verdict = ind.macd.value > ind.macd.signal ? 'bull' : 'bear'; setAcc('macd', verdict, verdict === 'bull' ? 'صعود' : 'هبوط', `MACD: <b>${ind.macd.value.toFixed(4)}</b> / Signal: <b>${ind.macd.signal.toFixed(4)}</b>`); }
+    if (ind.ema50 != null) { const verdict = ind.currentPrice > ind.ema50 ? 'bull' : 'bear'; setAcc('ema50', verdict, verdict === 'bull' ? 'فوق EMA50' : 'تحت EMA50', `EMA50: <b>${fmt(ind.ema50)}</b>`); }
+    if (ind.ema200 != null) { const verdict = ind.currentPrice > ind.ema200 ? 'bull' : 'bear'; setAcc('ema200', verdict, verdict === 'bull' ? 'فوق EMA200' : 'تحت EMA200', `EMA200: <b>${fmt(ind.ema200)}</b>`); }
+    if (ind.bb) { let verdict = 'neutral', label = 'محايد'; if (ind.currentPrice < ind.bb.lower) { verdict = 'bull'; label = 'منطقة شراء'; } else if (ind.currentPrice > ind.bb.upper) { verdict = 'bear'; label = 'منطقة بيع'; } setAcc('bb', verdict, label, `BB Upper: <b>${fmt(ind.bb.upper)}</b> / Lower: <b>${fmt(ind.bb.lower)}</b>`); }
+    if (ind.supertrend) { const verdict = ind.supertrend.trendUp ? 'bull' : 'bear'; setAcc('supertrend', verdict, verdict === 'bull' ? 'صاعد' : 'هابط', `Supertrend: <b>${fmt(ind.supertrend.value)}</b>`); }
+    if (ind.vwap != null) { const verdict = ind.currentPrice > ind.vwap ? 'bull' : 'bear'; setAcc('vwap', verdict, verdict === 'bull' ? 'فوق VWAP' : 'تحت VWAP', `VWAP: <b>${fmt(ind.vwap)}</b>`); }
+    if (ind.stochastic) { const k = ind.stochastic.k, d = ind.stochastic.d; const verdict = (k > 55 && k >= d) ? 'bull' : (k < 45 && k <= d) ? 'bear' : 'neutral'; setAcc('stochastic', verdict, verdict === 'bull' ? 'زخم صاعد' : verdict === 'bear' ? 'زخم هابط' : 'محايد', `K: <b>${k.toFixed(1)}</b> / D: <b>${d.toFixed(1)}</b>`); }
+    if (ind.adx) { const strong = ind.adx.adx >= 25; const verdict = !strong ? 'neutral' : (ind.adx.pdi > ind.adx.mdi ? 'bull' : 'bear'); setAcc('adx', verdict, !strong ? 'اتجاه ضعيف' : (ind.adx.pdi > ind.adx.mdi ? 'صاعد قوي' : 'هابط قوي'), `ADX: <b>${ind.adx.adx.toFixed(1)}</b>`); }
+    if (ind.obv != null) { const ref = ind.obvTrendRef != null ? ind.obvTrendRef : ind.obvPrev; if (ref != null) { const verdict = ind.obv > ref ? 'bull' : 'bear'; setAcc('obv', verdict, verdict === 'bull' ? 'تدفق شرائي' : 'تدفق بيعي', `OBV: <b>${fmtBig(ind.obv)}</b>`); } }
+    if (ind.sma20 != null) { const verdict = ind.currentPrice > ind.sma20 ? 'bull' : 'bear'; setAcc('sma20', verdict, verdict === 'bull' ? 'فوق SMA20' : 'تحت SMA20', `SMA20: <b>${fmt(ind.sma20)}</b>`); }
+    if (ind.ichimoku && ind.ichimoku.spanA != null && ind.ichimoku.spanB != null) { const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB); const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB); let verdict = 'neutral', label = 'داخل السحابة'; if (ind.currentPrice > top) { verdict = 'bull'; label = 'فوق السحابة'; } else if (ind.currentPrice < bottom) { verdict = 'bear'; label = 'تحت السحابة'; } setAcc('ichimoku', verdict, label, `Span A: <b>${fmt(ind.ichimoku.spanA)}</b> / Span B: <b>${fmt(ind.ichimoku.spanB)}</b>`); }
+    if (ind.volumeProfile) { const vp = ind.volumeProfile; const verdict = ind.currentPrice > vp.pocPrice ? 'bull' : 'bear'; setAcc('volprofile', verdict, verdict === 'bull' ? 'فوق POC' : 'تحت POC', `POC: <b>${fmt(vp.pocPrice)}</b>`); }
+    if (ind.pivot) { const verdict = ind.currentPrice > ind.pivot.p ? 'bull' : 'bear'; setAcc('pivot', verdict, verdict === 'bull' ? 'فوق الارتكاز' : 'تحت الارتكاز', `Pivot: <b>${fmt(ind.pivot.p)}</b>`); }
+    if (ind.candleCompare) { const cc = ind.candleCompare; let verdict = 'neutral', label = 'لا نمط'; if (cc.bullEngulf) { verdict = 'bull'; label = 'ابتلاع صاعد'; } else if (cc.bearEngulf) { verdict = 'bear'; label = 'ابتلاع هابط'; } else if (cc.consecutiveUp) { verdict = 'bull'; label = '3 شموع صاعدة'; } else if (cc.consecutiveDown) { verdict = 'bear'; label = '3 شموع هابطة'; } setAcc('candlecmp', verdict, label, `نمط الشموع`); }
+    if (ind.accDist) { const ad = ind.accDist; let verdict = 'neutral'; if (ad.zone.includes('تجميع')) verdict = 'bull'; else if (ad.zone.includes('تصريف')) verdict = 'bear'; setAcc('accdist', verdict, ad.zone, `A/D: ${ad.rising ? 'صاعد' : 'هابط'}`); }
+    if (ind.cvd) { const c = ind.cvd; let verdict = 'neutral', label = 'يؤكد'; if (c.signal === 'bullish_divergence') { verdict = 'bull'; label = 'امتصاص مؤسسي'; } else if (c.signal === 'bearish_divergence') { verdict = 'bear'; label = 'توزيع'; } setAcc('cvd', verdict, label, `CVD: ${c.cvdDir}`); }
+    if (ind.stochRsi) { const s = ind.stochRsi; let verdict = 'neutral', label = 'لا إشارة'; if (s.crossUp) { verdict = 'bull'; label = 'عبور صاعد'; } else if (s.crossDown) { verdict = 'bear'; label = 'عبور هابط'; } else if (s.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (s.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('stochrsi', verdict, label, `StochRSI: K ${s.k.toFixed(1)}`); }
+    if (ind.bbPercentB) { const b = ind.bbPercentB; let verdict = 'neutral', label = 'داخل'; if (b.crossedUpFromZero) { verdict = 'bull'; label = 'ارتداد صاعد'; } else if (b.crossedDownFromOne) { verdict = 'bear'; label = 'ارتداد هابط'; } setAcc('bbpercentb', verdict, label, `%B: ${b.now.toFixed(2)}`); }
+    if (ind.rsiDivergence) { const r = ind.rsiDivergence; let verdict = 'neutral', label = 'لا تباعد'; if (r.type === 'bullish') { verdict = 'bull'; label = 'تجميع خفي'; } else if (r.type === 'bearish') { verdict = 'bear'; label = 'توزيع خفي'; } setAcc('rsidiv', verdict, label, `RSI Divergence`); }
+    if (ind.williamsR) { const w = ind.williamsR; let verdict = 'neutral', label = 'لا إشارة'; if (w.crossUpFrom80) { verdict = 'bull'; label = 'ارتداد صاعد'; } else if (w.crossDownFrom20) { verdict = 'bear'; label = 'ارتداد هابط'; } else if (w.zoneUp) { verdict = 'neutral'; label = 'تشبع بيعي'; } else if (w.zoneDown) { verdict = 'neutral'; label = 'تشبع شرائي'; } setAcc('williamsr', verdict, label, `Williams: ${w.now.toFixed(1)}`); }
+    if (ind.chop != null) { let verdict = 'neutral', label = 'انتقالي'; if (ind.chop < 38.2) { verdict = 'neutral'; label = 'ترند'; } else if (ind.chop > 61.8) { verdict = 'neutral'; label = 'تذبذب'; } setAcc('chop', verdict, label, `Choppiness: ${ind.chop.toFixed(1)}`); }
+
+    // ═══════════ مؤشرات المسافة الجديدة ═══════════
+    ensureIndicatorItem('atr', 'متوسط المدى الحقيقي (ATR)');
+    if (ind.atr) {
+      const v = ind.atr.value;
+      const pct = ind.atr.percent;
+      const verdict = pct > 1.5 ? 'bear' : pct < 0.3 ? 'bull' : 'neutral';
+      setAcc('atr', verdict, verdict === 'bull' ? 'تذبذب منخفض' : verdict === 'bear' ? 'تذبذب مرتفع' : 'متوسط',
+        `ATR: <b>${fmt(v)}</b> (${pct.toFixed(2)}% من السعر)`);
+    }
+
+    ensureIndicatorItem('donchian', 'قنوات دونتشيان');
+    if (ind.donchian) {
+      const upper = ind.donchian.upper, lower = ind.donchian.lower;
+      const mid = (upper + lower) / 2;
+      const verdict = ind.currentPrice > mid ? 'bull' : 'bear';
+      setAcc('donchian', verdict, verdict === 'bull' ? 'فوق المنتصف' : 'تحت المنتصف',
+        `القناة: <b>${fmt(lower)}</b> - <b>${fmt(upper)}</b>`);
+    }
+
+    ensureIndicatorItem('hma', 'متوسط هال المتحرك');
+    if (ind.hma != null) {
+      const verdict = ind.currentPrice > ind.hma ? 'bull' : 'bear';
+      setAcc('hma', verdict, verdict === 'bull' ? 'فوق HMA' : 'تحت HMA', `HMA: <b>${fmt(ind.hma)}</b>`);
+    }
+
+    ensureIndicatorItem('vwma', 'المتوسط المرجح بحجم التداول');
+    if (ind.vwma != null) {
+      const verdict = ind.currentPrice > ind.vwma ? 'bull' : 'bear';
+      setAcc('vwma', verdict, verdict === 'bull' ? 'فوق VWMA' : 'تحت VWMA', `VWMA: <b>${fmt(ind.vwma)}</b>`);
+    }
+
+    ensureIndicatorItem('trix', 'TRIX');
+    if (ind.trix != null) {
+      const verdict = ind.trix > 0 ? 'bull' : 'bear';
+      setAcc('trix', verdict, verdict === 'bull' ? 'زخم إيجابي' : 'زخم سلبي', `TRIX: <b>${ind.trix.toFixed(4)}</b>`);
+    }
+
+    ensureIndicatorItem('squeezeMomentum', 'زخم الانضغاط');
+    if (ind.squeezeMomentum != null) {
+      const verdict = ind.squeezeMomentum > 0 ? 'bull' : 'bear';
+      setAcc('squeezeMomentum', verdict, verdict === 'bull' ? 'انضغاط صاعد' : 'انضغاط هابط', `Squeeze Momentum: <b>${fmt(ind.squeezeMomentum)}</b>`);
+    }
+
+    ensureIndicatorItem('fisherTransform', 'تحويل فيشر');
+    if (ind.fisherTransform != null) {
+      const verdict = ind.fisherTransform > 0 ? 'bull' : 'bear';
+      setAcc('fisherTransform', verdict, verdict === 'bull' ? 'فيشر موجب' : 'فيشر سالب', `Fisher: <b>${ind.fisherTransform.toFixed(4)}</b>`);
+    }
+
+    ensureIndicatorItem('elderRay', 'قوة الثيران والدببة');
+    if (ind.elderRay) {
+      const verdict = ind.elderRay.bullPower > ind.elderRay.bearPower ? 'bull' : 'bear';
+      setAcc('elderRay', verdict, verdict === 'bull' ? 'الثيران أقوى' : 'الدببة أقوى',
+        `Bull Power: <b>${fmt(ind.elderRay.bullPower)}</b> / Bear Power: <b>${fmt(ind.elderRay.bearPower)}</b>`);
+    }
+
+    ensureIndicatorItem('vortex', 'مؤشر الدوامة');
+    if (ind.vortex) {
+      const verdict = ind.vortex.plusVI > ind.vortex.minusVI ? 'bull' : 'bear';
+      setAcc('vortex', verdict, verdict === 'bull' ? 'دوامة صاعدة' : 'دوامة هابطة',
+        `+VI: <b>${ind.vortex.plusVI.toFixed(2)}</b> / -VI: <b>${ind.vortex.minusVI.toFixed(2)}</b>`);
+    }
+
+    ensureIndicatorItem('zScore', 'Z-Score');
+    if (ind.zScore != null) {
+      const verdict = ind.zScore > 1.5 ? 'bear' : ind.zScore < -1.5 ? 'bull' : 'neutral';
+      setAcc('zScore', verdict, verdict === 'bull' ? 'بعيد عن المتوسط (أدنى)' : verdict === 'bear' ? 'بعيد عن المتوسط (أعلى)' : 'ضمن الطبيعي',
+        `Z-Score: <b>${ind.zScore.toFixed(2)}</b>`);
+    }
+
+    ensureIndicatorItem('zigzag', 'الزجزاج');
+    if (ind.zigzag) {
+      setAcc('zigzag', ind.zigzag.direction === 'up' ? 'bull' : 'bear',
+        ind.zigzag.direction === 'up' ? 'منعطف صاعد' : 'منعطف هابط',
+        `آخر قمة/قاع: <b>${fmt(ind.zigzag.price)}</b>`);
+    }
+
+    ensureIndicatorItem('klinger', 'مؤشر القوة التجميعية');
+    if (ind.klinger != null) {
+      const verdict = ind.klinger > 0 ? 'bull' : 'bear';
+      setAcc('klinger', verdict, verdict === 'bull' ? 'تراكم شرائي' : 'تراكم بيعي', `Klinger: <b>${fmt(ind.klinger)}</b>`);
+    }
+
+    ensureIndicatorItem('linearRegression', 'قنوات انحراف السعر');
+    if (ind.linearRegression) {
+      const upper = ind.linearRegression.upper, lower = ind.linearRegression.lower;
+      const mid = (upper + lower) / 2;
+      const verdict = ind.currentPrice > mid ? 'bull' : 'bear';
+      setAcc('linearRegression', verdict, verdict === 'bull' ? 'فوق منتصف الانحدار' : 'تحت منتصف الانحدار',
+        `القناة: <b>${fmt(lower)}</b> - <b>${fmt(upper)}</b>`);
+    }
+
+    ensureIndicatorItem('relativeStrengthBTC', 'القوة النسبية مقارنة بالبيتكوين');
+    if (ind.relativeStrengthBTC != null) {
+      const verdict = ind.relativeStrengthBTC > 0 ? 'bull' : 'bear';
+      setAcc('relativeStrengthBTC', verdict, verdict === 'bull' ? 'أقوى من البيتكوين' : 'أضعف من البيتكوين',
+        `القوة النسبية: <b>${ind.relativeStrengthBTC.toFixed(2)}%</b>`);
+    }
+
+    ensureIndicatorItem('marketFacilitation', 'تيسير الحركة');
+    if (ind.marketFacilitation != null) {
+      const verdict = ind.marketFacilitation > 0 ? 'bull' : 'bear';
+      setAcc('marketFacilitation', verdict, verdict === 'bull' ? 'تيسير إيجابي' : 'تيسير سلبي',
+        `MFI: <b>${fmt(ind.marketFacilitation)}</b>`);
+    }
   }
 
   let lastHourlyLayer = null;
@@ -898,15 +885,22 @@
       { key: 'stab-ichimoku', name: 'إيشيموكو ثبات', checked: false, weight: 1 },
       { key: 'stab-obv', name: 'OBV ثبات', checked: false, weight: 1 },
     ]},
-    early: { label: 'الإنذار المبكر', indicators: [
-      { key: 'rsidiv', name: 'تباعد RSI', checked: true, weight: 5 },
-      { key: 'cvd', name: 'CVD (امتصاص)', checked: true, weight: 5 },
-      { key: 'candlecmp', name: 'نمط الشموع', checked: true, weight: 5 },
-      { key: 'stochrsi', name: 'StochRSI', checked: true, weight: 3 },
-      { key: 'williamsr', name: 'Williams %R', checked: true, weight: 3 },
-      { key: 'bbpercentb', name: 'Bollinger %B', checked: true, weight: 3 },
-      { key: 'accdist', name: 'تجميع/تصريف', checked: true, weight: 3 },
-      { key: 'obv', name: 'OBV', checked: true, weight: 1 },
+    early: { label: 'المسافة', indicators: [
+      { key: 'atr', name: 'متوسط المدى الحقيقي (ATR)', checked: true, weight: 1 },
+      { key: 'donchian', name: 'قنوات دونتشيان', checked: true, weight: 1 },
+      { key: 'hma', name: 'متوسط هال المتحرك', checked: true, weight: 1 },
+      { key: 'vwma', name: 'المتوسط المرجح بحجم التداول', checked: true, weight: 1 },
+      { key: 'trix', name: 'TRIX', checked: true, weight: 1 },
+      { key: 'squeezeMomentum', name: 'زخم الانضغاط', checked: true, weight: 1 },
+      { key: 'fisherTransform', name: 'تحويل فيشر', checked: true, weight: 1 },
+      { key: 'elderRay', name: 'قوة الثيران والدببة', checked: true, weight: 1 },
+      { key: 'vortex', name: 'مؤشر الدوامة', checked: true, weight: 1 },
+      { key: 'zScore', name: 'Z-Score', checked: true, weight: 1 },
+      { key: 'zigzag', name: 'الزجزاج', checked: true, weight: 1 },
+      { key: 'klinger', name: 'مؤشر القوة التجميعية', checked: true, weight: 1 },
+      { key: 'linearRegression', name: 'قنوات انحراف السعر', checked: true, weight: 1 },
+      { key: 'relativeStrengthBTC', name: 'القوة النسبية مقارنة بالبيتكوين', checked: true, weight: 1 },
+      { key: 'marketFacilitation', name: 'تيسير الحركة', checked: true, weight: 1 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 35 },
@@ -1049,6 +1043,19 @@
   document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
 
+  // زر القائمة
+  const menuBtn = document.getElementById('menu-btn');
+  const menuDropdown = document.getElementById('menu-dropdown');
+  menuBtn.addEventListener('click', () => menuDropdown.classList.toggle('open'));
+  menuDropdown.querySelectorAll('.menu-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const action = item.dataset.action;
+      if (action === 'refresh') location.reload();
+      else if (action === 'fullscreen') document.documentElement.requestFullscreen?.();
+      menuDropdown.classList.remove('open');
+    });
+  });
+
   // ═══════════════════ الحالة العامة ═══════════════════
   let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
   let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0;
@@ -1096,12 +1103,10 @@
       const el = document.getElementById(`grp-${group}`);
       if (el && c.total > 0) {
         if (group === 'reversal') {
-          const upNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bull').map(([k]) => k);
-          const downNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bear').map(([k]) => k);
-          el.innerHTML = `<div style="color:var(--green); margin-bottom:3px;">🟢 ارتداد الصعود (${c.bull})</div><div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear})</div>`;
+          el.innerHTML = `<div style="color:var(--green);">🟢 ارتداد الصعود (${c.bull})</div><div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear})</div>`;
         } else {
-          const verdictWord = c.bull > c.bear ? '📈 صعود' : c.bear > c.bull ? '📉 هبوط' : '⚪ محايد';
-          el.textContent = `${verdictWord} (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
+          const word = c.bull > c.bear ? '📈 صعود' : c.bear > c.bull ? '📉 هبوط' : '⚪ محايد';
+          el.textContent = `${word} (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
           el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
         }
       }
@@ -1143,9 +1148,8 @@
     const finalV = dirWord3(combinedLean);
     const finalIcon = finalV.dir === 'up' ? '📈' : finalV.dir === 'down' ? '📉' : '⚪';
     const finalLabel = `${finalIcon} ${finalV.word} ${Math.round(Math.abs(combinedLean) * 100)}%`;
-    const finalClass = finalV.dir === 'up' ? 'pos' : finalV.dir === 'down' ? 'neg' : 'neutral';
     document.getElementById('p-final').textContent = finalLabel;
-    document.getElementById('p-final').className = `final-value ${finalClass}`;
+    document.getElementById('p-final').className = `final-value ${finalV.dir === 'up' ? 'pos' : finalV.dir === 'down' ? 'neg' : 'neutral'}`;
     renderBoxConfigDropdown('final', 'final-cfg');
   }
 
@@ -1209,13 +1213,13 @@
     const avgLean = weightedLean('early', leanMap);
     const v = dirWord3(avgLean, 0.2);
     if (v.dir === 'up') {
-      pillEl.textContent = `إنذار صاعد ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `صعود ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value up';
     } else if (v.dir === 'down') {
-      pillEl.textContent = `إنذار هابط ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `هبوط ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value down';
     } else {
-      pillEl.textContent = `ترقب ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = `محايد ${Math.round(Math.abs(avgLean) * 100)}%`;
       pillEl.className = 'pill-value neutral';
     }
     renderBoxConfigDropdown('early', 'early-cfg');
@@ -1261,9 +1265,6 @@
     const downArrow = document.getElementById('early-down-arrow');
     if (upArrow) { upArrow.style.opacity = (0.3 + upPct * 0.7).toFixed(2); upArrow.style.transform = `scale(${(1 + upPct * 0.35).toFixed(2)})`; }
     if (downArrow) { downArrow.style.opacity = (0.3 + downPct * 0.7).toFixed(2); downArrow.style.transform = `scale(${(1 + downPct * 0.35).toFixed(2)})`; }
-    const upWrap = document.getElementById('early-up-wrap'); const downWrap = document.getElementById('early-down-wrap');
-    if (upWrap) upWrap.title = `الارتفاع المبكر: ${Math.round(upPct * 100)}%`;
-    if (downWrap) downWrap.title = `النزول المبكر: ${Math.round(downPct * 100)}%`;
     renderBoxConfigDropdown('earlyup', 'earlyup-cfg');
     renderBoxConfigDropdown('earlydown', 'earlydown-cfg');
   }
@@ -1407,37 +1408,19 @@
       if (d.fearGreed) {
         const v = d.fearGreed.value;
         const verdict = v <= 45 ? 'bull' : v >= 55 ? 'bear' : 'neutral';
-        setAcc('feargreed', verdict, `${d.fearGreed.label} (${v})`, `القيمة: <b>${v}/100</b> — ${d.fearGreed.label}`);
+        setAcc('feargreed', verdict, `${d.fearGreed.label} (${v})`, `القيمة: <b>${v}/100</b>`);
       }
       if (d.btcDominance != null) {
         const rising = prevBtcDominance !== null && d.btcDominance > prevBtcDominance;
         const falling = prevBtcDominance !== null && d.btcDominance < prevBtcDominance;
         const isBtc = currentSymbol === 'BTCUSDT';
         let verdict = 'neutral', label = 'مستقرة';
-        if (rising) { verdict = isBtc ? 'bull' : 'bear'; label = isBtc ? 'ترتفع (إيجابي)' : 'ترتفع (ضغط ألتكوين)'; }
-        else if (falling) { verdict = isBtc ? 'bear' : 'bull'; label = isBtc ? 'تنخفض (ضغط)' : 'تنخفض (إيجابي ألتكوين)'; }
-        setAcc('dominance', verdict, `${d.btcDominance.toFixed(1)}% — ${label}`, `النسبة: <b>${d.btcDominance.toFixed(2)}%</b>`);
+        if (rising) { verdict = isBtc ? 'bull' : 'bear'; label = isBtc ? 'ترتفع' : 'ضغط ألتكوين'; }
+        else if (falling) { verdict = isBtc ? 'bear' : 'bull'; label = isBtc ? 'تنخفض' : 'إيجابي ألتكوين'; }
+        setAcc('dominance', verdict, `${d.btcDominance.toFixed(1)}%`, `النسبة: <b>${d.btcDominance.toFixed(2)}%</b>`);
         prevBtcDominance = d.btcDominance;
       }
       renderConsensus();
-    } catch (e) {}
-  }
-
-  let prevDxy = null;
-  async function loadMacroOverview() {
-    try {
-      const r = await fetch('/api/macro-overview');
-      const d = await r.json();
-      if (d.dxy != null) {
-        const el = document.getElementById('macro-dxy-price');
-        el.textContent = d.dxy.toFixed(2);
-        const arrowEl = document.getElementById('macro-dxy-arrow');
-        if (prevDxy !== null) {
-          if (d.dxy > prevDxy) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
-          else if (d.dxy < prevDxy) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
-        }
-        prevDxy = d.dxy;
-      }
     } catch (e) {}
   }
 
@@ -1448,12 +1431,9 @@
       if (d.fundingRate != null) {
         const fr = d.fundingRate;
         const verdict = fr > 0.02 ? 'bear' : fr < -0.02 ? 'bull' : 'neutral';
-        const label = fr > 0.02 ? 'ازدحام شراء (حذر)' : fr < -0.02 ? 'ازدحام بيع (فرصة)' : 'متوازن';
-        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}% — ${label}`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>`);
+        setAcc('futures', verdict, `${fr >= 0 ? '+' : ''}${fr.toFixed(3)}%`, `معدل التمويل: <b>${fr.toFixed(4)}%</b>`);
       }
-      if (d.openInterest != null) {
-        setAcc('openinterest', 'neutral', fmtBig(d.openInterest), `الفائدة المفتوحة: <b>${fmtBig(d.openInterest)}</b>`);
-      }
+      if (d.openInterest != null) setAcc('openinterest', 'neutral', fmtBig(d.openInterest), `OI: <b>${fmtBig(d.openInterest)}</b>`);
       renderConsensus();
     } catch (e) {}
   }
@@ -1465,8 +1445,7 @@
     const diff = price - btc120RefPrice;
     if (Math.abs(diff) >= 120) {
       const verdict = diff > 0 ? 'bull' : 'bear';
-      const label = diff > 0 ? 'إيجابي (+120$)' : 'سلبي (-120$)';
-      setAcc('btc120', verdict, label, `آخر تغيّر: <b>${diff.toFixed(0)}$</b>`);
+      setAcc('btc120', verdict, verdict === 'bull' ? '+120$' : '-120$', `آخر تغيّر: <b>${diff.toFixed(0)}$</b>`);
       btc120RefPrice = price;
       renderConsensus();
     }
@@ -1493,7 +1472,7 @@
     const verdict = dir === 'up' ? 'bull' : 'bear';
     btcLayerPoints = points;
     btcLayerSign = dir === 'up' ? 1 : -1;
-    setAcc('btclayer', verdict, `${label} (${points} نقطة)`, `آخر تغيّر: <b>${diff.toFixed(0)}$</b>`);
+    setAcc('btclayer', verdict, `${label} (${points})`, `آخر تغيّر: <b>${diff.toFixed(0)}$</b>`);
     btcLayerRefPrice = price;
     renderConsensus();
   }
@@ -1502,12 +1481,9 @@
   initChart();
   connect();
   connectBtcTicker();
-  connectGoldTicker();
   loadMarketOverview();
-  loadMacroOverview();
   loadFuturesZone();
   setInterval(loadMarketOverview, 60000);
-  setInterval(loadMacroOverview, 60000);
   setInterval(loadFuturesZone, 60000);
   setInterval(renderConsensus, 30000);
 </script>
