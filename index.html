@@ -190,6 +190,8 @@
   .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
   .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
+  #bot-scan-status { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
+  #bot-scan-status b { color: var(--accent); }
   #bot-signal-box { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 7px 9px; margin-bottom: 8px; font-size: 0.7rem; }
   #bot-signal-line { font-weight: 700; margin-bottom: 3px; }
   #bot-signal-breakdown { color: var(--muted); font-size: 0.64rem; }
@@ -401,6 +403,7 @@
       <span id="bot-status-text">متوقف</span>
     </label>
   </div>
+  <div id="bot-scan-status">🔍 قيد الفحص الآن: <b id="bot-scan-symbol">—</b> <span id="bot-scan-detail" style="color:var(--muted); font-size:0.66rem;"></span></div>
   <div id="bot-controls-row">
     <div class="bot-control">
       <span>المنصة</span>
@@ -537,6 +540,14 @@
   let lastBotStatus = null;
   let lastMtfSnapshot = null;
   let lastCandleTime = null;
+  setInterval(() => {
+    if (!lastBotStatus || !lastBotStatus.scanStatus || !lastBotStatus.scanStatus.active) return;
+    const el = document.getElementById('bot-scan-detail');
+    if (!el || !lastBotStatus.scanStatus.windowStartedAt) return;
+    const elapsedSec = Math.max(0, Math.round((Date.now() - lastBotStatus.scanStatus.windowStartedAt) / 1000));
+    const remainSec = Math.max(0, 120 - elapsedSec);
+    el.textContent = `(باقي ${remainSec}ث من نافذة الدقيقتين)`;
+  }, 1000);
   let currentSeriesSymbol = null;
   let currentSeriesInterval = null;
 
@@ -1525,6 +1536,20 @@
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
     if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
     if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
+
+    const scanEl = document.getElementById('bot-scan-symbol');
+    const scanDetailEl = document.getElementById('bot-scan-detail');
+    if (msg.scanStatus && msg.scanStatus.active && msg.scanStatus.symbol) {
+      scanEl.textContent = msg.scanStatus.symbol;
+      const elapsedSec = msg.scanStatus.windowStartedAt ? Math.max(0, Math.round((Date.now() - msg.scanStatus.windowStartedAt) / 1000)) : 0;
+      const remainSec = Math.max(0, 120 - elapsedSec);
+      scanDetailEl.textContent = `(باقي ${remainSec}ث من نافذة الدقيقتين)`;
+    } else {
+      scanEl.textContent = '—';
+      const checkedCount = msg.scanStatus ? msg.scanStatus.checked : 0;
+      const totalCount = msg.scanStatus ? msg.scanStatus.total : 0;
+      scanDetailEl.textContent = msg.enabled ? `(ما فيه فرصة حاليًا — فحص ${checkedCount}/${totalCount} عملة، جاري البحث)` : '';
+    }
     const sig = msg.lastSignals ? msg.lastSignals[currentSymbol] : null;
     if (sig) {
       const actionLabel = sig.action === 'buy' ? '🟢 شراء' : sig.action === 'sell' ? '🔴 بيع' : '⚪ انتظار';
