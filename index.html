@@ -427,6 +427,11 @@
       <input type="number" id="bot-max-positions-input" min="1" step="1" value="1">
       <button id="bot-save-maxpos-btn">حفظ</button>
     </div>
+    <div class="bot-control">
+      <span>وقت فحص كل عملة (دقائق)</span>
+      <input type="number" id="bot-scan-window-input" min="0.5" step="0.5" value="2">
+      <button id="bot-save-scanwindow-btn">حفظ</button>
+    </div>
   </div>
   <div id="bot-signal-box">
     <div id="bot-signal-line">إشارة العملة الحالية: <span id="bot-signal-value">—</span></div>
@@ -544,9 +549,10 @@
     if (!lastBotStatus || !lastBotStatus.scanStatus || !lastBotStatus.scanStatus.active) return;
     const el = document.getElementById('bot-scan-detail');
     if (!el || !lastBotStatus.scanStatus.windowStartedAt) return;
+    const windowMin = lastBotStatus.scanWindowMinutes || 2;
     const elapsedSec = Math.max(0, Math.round((Date.now() - lastBotStatus.scanStatus.windowStartedAt) / 1000));
-    const remainSec = Math.max(0, 120 - elapsedSec);
-    el.textContent = `(باقي ${remainSec}ث من نافذة الدقيقتين)`;
+    const remainSec = Math.max(0, Math.round(windowMin * 60) - elapsedSec);
+    el.textContent = `(باقي ${remainSec}ث من نافذة ${windowMin} دقيقة)`;
   }, 1000);
   let currentSeriesSymbol = null;
   let currentSeriesInterval = null;
@@ -1536,14 +1542,16 @@
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
     if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
     if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
+    if (msg.scanWindowMinutes != null) document.getElementById('bot-scan-window-input').value = msg.scanWindowMinutes;
 
     const scanEl = document.getElementById('bot-scan-symbol');
     const scanDetailEl = document.getElementById('bot-scan-detail');
+    const windowMin = msg.scanWindowMinutes || 2;
     if (msg.scanStatus && msg.scanStatus.active && msg.scanStatus.symbol) {
       scanEl.textContent = msg.scanStatus.symbol;
       const elapsedSec = msg.scanStatus.windowStartedAt ? Math.max(0, Math.round((Date.now() - msg.scanStatus.windowStartedAt) / 1000)) : 0;
-      const remainSec = Math.max(0, 120 - elapsedSec);
-      scanDetailEl.textContent = `(باقي ${remainSec}ث من نافذة الدقيقتين)`;
+      const remainSec = Math.max(0, Math.round(windowMin * 60) - elapsedSec);
+      scanDetailEl.textContent = `(باقي ${remainSec}ث من نافذة ${windowMin} دقيقة)`;
     } else {
       scanEl.textContent = '—';
       const checkedCount = msg.scanStatus ? msg.scanStatus.checked : 0;
@@ -1606,6 +1614,10 @@
   document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
     const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
     if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
+  });
+  document.getElementById('bot-save-scanwindow-btn').addEventListener('click', () => {
+    const v = parseFloat(document.getElementById('bot-scan-window-input').value);
+    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_scan_window', scanWindowMinutes: v }));
   });
   document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: currentSymbol }));

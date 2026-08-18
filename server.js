@@ -293,6 +293,10 @@ wss.on('connection', (ws, req) => {
       const v = parseInt(msg.maxConcurrentPositions, 10);
       if (v >= 1 && v <= SCAN_SYMBOLS.length) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
     }
+    else if (msg.type === 'bot_set_scan_window') {
+      const v = parseFloat(msg.scanWindowMinutes);
+      if (v > 0 && v <= 60) { botState.scanWindowMinutes = v; broadcastBotStatus(); }
+    }
     else if (msg.type === 'bot_manual_close') {
       const { symbol } = msg;
       if (botState.positions[symbol]) {
@@ -1454,6 +1458,7 @@ let botState = {
   tradeSizeUsdt: 50,
   takeProfitPercent: 1,
   maxConcurrentPositions: 1,
+  scanWindowMinutes: 2, // وقت الفحص المخصص لكل عملة — قابل للتعديل من اللوحة
   positions: {},
   pendingOrders: {},
   pendingSellOrders: {},
@@ -1466,7 +1471,6 @@ const BOT_BUY_THRESHOLD = 0.35;
 const BOT_SELL_THRESHOLD = -0.35;
 const MAX_PENDING_BUY_MINUTES = 45;
 const TP_LEVELS = [1, 1.5, 2];
-const SCAN_WINDOW_MS = 2 * 60 * 1000; // دقيقتين لكل عملة — بطلبك بالضبط
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء الفحص السريع (REST خفيف)
 
 function computeFourBoxScore(indicators) {
@@ -1903,8 +1907,9 @@ async function runBotCycle() {
   const now = Date.now();
   const focus = botState.scanStatus;
 
-  // لو عندنا عملة "قيد الفحص" حاليًا وضمن نافذة الدقيقتين، كمّل فحصها بعمق (مع طلبات الشبكة الكاملة)
-  if (focus.active && focus.symbol && (now - focus.windowStartedAt) < SCAN_WINDOW_MS) {
+  // لو عندنا عملة "قيد الفحص" حاليًا وضمن نافذتها المخصصة (قابلة للتعديل من اللوحة)، كمّل فحصها بعمق (مع طلبات الشبكة الكاملة)
+  const scanWindowMs = (botState.scanWindowMinutes || 2) * 60 * 1000;
+  if (focus.active && focus.symbol && (now - focus.windowStartedAt) < scanWindowMs) {
     try {
       const sig = await evaluateBotSignal(focus.symbol, true);
       if (sig) {
@@ -1923,7 +1928,7 @@ async function runBotCycle() {
 
   // انتهت نافذة العملة السابقة (أو ما فيه عملة قيد الفحص أصلًا) — ما لقينا فيها فرصة، نطلع ونبحث عن غيرها
   if (focus.active && focus.symbol) {
-    botState.tradeLog.unshift({ time: now, symbol: focus.symbol, type: 'error', message: `لا فرصة خلال دقيقتين — انتقل البحث لعملة أخرى` });
+    botState.tradeLog.unshift({ time: now, symbol: focus.symbol, type: 'error', message: `لا فرصة خلال ${botState.scanWindowMinutes || 2} دقيقة — انتقل البحث لعملة أخرى` });
     botState.tradeLog = botState.tradeLog.slice(0, 50);
   }
 
@@ -2011,7 +2016,7 @@ function botStatusPayload() {
   return JSON.stringify({
     type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
     tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
-    maxConcurrentPositions: botState.maxConcurrentPositions,
+    maxConcurrentPositions: botState.maxConcurrentPositions, scanWindowMinutes: botState.scanWindowMinutes,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20), lastSignals: botState.lastSignals,
     scanStatus: botState.scanStatus,
