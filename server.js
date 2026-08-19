@@ -1467,8 +1467,9 @@ let botState = {
   scanStatus: { active: false, symbol: null, poolIndex: 0, windowStartedAt: null, checked: 0, total: 0 },
 };
 
-const BOT_BUY_THRESHOLD = 0.35;
-const BOT_SELL_THRESHOLD = -0.35;
+// خُفِّفت هذي العتبة من 0.35 إلى 0.22 (بطلب المستخدم) عشان يزيد تردد الشراء — راقب الأداء وعدّل حسب الحاجة
+const BOT_BUY_THRESHOLD = 0.22;
+const BOT_SELL_THRESHOLD = -0.22;
 const MAX_PENDING_BUY_MINUTES = 45;
 const TP_LEVELS = [1, 1.5, 2];
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء الفحص السريع (REST خفيف)
@@ -1621,7 +1622,8 @@ async function computeBotOwnSignal(indicators, candles, symbol) {
   return totalWeight > 0 ? rawScore / totalWeight : 0;
 }
 
-const MIN_LIQUIDITY_USDT = 100000;
+// خُفِّف من 100000 إلى 50000 (بطلب المستخدم) عشان يقبل عملات أقل سيولة شوي
+const MIN_LIQUIDITY_USDT = 50000;
 
 function passesEntryFilters(candles) {
   if (!candles || candles.length < 11) return { ok: false, reason: 'بيانات غير كافية' };
@@ -1634,8 +1636,9 @@ function passesEntryFilters(candles) {
   const posInRange = rangeHigh > rangeLow ? (currentPrice - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const avgQuoteVolume = last10.reduce((s, c) => s + c.volume * c.close, 0) / last10.length;
 
-  const declineConfirmed = changePct < -0.15;
-  const nearLowerZone = posInRange <= 0.55;
+  // خُفِّفت هذي الشروط (بطلب المستخدم): نزول أقل تشددًا، ونطاق أوسع بالقرب من الأسفل
+  const declineConfirmed = changePct < -0.08;
+  const nearLowerZone = posInRange <= 0.70;
   const liquidOk = avgQuoteVolume >= MIN_LIQUIDITY_USDT;
 
   if (!declineConfirmed) return { ok: false, reason: `ما فيه نزول كافٍ (${changePct.toFixed(2)}%)` };
