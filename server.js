@@ -30,7 +30,7 @@ const SCAN_POOL_EXTRA = [
   'IMXUSDT','LDOUSDT','CRVUSDT','SNXUSDT','COMPUSDT','MKRUSDT','AAVEUSDT','UNIUSDT',
   'SUSHIUSDT','1INCHUSDT','YFIUSDT','ZRXUSDT','BALUSDT','RENUSDT','KNCUSDT','LRCUSDT',
   'OMGUSDT','BATUSDT','ZILUSDT','ONTUSDT','QTUMUSDT','ICXUSDT','WAVESUSDT','ZENUSDT',
-  'DASHUSDT','DCRUSDT','RVNUSDT','SCUSDT','DGBUSDT','NANOUSDT','SXPUSDT','CELOUSDT',
+  'DASHUSDT','DCRUSDT','RVNUSDT','SCUSDT','DGBUSDT','XNOUSDT','SXPUSDT','CELOUSDT',
   'ANKRUSDT','SKLUSDT','STORJUSDT','OCEANUSDT','CTSIUSDT','BANDUSDT','RSRUSDT','COTIUSDT',
   'DENTUSDT','HOTUSDT','WINUSDT','CHRUSDT','ALICEUSDT','TLMUSDT','MTLUSDT','DUSKUSDT',
   'AUDIOUSDT','C98USDT','MASKUSDT','GTCUSDT','GMTUSDT','APEUSDT','JASMYUSDT','SPELLUSDT',
@@ -596,9 +596,13 @@ function quickScreenSymbol(symbol) {
 // يدور على كل حوض البحث (200 عملة) بدفعات، يحدّث الذاكرة لو قديمة، ويرجّع أفضل مرشح شراء محتمل
 async function scanFullPool() {
   const results = [];
+  const now = Date.now();
+  const validSet = botState.exchange === 'binance' ? await getBinanceValidSymbols() : null;
   for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
     const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
     await Promise.all(batch.map(async (symbol) => {
+      if (validSet && !validSet.has(symbol)) return; // الرمز مو متاح فعليًا للتداول الفوري على Binance حاليًا
+      if (blacklistedSymbols[symbol] && blacklistedSymbols[symbol] > now) return; // عملة محظورة مؤقتًا بسبب فشل تنفيذ سابق
       if (!candleStore[`${symbol}_15m`]) await refreshScanCache(symbol);
       const r = quickScreenSymbol(symbol);
       if (r) results.push(r);
@@ -607,6 +611,36 @@ async function scanFullPool() {
   results.sort((a, b) => b.composite - a.composite);
   return results;
 }
+
+// تحقق حقيقي وحيّ من رموز Binance الفعلية (بعض العملات بالقائمة تتغيّر تسميتها أو تُشطب من Binance
+// رغم بقائها بمنصات ثانية — قبل هذا كان البوت يختار عملة زي هذي ويعلق عليها بلا نهاية لأن Binance يرفضها بأمر الشراء)
+let binanceValidSymbolsCache = null;
+let binanceValidSymbolsFetchedAt = 0;
+const BINANCE_SYMBOLS_TTL_MS = 60 * 60 * 1000; // نحدّث القائمة كل ساعة
+
+async function getBinanceValidSymbols() {
+  const now = Date.now();
+  if (binanceValidSymbolsCache && now - binanceValidSymbolsFetchedAt < BINANCE_SYMBOLS_TTL_MS) return binanceValidSymbolsCache;
+  try {
+    const { data } = await axios.get('https://api.binance.com/api/v3/exchangeInfo', { timeout: 10000 });
+    const set = new Set(
+      (data.symbols || [])
+        .filter(s => s.status === 'TRADING' && s.quoteAsset === 'USDT' && s.isSpotTradingAllowed)
+        .map(s => s.symbol)
+    );
+    binanceValidSymbolsCache = set;
+    binanceValidSymbolsFetchedAt = now;
+    console.log(`[binance-symbols] تم تحميل ${set.size} رمز متاح فعليًا للتداول الفوري على Binance`);
+  } catch (err) {
+    console.warn('[binance-symbols] فشل جلب قائمة رموز Binance:', err.message);
+  }
+  return binanceValidSymbolsCache; // ممكن يرجّع null لو فشلت أول محاولة تحميل — بنتجاهل الفلترة وقتها
+}
+
+// حظر مؤقت لأي عملة يفشل تنفيذ أمر الشراء عليها فعليًا (رمز غير صحيح، سوق مقفول، إلخ) — يمنع البوت من التعليق
+// على نفس العملة الفاشلة دورة بعد دورة
+const blacklistedSymbols = {}; // symbol -> timestamp الانتهاء
+const SYMBOL_BLACKLIST_MS = 60 * 60 * 1000; // ساعة كاملة
 
 async function ensureStream(symbol, interval) {
   const key = `${symbol}_${interval}`;
@@ -1840,6 +1874,9 @@ async function placeBotLimitBuy(sig) {
     botState.tradeLog = botState.tradeLog.slice(0, 50);
   } catch (err) {
     logBotError(symbol, err);
+    blacklistedSymbols[symbol] = Date.now() + SYMBOL_BLACKLIST_MS;
+    botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `تم حظر ${symbol} مؤقتًا لمدة ساعة بسبب فشل تنفيذ الشراء` });
+    botState.tradeLog = botState.tradeLog.slice(0, 50);
   }
 }
 
