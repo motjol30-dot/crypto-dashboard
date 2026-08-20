@@ -186,7 +186,7 @@
   #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
   #bot-status-text.on { color: var(--green); }
   #bot-status-text.off { color: var(--muted); }
-  #bot-controls-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  #bot-controls-row, #bot-buy-rules-row, #bot-sell-rules-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
   .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
   .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
@@ -201,6 +201,13 @@
   #bot-cancel-pending-btn { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: var(--muted); }
   #bot-error-line { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,79,0.35); color: var(--red); font-size: 0.66rem; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
   .bot-subheader { font-size: 0.66rem; font-weight: 800; color: var(--muted); margin: 6px 0 4px; }
+  #bot-manual-panel { margin-top: 4px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.12); }
+  .bot-rule-checkbox-row { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 0.65rem; color: var(--muted); }
+  .bot-rule-checkbox-row input { width: auto; }
+  .bot-full-btn { width: 100%; margin-bottom: 10px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 7px; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
+  #bot-manual-symbol-row { display: flex; gap: 6px; }
+  #bot-manual-symbol-row input { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
+  #bot-manual-symbol-row button { background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 5px 10px; font-size: 0.68rem; cursor: pointer; }
   #bot-positions-list, #bot-pending-list, #bot-trade-log { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
   .bot-pos-row, .bot-log-row { display: flex; justify-content: space-between; gap: 6px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
   .bot-log-row.buy-row { color: var(--green); }
@@ -405,6 +412,13 @@
   </div>
   <div id="bot-scan-status">🔍 قيد الفحص الآن: <b id="bot-scan-symbol">—</b> <span id="bot-scan-detail" style="color:var(--muted); font-size:0.66rem;"></span></div>
   <div id="bot-controls-row">
+    <div class="bot-control" style="min-width:100%;">
+      <span>وضع التداول</span>
+      <select id="bot-strategy-mode-select">
+        <option value="auto">تلقائي — خوارزمية البوت</option>
+        <option value="manual">يدوي — أنا أحدد الشروط</option>
+      </select>
+    </div>
     <div class="bot-control">
       <span>المنصة</span>
       <select id="bot-exchange-select">
@@ -433,6 +447,53 @@
       <button id="bot-save-scanwindow-btn">حفظ</button>
     </div>
   </div>
+
+  <div id="bot-manual-panel" style="display:none;">
+    <div class="bot-subheader">🎯 عملة محددة تراقبها فقط (اختياري — اتركه فاضي عشان يفحص كل العملات بنفس شروطك)</div>
+    <div id="bot-manual-symbol-row">
+      <input type="text" id="bot-manual-symbol-input" placeholder="مثال: BTCUSDT">
+      <button id="bot-save-manual-symbol-btn">حفظ</button>
+    </div>
+
+    <div class="bot-subheader">🟢 شروط الشراء (فعّل أي شرط تبيه — كل المفعّل لازم يتحقق مع بعض)</div>
+    <div id="bot-buy-rules-row" style="margin-bottom:6px;">
+      <div class="bot-control">
+        <span>اشترِ إذا RSI تحت</span>
+        <input type="number" id="bot-rule-rsi-below" min="1" max="99" step="1" placeholder="مثال: 30">
+      </div>
+      <div class="bot-control">
+        <span>اشترِ إذا السعر تحت</span>
+        <input type="number" id="bot-rule-price-below" step="any" placeholder="سعر بالدولار">
+      </div>
+      <div class="bot-control">
+        <span>اشترِ إذا انخفض % عن أعلى قمة (20 شمعة)</span>
+        <input type="number" id="bot-rule-drop-pct" min="0" step="0.1" placeholder="مثال: 2">
+      </div>
+      <div class="bot-control bot-rule-checkbox-row">
+        <input type="checkbox" id="bot-rule-bb-lower">
+        <span>اشترِ عند لمس بولينجر السفلي</span>
+      </div>
+    </div>
+    <button id="bot-save-buy-rules-btn" class="bot-full-btn">حفظ شروط الشراء</button>
+
+    <div class="bot-subheader">🔴 شروط بيع إضافية (فوق جني الربح التلقائي أعلاه — أول شرط يتحقق يبيع فورًا)</div>
+    <div id="bot-sell-rules-row" style="margin-bottom:6px;">
+      <div class="bot-control">
+        <span>وقف خسارة %</span>
+        <input type="number" id="bot-rule-stop-loss" min="0.1" step="0.1" placeholder="مثال: 3">
+      </div>
+      <div class="bot-control">
+        <span>بِع إذا RSI فوق</span>
+        <input type="number" id="bot-rule-rsi-above" min="1" max="99" step="1" placeholder="مثال: 70">
+      </div>
+      <div class="bot-control">
+        <span>بِع إذا السعر فوق</span>
+        <input type="number" id="bot-rule-price-above" step="any" placeholder="سعر بالدولار">
+      </div>
+    </div>
+    <button id="bot-save-sell-rules-btn" class="bot-full-btn">حفظ شروط البيع</button>
+  </div>
+
   <div id="bot-signal-box">
     <div id="bot-signal-line">إشارة العملة الحالية: <span id="bot-signal-value">—</span></div>
     <div id="bot-signal-breakdown">القرار (30%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الارتداد (45%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الفريم (5%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
@@ -1543,6 +1604,20 @@
     if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
     if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
     if (msg.scanWindowMinutes != null) document.getElementById('bot-scan-window-input').value = msg.scanWindowMinutes;
+    if (msg.strategyMode) document.getElementById('bot-strategy-mode-select').value = msg.strategyMode;
+    document.getElementById('bot-manual-panel').style.display = msg.strategyMode === 'manual' ? 'block' : 'none';
+    document.getElementById('bot-manual-symbol-input').value = msg.manualSymbol || '';
+    if (msg.buyRules) {
+      document.getElementById('bot-rule-rsi-below').value = msg.buyRules.rsiBelow ?? '';
+      document.getElementById('bot-rule-price-below').value = msg.buyRules.priceBelow ?? '';
+      document.getElementById('bot-rule-drop-pct').value = msg.buyRules.dropPercentFromHigh ?? '';
+      document.getElementById('bot-rule-bb-lower').checked = !!msg.buyRules.bbLowerTouch;
+    }
+    if (msg.sellRules) {
+      document.getElementById('bot-rule-stop-loss').value = msg.sellRules.stopLossPercent ?? '';
+      document.getElementById('bot-rule-rsi-above').value = msg.sellRules.rsiAbove ?? '';
+      document.getElementById('bot-rule-price-above').value = msg.sellRules.priceAbove ?? '';
+    }
 
     const scanEl = document.getElementById('bot-scan-symbol');
     const scanDetailEl = document.getElementById('bot-scan-detail');
@@ -1618,6 +1693,31 @@
   document.getElementById('bot-save-scanwindow-btn').addEventListener('click', () => {
     const v = parseFloat(document.getElementById('bot-scan-window-input').value);
     if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_scan_window', scanWindowMinutes: v }));
+  });
+  document.getElementById('bot-strategy-mode-select').addEventListener('change', (e) => {
+    document.getElementById('bot-manual-panel').style.display = e.target.value === 'manual' ? 'block' : 'none';
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_strategy_mode', mode: e.target.value }));
+  });
+  document.getElementById('bot-save-manual-symbol-btn').addEventListener('click', () => {
+    const v = document.getElementById('bot-manual-symbol-input').value.trim().toUpperCase();
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_manual_symbol', symbol: v }));
+  });
+  document.getElementById('bot-save-buy-rules-btn').addEventListener('click', () => {
+    const buyRules = {
+      rsiBelow: document.getElementById('bot-rule-rsi-below').value,
+      priceBelow: document.getElementById('bot-rule-price-below').value,
+      dropPercentFromHigh: document.getElementById('bot-rule-drop-pct').value,
+      bbLowerTouch: document.getElementById('bot-rule-bb-lower').checked,
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_buy_rules', buyRules }));
+  });
+  document.getElementById('bot-save-sell-rules-btn').addEventListener('click', () => {
+    const sellRules = {
+      stopLossPercent: document.getElementById('bot-rule-stop-loss').value,
+      rsiAbove: document.getElementById('bot-rule-rsi-above').value,
+      priceAbove: document.getElementById('bot-rule-price-above').value,
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_sell_rules', sellRules }));
   });
   document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: currentSymbol }));

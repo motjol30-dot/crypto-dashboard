@@ -297,6 +297,41 @@ wss.on('connection', (ws, req) => {
       const v = parseFloat(msg.scanWindowMinutes);
       if (v > 0 && v <= 60) { botState.scanWindowMinutes = v; broadcastBotStatus(); }
     }
+    else if (msg.type === 'bot_set_strategy_mode') {
+      if (msg.mode === 'auto' || msg.mode === 'manual') { botState.strategyMode = msg.mode; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_set_manual_symbol') {
+      const raw = (msg.symbol || '').toString().trim().toUpperCase();
+      if (!raw) { botState.manualSymbol = null; broadcastBotStatus(); }
+      else if (/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
+        botState.manualSymbol = raw;
+        ensureStream(raw, SCAN_INTERVAL).catch(() => {});
+        broadcastBotStatus();
+      } else {
+        ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح — لازم ينتهي بـ USDT' }));
+      }
+    }
+    else if (msg.type === 'bot_set_buy_rules') {
+      const r = msg.buyRules || {};
+      const clean = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      botState.buyRules = {
+        rsiBelow: r.rsiBelow === '' || r.rsiBelow == null ? null : clean(r.rsiBelow),
+        priceBelow: r.priceBelow === '' || r.priceBelow == null ? null : clean(r.priceBelow),
+        dropPercentFromHigh: r.dropPercentFromHigh === '' || r.dropPercentFromHigh == null ? null : clean(r.dropPercentFromHigh),
+        bbLowerTouch: !!r.bbLowerTouch,
+      };
+      broadcastBotStatus();
+    }
+    else if (msg.type === 'bot_set_sell_rules') {
+      const r = msg.sellRules || {};
+      const clean = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      botState.sellRules = {
+        stopLossPercent: r.stopLossPercent === '' || r.stopLossPercent == null ? null : clean(r.stopLossPercent),
+        rsiAbove: r.rsiAbove === '' || r.rsiAbove == null ? null : clean(r.rsiAbove),
+        priceAbove: r.priceAbove === '' || r.priceAbove == null ? null : clean(r.priceAbove),
+      };
+      broadcastBotStatus();
+    }
     else if (msg.type === 'bot_manual_close') {
       const { symbol } = msg;
       if (botState.positions[symbol]) {
@@ -2057,6 +2092,18 @@ async function runBotCycle() {
   const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
   for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
 
+  // مراقبة وقف الخسارة وأي قواعد بيع إضافية على كل صفقة مفتوحة — تعمل دائمًا (بكل الأوضاع) فوق جني الربح التلقائي
+  for (const symbol of Object.keys(botState.positions)) {
+    try {
+      const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+      if (!candles || candles.length < 30) continue;
+      const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+      if (!indicators) continue;
+      const manualSell = evaluateManualSellRules(indicators, botState.positions[symbol]);
+      if (manualSell.ok) await executeBotSell(symbol, null, `بيع حسب القاعدة: ${manualSell.reason}`);
+    } catch (err) { logBotError(symbol, err); }
+  }
+
   const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
   if (openCount >= botState.maxConcurrentPositions) {
     botState.scanStatus.active = false;
@@ -2065,6 +2112,15 @@ async function runBotCycle() {
   }
 
   const now = Date.now();
+
+  // ── الوضع اليدوي: المستخدم يحدد شروط الشراء بنفسه، بدون خوارزمية التقييم التلقائية ──
+  if (botState.strategyMode === 'manual') {
+    try { await runManualBuyCycle(now); } catch (err) { logBotError(botState.manualSymbol || 'manual-scan', err); }
+    broadcastBotStatus();
+    return;
+  }
+
+  // ── الوضع التلقائي (الافتراضي) ──
   const focus = botState.scanStatus;
 
   // لو عندنا عملة "قيد الفحص" حاليًا وضمن نافذتها المخصصة (قابلة للتعديل من اللوحة)، كمّل فحصها بعمق (مع طلبات الشبكة الكاملة)
@@ -2177,6 +2233,8 @@ function botStatusPayload() {
     type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
     tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
     maxConcurrentPositions: botState.maxConcurrentPositions, scanWindowMinutes: botState.scanWindowMinutes,
+    strategyMode: botState.strategyMode, manualSymbol: botState.manualSymbol,
+    buyRules: botState.buyRules, sellRules: botState.sellRules,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20), lastSignals: botState.lastSignals,
     scanStatus: botState.scanStatus,
