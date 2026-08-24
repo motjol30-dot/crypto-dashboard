@@ -1543,7 +1543,7 @@ let botState = {
 // خُفِّفت هذي العتبة من 0.35 إلى 0.22 (بطلب المستخدم) عشان يزيد تردد الشراء — راقب الأداء وعدّل حسب الحاجة
 const BOT_BUY_THRESHOLD = 0.22;
 const BOT_SELL_THRESHOLD = -0.22;
-const MAX_PENDING_BUY_MINUTES = 45;
+const MAX_PENDING_BUY_MINUTES = 5; // كان 45 دقيقة — هذا كان يعلّق البوت كامل لو أمر واحد ما نفذ، خصوصًا مع سعر بعيد عن السوق
 const TP_LEVELS = [1, 1.5, 2];
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء الفحص السريع (REST خفيف)
 
@@ -1850,9 +1850,12 @@ function computeBuyPoints(candles, indicators, sig) {
   const recentLow = Math.min(...lows);
   const bbLower = indicators.bb?.lower;
   return [
-    { point: 1, label: 'نقطة الهبوط المبكر المكتمل', price: roundPrice(price * 0.995), triggered: sig.action === 'buy' && sig.passesFilters },
-    { point: 2, label: 'ارتداد من بولينجر السفلي + StochRSI', price: roundPrice(bbLower || price * 0.99), triggered: sig.action === 'buy' && indicators.stochRsi?.crossUp },
-    { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && indicators.candleCompare?.bullEngulf },
+    // نقطة 2 و3 تحتاجان شرط فني فعلي (تحققهما ليس دائمًا). نقطة 1 هي البديل الافتراضي —
+    // لازم سعرها يكون قريب من السوق (فوقه بشعرة) لا 0.5% تحته، وإلا الأمر يعلّق للأبد
+    // لو السعر ما ينزل لهالمستوى (كان هذا هو سبب تعليق الشراء الأساسي).
+    { point: 2, label: 'ارتداد من بولينجر السفلي + StochRSI', price: roundPrice(bbLower || price * 0.99), triggered: sig.action === 'buy' && !!indicators.stochRsi?.crossUp },
+    { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && !!indicators.candleCompare?.bullEngulf },
+    { point: 1, label: 'دخول قريب من السعر الحالي (بديل افتراضي)', price: roundPrice(price * 1.0015), triggered: sig.action === 'buy' && sig.passesFilters },
   ];
 }
 
@@ -1994,8 +1997,11 @@ async function placeBotTakeProfitSells(symbol, position) {
 
 async function placeBotLimitBuy(sig) {
   const { symbol } = sig;
-  const buyPoint = sig.buyPoints?.find(p => p.triggered) || sig.buyPoints?.[0];
-  const buyPrice = roundPrice(buyPoint?.price || sig.price);
+  const buyPoint = sig.buyPoints?.find(p => p.triggered);
+  // نقطة الدخول: لو فيه نقطة فنية فعليًا محققة (بولينجر/ابتلاع) نستخدم سعرها، وإلا نشتري قريب من السعر
+  // الحالي (فوقه بشعرة) بدل نقطة عامة أبعد 0.5% كانت تخلي الأمر يعلّق لأنه ما يوصله السعر أبدًا
+  const rawPrice = buyPoint ? buyPoint.price : sig.price * 1.0015;
+  const buyPrice = roundPrice(rawPrice);
   const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
   if (!qty || qty <= 0) return;
 
@@ -2054,11 +2060,13 @@ async function checkPendingOrders(symbol) {
       delete botState.pendingOrders[symbol];
     } else {
       const ageMinutes = (Date.now() - buyOrder.placedAt) / 60000;
-      const sig = botState.lastSignals[symbol];
-      if (ageMinutes > MAX_PENDING_BUY_MINUTES && sig && sig.price > buyOrder.price * 1.01) {
+      // نلغي أي أمر شراء ما تنفذ بعد انتهاء المهلة، بغض النظر عن اتجاه السعر — كان الشرط القديم
+      // يطلب ابتعاد السعر 1% فوق سعر الأمر، فلو السعر ما تحرك (سوق هادئ) الأمر يفضل معلّق للأبد
+      // ويقفل البوت كامل عن البحث عن فرص جديدة. الهدف هنا: تحرير البوت بسرعة لعملة أفضل.
+      if (ageMinutes > MAX_PENDING_BUY_MINUTES) {
         try { await cancelOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch {}
         delete botState.pendingOrders[symbol];
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: 'أُلغي أمر الشراء المعلق لابتعاد السعر' });
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `أُلغي أمر الشراء المعلق بعد ${MAX_PENDING_BUY_MINUTES} دقائق بدون تنفيذ` });
         botState.tradeLog = botState.tradeLog.slice(0, 50);
       }
     }
