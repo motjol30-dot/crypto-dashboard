@@ -681,7 +681,7 @@
 <ul id="notes-list"></ul>
 
 <script>
-  // ═══════════════════ المتغيرات العامة ═══════════════════
+      // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
   let ws = null;
@@ -1680,70 +1680,131 @@
   let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
   let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0, lastEarlyLean = 0;
 
-  function setPill(id, cls, text) { const el = document.getElementById(id); if (el) { el.className = `pill-value ${cls}`; el.textContent = text; } }
+  // ═══════════════════ دالة مساعدة لعرض المربعات ═══════════════════
+  function setPill(id, cls, text) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.className = `pill-value ${cls}`;
+      el.textContent = text;
+    }
+  }
 
+  // ═══════════════════ عرض القرار ═══════════════════
   function renderDecision(d) {
-    if (!d) return;
+    if (!d) {
+      // إذا لم يكن هناك قرار، نعرض قيماً افتراضية
+      setPill('p-trend', 'neutral', '—');
+      setPill('p-action', 'neutral', '—');
+      setPill('p-conf', 'neutral', '—%');
+      setPill('p-overall', 'neutral', '—');
+      return;
+    }
+
+    // الاتجاه
     const trendMap = { 'صعود': ['up', 'صعود'], 'هبوط': ['down', 'هبوط'], 'تذبذب': ['neutral', 'تذبذب'] };
-    const [tc, tl] = trendMap[d.trend] || ['neutral', d.trend];
+    const [tc, tl] = trendMap[d.trend] || ['neutral', d.trend || '—'];
     setPill('p-trend', tc, tl);
     lastTrendSign = d.trend === 'صعود' ? 1 : d.trend === 'هبوط' ? -1 : 0;
-    const actionMap = { 'buy zone': ['up', 'صعود'], 'sell zone': ['down', 'هبوط'], 'wait': ['neutral', 'انتظر'] };
-    const [ac, al] = actionMap[d.action] || ['neutral', d.action];
+
+    // التوصية
+    const actionMap = { 'buy zone': ['up', 'شراء'], 'sell zone': ['down', 'بيع'], 'wait': ['neutral', 'انتظر'] };
+    const [ac, al] = actionMap[d.action] || ['neutral', d.action || '—'];
     setPill('p-action', ac, al);
     lastActionSign = d.action === 'buy zone' ? 1 : d.action === 'sell zone' ? -1 : 0;
-    const conf = Math.min(100, Math.max(0, d.confidence));
-    setPill('p-conf', conf >= 50 ? 'up' : 'down', `${conf}%`);
+
+    // الثقة
+    const conf = Math.min(100, Math.max(0, d.confidence || 0));
+    setPill('p-conf', conf >= 50 ? 'up' : 'down', `${Math.round(conf)}%`);
     lastConfidence = conf;
+
+    // التحليل الإجمالي
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
-    const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
+    const [oc, ol] = overallMap[d.trend] || ['neutral', d.trend || '—'];
     setPill('p-overall', oc, ol);
-    if (d.buyZone) document.getElementById('buy-zone-range').innerHTML = `${d.buyZone.from} – ${d.buyZone.to}`;
-    if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
+
+    // مناطق البيع والشراء
+    if (d.buyZone) {
+      const el = document.getElementById('buy-zone-range');
+      if (el) el.innerHTML = `${d.buyZone.from} – ${d.buyZone.to}`;
+    }
+    if (d.sellZone) {
+      const el = document.getElementById('sell-zone-range');
+      if (el) el.innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
+    }
+
+    // الملاحظات
     const list = document.getElementById('notes-list');
-    list.innerHTML = '';
-    (d.notes || []).forEach(n => {
-      const bull = /شراء|صعود|دعم|قوي/.test(n) && !/بيع|هبوط|مقاومة/.test(n);
-      const bear = /بيع|هبوط|مقاومة|تصحيح/.test(n);
-      const cls = bull ? 'bull' : bear ? 'bear' : 'neutral';
-      const li = document.createElement('li');
-      li.innerHTML = `<span class="dot ${cls}"></span><span>${n}</span>`;
-      list.appendChild(li);
-    });
+    if (list) {
+      list.innerHTML = '';
+      (d.notes || []).forEach(n => {
+        const bull = /شراء|صعود|دعم|قوي/.test(n) && !/بيع|هبوط|مقاومة/.test(n);
+        const bear = /بيع|هبوط|مقاومة|تصحيح/.test(n);
+        const cls = bull ? 'bull' : bear ? 'bear' : 'neutral';
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="dot ${cls}"></span><span>${n}</span>`;
+        list.appendChild(li);
+      });
+    }
+
+    // تحديث الإجماعات
     renderConsensus();
   }
 
+  // ═══════════════════ عرض الإجماعات ═══════════════════
   function renderConsensus() {
-    const verdicts = Object.values(consensusTracker);
-    if (!verdicts.length) return;
+    // إذا كان consensusTracker فارغاً، نعرض رسائل بدلاً من "-"
+    const hasData = Object.keys(consensusTracker).length > 0;
+
+    // إجماع الزخم
     let momentumMajority = 0, volumeMajority = 0, reversalMajority = 0, stabilityMajority = 0;
     let reversalBullCount = 0, reversalBearCount = 0;
-    for (const group of ['reversal', 'stability', 'btc', 'momentum', 'trend', 'volume', 'price', 'macro']) {
-      const c = groupVerdictCounts(group);
-      const el = document.getElementById(`grp-${group}`);
-      if (el && c.total > 0) {
-        if (group === 'reversal') {
-          const upNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bull').map(([k]) => k);
-          const downNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bear').map(([k]) => k);
-          el.innerHTML = `<div style="color:var(--green); margin-bottom:3px;">🟢 ارتداد الصعود (${c.bull})</div><div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear})</div>`;
-        } else {
-          const verdictWord = c.bull > c.bear ? '📈 صعود' : c.bear > c.bull ? '📉 هبوط' : '⚪ محايد';
-          el.textContent = `${verdictWord} (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
-          el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
+
+    if (hasData) {
+      // حساب الإجماعات
+      for (const group of ['reversal', 'stability', 'btc', 'momentum', 'trend', 'volume', 'price', 'macro']) {
+        const c = groupVerdictCounts(group);
+        const el = document.getElementById(`grp-${group}`);
+        if (el && c.total > 0) {
+          if (group === 'reversal') {
+            const upNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bull').map(([k]) => k);
+            const downNames = Object.entries(consensusTracker).filter(([k, v]) => inGroup(k, 'reversal') && v === 'bear').map(([k]) => k);
+            el.innerHTML = `<div style="color:var(--green); margin-bottom:3px;">🟢 ارتداد الصعود (${c.bull})</div><div style="color:var(--red);">🔴 ارتداد الهبوط (${c.bear})</div>`;
+          } else {
+            const verdictWord = c.bull > c.bear ? '📈 صعود' : c.bear > c.bull ? '📉 هبوط' : '⚪ محايد';
+            el.textContent = `${verdictWord} (🟢${c.bull} / 🔴${c.bear} / ⚪${c.neutral})`;
+            el.className = 'group-summary ' + (c.bull > c.bear ? 'pos' : c.bear > c.bull ? 'neg' : '');
+          }
         }
+        if (group === 'momentum') momentumMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+        if (group === 'volume') volumeMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
+        if (group === 'reversal') { reversalMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0; reversalBullCount = c.bull; reversalBearCount = c.bear; }
+        if (group === 'stability') stabilityMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
       }
-      if (group === 'momentum') momentumMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
-      if (group === 'volume') volumeMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
-      if (group === 'reversal') { reversalMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0; reversalBullCount = c.bull; reversalBearCount = c.bear; }
-      if (group === 'stability') stabilityMajority = c.bull > c.bear ? 1 : c.bear > c.bull ? -1 : 0;
-    }
-    const trendConfirmedStrong = lastTrendSign !== 0 && lastTrendSign === stabilityMajority;
-    if (trendConfirmedStrong && reversalMajority !== 0 && reversalMajority !== lastTrendSign) {
-      const margin = Math.abs(reversalBullCount - reversalBearCount);
-      if (margin < 2) reversalMajority = 0;
+
+      const trendConfirmedStrong = lastTrendSign !== 0 && lastTrendSign === stabilityMajority;
+      if (trendConfirmedStrong && reversalMajority !== 0 && reversalMajority !== lastTrendSign) {
+        const margin = Math.abs(reversalBullCount - reversalBearCount);
+        if (margin < 2) reversalMajority = 0;
+      }
+
+      // عرض الإجماعات
+      setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral',
+        momentumMajority > 0 ? 'صعود' : momentumMajority < 0 ? 'هبوط' : 'محايد');
+      setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral',
+        volumeMajority > 0 ? 'صعود' : volumeMajority < 0 ? 'هبوط' : 'محايد');
+      setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral',
+        reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
+      setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral',
+        stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
+    } else {
+      // لا توجد بيانات -> عرض "بيانات غير كافية"
+      setPill('p-momentum', 'neutral', 'بيانات غير كافية');
+      setPill('p-volume', 'neutral', 'بيانات غير كافية');
+      setPill('p-reversal', 'neutral', 'بيانات غير كافية');
+      setPill('p-stability', 'neutral', 'بيانات غير كافية');
     }
 
-    // ═══ المربعات الخمسة — عرض الكلمة فقط بدون نسبة ═══
+    // ═══ المربعات الخمسة العلوية — عرض الكلمة فقط بدون نسبة ═══
     const decisionLeanMap = { trend: lastTrendSign, action: lastActionSign, momentum: momentumMajority, volume: volumeMajority, reversal: reversalMajority, stability: stabilityMajority };
     lastLeanMaps.decision = decisionLeanMap;
     const decision7Base = weightedLean('decision', decisionLeanMap);
@@ -1807,7 +1868,6 @@
     renderBoxConfigDropdown('early', 'early-cfg');
 
     // ═══ المربع السادس: النتيجة الموحدة (يعرضها renderUniversalComposite) ═══
-    // نعدّل المربع السادس عبر دالة renderUniversalComposite التي تُستدعى من renderIndicators
 
     // ═══ القرار النهائي ═══
     const compositeLean = lastCompositeData ? Math.max(-1, Math.min(1, (lastCompositeData.score - 50) / 50)) : 0;
@@ -1827,14 +1887,18 @@
     const finalIcon = finalV.dir === 'up' ? '📈' : finalV.dir === 'down' ? '📉' : '⚪';
     const finalLabel = `${finalIcon} ${finalV.word} ${Math.round(Math.abs(combinedLean) * 100)}%`;
     const finalClass = finalV.dir === 'up' ? 'pos' : finalV.dir === 'down' ? 'neg' : 'neutral';
-    document.getElementById('p-final').textContent = finalLabel;
-    document.getElementById('p-final').className = `final-value ${finalClass}`;
+    const finalEl = document.getElementById('p-final');
+    if (finalEl) {
+      finalEl.textContent = finalLabel;
+      finalEl.className = `final-value ${finalClass}`;
+    }
     renderBoxConfigDropdown('final', 'final-cfg');
 
     // ═══ مربعا الارتفاع والنزول المبكر ═══
     renderEarlyBoxes();
   }
 
+  // ═══════════════════ دالات أخرى ═══════════════════
   function renderFrameBox() {
     const pillEl = document.getElementById('p-frame');
     if (!pillEl || !lastMtfSnapshot) return;
