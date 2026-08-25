@@ -124,19 +124,80 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--muted); font-size: 0.85rem; }
-  #status-row, #status-row-lower {
-    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
+
+  /* ══ 5 مربعات مصفوفة ══ */
+  #status-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
   }
   .pill {
-    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 8px; text-align: center;
+    flex: 1;
+    min-width: 70px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 4px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
   }
-  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
-  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
+  .pill:hover { border-color: var(--accent); }
+  .pill .pill-label {
+    font-size: 0.58rem;
+    color: var(--muted);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .pill .pill-value {
+    font-size: 0.82rem;
+    font-weight: 800;
+    margin-top: 2px;
+  }
   .pill-value.up, .pill-value.pos   { color: var(--green); }
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
+
+  /* ══ المربع الخامس — النتيجة الموحدة ══ */
+  .pill-composite {
+    position: relative;
+    overflow: hidden;
+    min-width: 80px;
+  }
+  .pill-composite .composite-score {
+    font-size: 0.9rem;
+    font-weight: 900;
+    font-family: 'Courier New', monospace;
+    line-height: 1;
+  }
+  .pill-composite .composite-bar-wrap {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+    margin-top: 3px;
+    overflow: hidden;
+  }
+  .pill-composite .composite-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s, background 0.5s;
+  }
+  .pill-composite .composite-verdict {
+    font-size: 0.58rem;
+    font-weight: 700;
+    margin-top: 2px;
+    line-height: 1.2;
+  }
+
   .cfg-dropdown {
     display: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
     border-radius: 8px; padding: 8px 10px; margin: 4px 10px 8px; font-size: 0.72rem;
@@ -156,6 +217,7 @@
     width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
     color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
   }
+
   #final-row-wrap { display: flex; align-items: stretch; background: var(--surface2); border-bottom: 2px solid var(--accent); }
   #final-verdict-row {
     flex: 1; padding: 10px; text-align: center; cursor: pointer;
@@ -172,6 +234,7 @@
   .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
+
   #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
   .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
   .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
@@ -180,6 +243,7 @@
   .zone-box.buy .zt  { color: var(--green); }
   .zone-box.sell .zt { color: var(--red); }
   .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
+
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
@@ -213,6 +277,7 @@
   .bot-log-row.buy-row { color: var(--green); }
   .bot-log-row.sell-row { color: var(--red); }
   .bot-log-row.error-row { color: var(--yellow); }
+
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
@@ -226,6 +291,7 @@
   .explosion-box.dir-up .explosion-symbol { color: var(--green); }
   .explosion-box.dir-down .explosion-symbol { color: var(--red); }
   .explosion-box.empty { opacity: 0.5; cursor: default; }
+
   #indicators-list { padding: 4px 10px 10px; }
   .group-header {
     font-size: 0.8rem; font-weight: 800; color: var(--accent);
@@ -252,6 +318,7 @@
   .acc-body { display: none; padding: 0 12px 10px; font-size: 0.78rem; color: var(--muted); line-height: 1.7; }
   .acc-item.open .acc-body { display: block; }
   .acc-body b { color: var(--text); font-family: 'Courier New', monospace; }
+
   #notes-toggle {
     width: calc(100% - 20px); margin: 0 10px 10px; background: var(--surface);
     border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
@@ -333,6 +400,7 @@
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
 </div>
 
+<!-- ═══ 5 مربعات مصفوفة جنب بعض (بدون نسب) ═══ -->
 <div id="status-row">
   <div class="pill" id="p-decision-wrap" style="cursor:pointer;">
     <div class="pill-label">القرار</div>
@@ -350,82 +418,21 @@
     <div class="pill-label">المؤشرات</div>
     <div class="pill-value neutral" id="p-allind">—</div>
   </div>
-  <div class="pill" id="p-early-wrap" style="cursor:pointer;">
-    <div class="pill-label">المسافة</div>
-    <div class="pill-value neutral" id="p-early">—</div>
+  <!-- ═══ المربع الخامس: النتيجة الموحدة ═══ -->
+  <div class="pill pill-composite" id="p-composite-wrap" style="cursor:pointer;">
+    <div class="pill-label">النتيجة الموحدة</div>
+    <div class="composite-score" id="p-composite-score" style="color:var(--yellow);">—</div>
+    <div class="composite-bar-wrap"><div class="composite-bar" id="p-composite-bar" style="width:0%;background:var(--yellow);"></div></div>
+    <div class="composite-verdict" id="p-composite-verdict" style="color:var(--yellow);">—</div>
   </div>
 </div>
 
+<!-- ═══ القوائم المنسدلة للمربعات ═══ -->
 <div id="decision-cfg" class="cfg-dropdown"></div>
 <div id="fourbox-cfg" class="cfg-dropdown"></div>
 <div id="secondary-cfg" class="cfg-dropdown"></div>
 <div id="allind-cfg" class="cfg-dropdown"></div>
-<div id="early-cfg" class="cfg-dropdown"></div>
-
-<!-- 🎯 المؤشر الموحد الشامل — تم نقله إلى هنا (فوق الفريمات) -->
-<div class="group-header" style="border-bottom: 2px solid var(--accent); padding-bottom: 6px;">
-  🎯 المؤشر الموحد الشامل (Universal Composite)
-  <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— يجمع +30 مؤشر</span>
-</div>
-<div class="group-summary" id="grp-composite">—</div>
-
-<div id="composite-score-box" style="
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  margin-bottom: 10px;
-  padding: 12px;
-  text-align: center;
-">
-  <div style="font-size:0.68rem; color:var(--muted); font-weight:700; margin-bottom:6px;">النتيجة الموحدة</div>
-  <div id="composite-score-value" style="font-size:2.2rem; font-weight:900; font-family:'Courier New',monospace; color:var(--yellow);">—</div>
-  <div id="composite-verdict" style="font-size:0.9rem; font-weight:800; margin-top:4px; color:var(--yellow);">—</div>
-  <div id="composite-bar-wrap" style="margin-top:8px; background:rgba(255,255,255,0.06); border-radius:8px; height:10px; overflow:hidden;">
-    <div id="composite-bar" style="height:100%; width:0%; border-radius:8px; transition:width 0.5s, background 0.5s;"></div>
-  </div>
-</div>
-
-<!-- المجموعات الفرعية -->
-<div class="acc-item" data-key="uc-trend">
-  <div class="acc-head">
-    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">📈 الاتجاه (Trend) — 25%</span></div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-trend">—</span><span class="acc-arrow">▾</span></div>
-  </div>
-  <div class="acc-body" id="b-uc-trend">—</div>
-</div>
-
-<div class="acc-item" data-key="uc-momentum">
-  <div class="acc-head">
-    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">⚡ الزخم (Momentum) — 25%</span></div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-momentum">—</span><span class="acc-arrow">▾</span></div>
-  </div>
-  <div class="acc-body" id="b-uc-momentum">—</div>
-</div>
-
-<div class="acc-item" data-key="uc-volatility">
-  <div class="acc-head">
-    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🌊 التذبذب (Volatility) — 15%</span></div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volatility">—</span><span class="acc-arrow">▾</span></div>
-  </div>
-  <div class="acc-body" id="b-uc-volatility">—</div>
-</div>
-
-<div class="acc-item" data-key="uc-volume">
-  <div class="acc-head">
-    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">💧 الحجم (Volume) — 15%</span></div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volume">—</span><span class="acc-arrow">▾</span></div>
-  </div>
-  <div class="acc-body" id="b-uc-volume">—</div>
-</div>
-
-<div class="acc-item" data-key="uc-reversal">
-  <div class="acc-head">
-    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🔄 الارتداد (Reversal) — 20%</span></div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-reversal">—</span><span class="acc-arrow">▾</span></div>
-  </div>
-  <div class="acc-body" id="b-uc-reversal">—</div>
-</div>
-<!-- ═══════ نهاية المؤشر الموحد ═══════ -->
+<div id="composite-cfg" class="cfg-dropdown"></div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -597,6 +604,54 @@
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <div id="indicators-list">
+  <!-- ═══ تفاصيل النتيجة الموحدة — الطبقة ═══ -->
+  <div class="group-header" style="border-bottom: 2px solid var(--accent); padding-bottom: 6px;">
+    🎯 تفاصيل النتيجة الموحدة (Universal Composite)
+    <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— 5 مجموعات</span>
+  </div>
+  <div class="group-summary" id="grp-composite-detail">—</div>
+
+  <div class="acc-item" data-key="uc-trend">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">📈 الاتجاه (Trend) — 25%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-trend">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-trend">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-momentum">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">⚡ الزخم (Momentum) — 25%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-momentum">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-momentum">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-volatility">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🌊 التذبذب (Volatility) — 15%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volatility">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-volatility">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-volume">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">💧 الحجم (Volume) — 15%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volume">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-volume">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-reversal">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🔄 الارتداد (Reversal) — 20%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-reversal">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-reversal">—</div>
+  </div>
+  <!-- ═══ نهاية تفاصيل النتيجة الموحدة ═══ -->
+
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
   <div class="acc-item" data-key="stochrsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochrsi">—</div></div>
@@ -658,7 +713,7 @@
 <ul id="notes-list"></ul>
 
 <script>
-      // ═══════════════════ المتغيرات العامة ═══════════════════
+  // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
   let ws = null;
@@ -1051,10 +1106,19 @@
     };
   }
 
-  // ═══════════════════ عرض المؤشر الموحد ═══════════════════
+  // ═══════════════════ عرض المؤشر الموحد (في المربع الخامس + الطبقة) ═══════════════════
   function renderUniversalComposite(ind) {
     const uc = ind && computeUniversalCompositeClient(ind);
-    if (!uc) return;
+    if (!uc) {
+      // إخفاء المربع الخامس إذا لا توجد بيانات
+      const scoreEl = document.getElementById('p-composite-score');
+      if (scoreEl) { scoreEl.textContent = '—'; scoreEl.style.color = 'var(--yellow)'; }
+      const barEl = document.getElementById('p-composite-bar');
+      if (barEl) { barEl.style.width = '0%'; barEl.style.background = 'var(--yellow)'; }
+      const verdictEl = document.getElementById('p-composite-verdict');
+      if (verdictEl) { verdictEl.textContent = '—'; verdictEl.style.color = 'var(--yellow)'; }
+      return;
+    }
     lastCompositeData = uc;
 
     const scoreColor = uc.score >= 75 ? '#00c853' :
@@ -1062,32 +1126,33 @@
                        uc.score >= 40 ? '#ffeb3b' :
                        uc.score >= 25 ? '#ff5252' : '#d50000';
 
-    const scoreEl = document.getElementById('composite-score-value');
+    // المربع الخامس
+    const scoreEl = document.getElementById('p-composite-score');
     if (scoreEl) {
       scoreEl.textContent = uc.score + '/100';
       scoreEl.style.color = scoreColor;
     }
 
-    const verdictEl = document.getElementById('composite-verdict');
+    const barEl = document.getElementById('p-composite-bar');
+    if (barEl) {
+      barEl.style.width = uc.score + '%';
+      barEl.style.background = scoreColor;
+    }
+
+    const verdictEl = document.getElementById('p-composite-verdict');
     if (verdictEl) {
       verdictEl.textContent = uc.verdict;
       verdictEl.style.color = scoreColor;
     }
 
-    const bar = document.getElementById('composite-bar');
-    if (bar) {
-      bar.style.width = uc.score + '%';
-      bar.style.background = scoreColor;
-    }
-
-    const grpEl = document.getElementById('grp-composite');
+    // الطبقة التفصيلية (المجموعات الخمس في قائمة المؤشرات)
+    const grpEl = document.getElementById('grp-composite-detail');
     if (grpEl) {
       const vc = uc.verdictClass;
       grpEl.className = 'group-summary ' + (vc.includes('buy') ? 'pos' : vc.includes('sell') ? 'neg' : '');
-      grpEl.textContent = `النتيجة: ${uc.score}/100 — ${uc.verdict}`;
+      grpEl.textContent = `النتيجة الموحدة: ${uc.score}/100 — ${uc.verdict}`;
     }
 
-    // عرض المجموعات الفرعية الخمس
     const groups = uc.groups;
     if (groups.trend) {
       const g = groups.trend;
@@ -1475,30 +1540,20 @@
       { key: 'stab-ichimoku', name: 'إيشيموكو ثبات', checked: false, weight: 1 },
       { key: 'stab-obv', name: 'OBV ثبات', checked: false, weight: 1 },
     ]},
-    early: { label: 'المسافة', indicators: [
-      { key: 'atr', name: 'متوسط المدى الحقيقي (ATR)', checked: true, weight: 1 },
-      { key: 'donchian', name: 'قنوات دونتشيان', checked: true, weight: 1 },
-      { key: 'hma', name: 'متوسط هال المتحرك', checked: true, weight: 1 },
-      { key: 'vwma', name: 'المتوسط المرجح بحجم التداول', checked: true, weight: 1 },
-      { key: 'trix', name: 'TRIX', checked: true, weight: 1 },
-      { key: 'squeezeMomentum', name: 'زخم الانضغاط', checked: true, weight: 1 },
-      { key: 'fisherTransform', name: 'تحويل فيشر', checked: true, weight: 1 },
-      { key: 'elderRay', name: 'قوة الثيران والدببة', checked: true, weight: 1 },
-      { key: 'vortex', name: 'مؤشر الدوامة', checked: true, weight: 1 },
-      { key: 'zScore', name: 'Z-Score', checked: true, weight: 1 },
-      { key: 'zigzag', name: 'الزجزاج', checked: true, weight: 1 },
-      { key: 'klinger', name: 'مؤشر القوة التجميعية', checked: true, weight: 1 },
-      { key: 'linearRegression', name: 'قنوات انحراف السعر', checked: true, weight: 1 },
-      { key: 'relativeStrengthBTC', name: 'القوة النسبية مقارنة بالبيتكوين', checked: true, weight: 1 },
-      { key: 'marketFacilitation', name: 'تيسير الحركة', checked: true, weight: 1 },
+    // حذف مربع المسافة واستبداله بالنتيجة الموحدة
+    composite: { label: 'النتيجة الموحدة', indicators: [
+      { key: 'uc-trend', name: 'الاتجاه', checked: true, weight: 25 },
+      { key: 'uc-momentum', name: 'الزخم', checked: true, weight: 25 },
+      { key: 'uc-volatility', name: 'التذبذب', checked: true, weight: 15 },
+      { key: 'uc-volume', name: 'الحجم', checked: true, weight: 15 },
+      { key: 'uc-reversal', name: 'الارتداد', checked: true, weight: 20 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
       { key: 'decision', name: 'مربع القرار', checked: true, weight: 25 },
       { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 15 },
       { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 25 },
       { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
-      { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
-      { key: 'composite', name: 'المؤشر الموحد الشامل', checked: true, weight: 15 },
+      { key: 'composite', name: 'النتيجة الموحدة', checked: true, weight: 25 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -1604,7 +1659,7 @@
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
 
-  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'composite', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1630,7 +1685,7 @@
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
   document.getElementById('p-allind-wrap').addEventListener('click', () => toggleCfgDropdown('allind-cfg'));
-  document.getElementById('p-early-wrap').addEventListener('click', () => toggleCfgDropdown('early-cfg'));
+  document.getElementById('p-composite-wrap').addEventListener('click', () => toggleCfgDropdown('composite-cfg'));
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
   document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
@@ -1701,29 +1756,63 @@
       const margin = Math.abs(reversalBullCount - reversalBearCount);
       if (margin < 2) reversalMajority = 0;
     }
-    setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral', momentumMajority > 0 ? 'صعود' : momentumMajority < 0 ? 'هبوط' : 'محايد');
-    setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral', volumeMajority > 0 ? 'صعود' : volumeMajority < 0 ? 'هبوط' : 'محايد');
-    setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral', reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
-    setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral', stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
 
-    const btcMoved70 = Math.abs(btcLayerLastDiff) >= BTC_LAYER_STEP;
-    const btcPct = Math.min(100, Math.round((Math.abs(btcLayerLastDiff) / BTC_LAYER_PCT_CAP) * 100));
-    const btcBoost = btcMoved70 ? (btcLayerSign * (btcPct / 100) * 0.3) : 0;
+    // ═══ المربعات الخمسة — عرض الكلمة فقط بدون نسبة ═══
     const decisionLeanMap = { trend: lastTrendSign, action: lastActionSign, momentum: momentumMajority, volume: volumeMajority, reversal: reversalMajority, stability: stabilityMajority };
     lastLeanMaps.decision = decisionLeanMap;
     const decision7Base = weightedLean('decision', decisionLeanMap);
+    const btcMoved70 = Math.abs(btcLayerLastDiff) >= BTC_LAYER_STEP;
+    const btcPct = Math.min(100, Math.round((Math.abs(btcLayerLastDiff) / BTC_LAYER_PCT_CAP) * 100));
+    const btcBoost = btcMoved70 ? (btcLayerSign * (btcPct / 100) * 0.3) : 0;
     const decision7Lean = Math.max(-1, Math.min(1, decision7Base + btcBoost));
     const decision7V = dirWord3(decision7Lean);
-    setPill('p-decision', decision7V.dir, `${decision7V.word} ${Math.round(Math.abs(decision7Lean) * 100)}%`);
+    // فقط الكلمة بدون نسبة
+    setPill('p-decision', decision7V.dir, decision7V.word);
     renderBoxConfigDropdown('decision', 'decision-cfg');
 
-    renderFourBoxDecision();
-    renderSecondaryBox();
-    renderAllIndicatorsBox();
-    renderEarlyBox();
-    renderEarlyBoxes();
+    // ═══ مربع الارتداد ═══
+    const stability = groupVerdictCounts('stability');
+    const reversal = groupVerdictCounts('reversal');
+    const momentum = groupVerdictCounts('momentum');
+    const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
+    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0);
+    const fourboxLeanMap = { stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly) };
+    lastLeanMaps.fourbox = fourboxLeanMap;
+    const fourboxAvg = weightedLean('fourbox', fourboxLeanMap);
+    lastFourBoxLean = fourboxAvg;
+    const fourboxV = dirWord3(fourboxAvg);
+    setPill('p-fourbox', fourboxV.dir, fourboxV.word);
+    renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
 
-    // ═══ القرار النهائي مع المؤشر الموحد ═══
+    // ═══ مربع التحليل ═══
+    const volume = groupVerdictCounts('volume');
+    const volumeLean = volume.total > 0 ? (volume.bull - volume.bear) / volume.total : 0;
+    const confWeight = lastConfidence / 100;
+    const confidenceLean = lastActionSign * confWeight;
+    const secondaryLeanMap = { trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign };
+    lastLeanMaps.secondary = secondaryLeanMap;
+    const secondaryAvg = weightedLean('secondary', secondaryLeanMap);
+    lastSecondaryLean = secondaryAvg;
+    const secondaryV = dirWord3(secondaryAvg);
+    setPill('p-secondary', secondaryV.dir, secondaryV.word);
+    renderBoxConfigDropdown('secondary', 'secondary-cfg');
+
+    // ═══ مربع المؤشرات ═══
+    const allindLeanMap = {};
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      allindLeanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
+    }
+    lastLeanMaps.allind = allindLeanMap;
+    const allindAvg = weightedLean('allind', allindLeanMap);
+    lastAllIndLean = allindAvg;
+    const allindV = dirWord3(allindAvg);
+    setPill('p-allind', allindV.dir, allindV.word);
+    renderBoxConfigDropdown('allind', 'allind-cfg');
+
+    // ═══ المربع الخامس: النتيجة الموحدة (يعرضها renderUniversalComposite) ═══
+    // نعدّل المربع الخامس عبر دالة renderUniversalComposite التي تُستدعى من renderIndicators
+
+    // ═══ القرار النهائي ═══
     const compositeLean = lastCompositeData ? Math.max(-1, Math.min(1, (lastCompositeData.score - 50) / 50)) : 0;
     lastCompositeLean = compositeLean;
 
@@ -1732,7 +1821,6 @@
       secondary: lastSecondaryLean,
       fourbox: lastFourBoxLean,
       allind: lastAllIndLean,
-      early: lastEarlyLean,
       composite: compositeLean
     };
     lastLeanMaps.final = finalLeanMap;
@@ -1744,79 +1832,9 @@
     document.getElementById('p-final').textContent = finalLabel;
     document.getElementById('p-final').className = `final-value ${finalClass}`;
     renderBoxConfigDropdown('final', 'final-cfg');
-  }
 
-  function renderFourBoxDecision() {
-    const pillEl = document.getElementById('p-fourbox');
-    const stability = groupVerdictCounts('stability');
-    const reversal = groupVerdictCounts('reversal');
-    const momentum = groupVerdictCounts('momentum');
-    const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
-    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0);
-    const leanMap = { stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly) };
-    lastLeanMaps.fourbox = leanMap;
-    const avgLean = weightedLean('fourbox', leanMap);
-    lastFourBoxLean = avgLean;
-    const v = dirWord3(avgLean);
-    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
-    pillEl.className = `pill-value ${v.dir}`;
-    renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
-  }
-
-  function renderSecondaryBox() {
-    const pillEl = document.getElementById('p-secondary');
-    const volume = groupVerdictCounts('volume');
-    const volumeLean = volume.total > 0 ? (volume.bull - volume.bear) / volume.total : 0;
-    const confWeight = lastConfidence / 100;
-    const confidenceLean = lastActionSign * confWeight;
-    const leanMap = { trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign };
-    lastLeanMaps.secondary = leanMap;
-    const avgLean = weightedLean('secondary', leanMap);
-    lastSecondaryLean = avgLean;
-    const v = dirWord3(avgLean);
-    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
-    pillEl.className = `pill-value ${v.dir}`;
-    renderBoxConfigDropdown('secondary', 'secondary-cfg');
-  }
-
-  function renderAllIndicatorsBox() {
-    const pillEl = document.getElementById('p-allind');
-    if (!pillEl) return;
-    const leanMap = {};
-    for (const [key, verdict] of Object.entries(consensusTracker)) {
-      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
-    }
-    lastLeanMaps.allind = leanMap;
-    const avgLean = weightedLean('allind', leanMap);
-    lastAllIndLean = avgLean;
-    const v = dirWord3(avgLean);
-    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
-    pillEl.className = `pill-value ${v.dir}`;
-    renderBoxConfigDropdown('allind', 'allind-cfg');
-  }
-
-  function renderEarlyBox() {
-    const pillEl = document.getElementById('p-early');
-    if (!pillEl) return;
-    const leanMap = {};
-    for (const [key, verdict] of Object.entries(consensusTracker)) {
-      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
-    }
-    lastLeanMaps.early = leanMap;
-    const avgLean = weightedLean('early', leanMap);
-    lastEarlyLean = avgLean;
-    const v = dirWord3(avgLean, 0.2);
-    if (v.dir === 'up') {
-      pillEl.textContent = `صعود ${Math.round(Math.abs(avgLean) * 100)}%`;
-      pillEl.className = 'pill-value up';
-    } else if (v.dir === 'down') {
-      pillEl.textContent = `هبوط ${Math.round(Math.abs(avgLean) * 100)}%`;
-      pillEl.className = 'pill-value down';
-    } else {
-      pillEl.textContent = `محايد ${Math.round(Math.abs(avgLean) * 100)}%`;
-      pillEl.className = 'pill-value neutral';
-    }
-    renderBoxConfigDropdown('early', 'early-cfg');
+    // ═══ مربعا الارتفاع والنزول المبكر ═══
+    renderEarlyBoxes();
   }
 
   function renderFrameBox() {
