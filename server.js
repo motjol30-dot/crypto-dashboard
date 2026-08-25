@@ -579,15 +579,10 @@ async function fetchHistorical(symbol, interval, limit = 300) {
 
 /* ============================================================================
  * ذاكرة فحص سريع لحوض البحث الواسع (SCAN_POOL ~200 عملة)
- * ============================================================================
- * ما نفتح بث WebSocket دائم لـ 200 عملة — هذا يثقل السيرفر بلا داعي. بدل ذلك نجيب
- * شموع 15د بطلب REST خفيف (يتحدّث كل شوي) لكل عملات الحوض، ونستخدمها بفحص محلي سريع
- * بدون أي طلبات شبكة إضافية. أي عملة يختارها البوت فعليًا كمرشّح جاد تترقّى فورًا
- * لبث مباشر حقيقي (ensureStream) عشان التنفيذ يعتمد على أحدث سعر لحظي دائمًا.
  * ============================================================================ */
-const scanCandleCache = {}; // symbol -> candles[] (15د، ~100 شمعة، من REST دوري)
-const scanCacheUpdatedAt = {}; // symbol -> timestamp آخر تحديث
-const SCAN_CACHE_TTL_MS = 3 * 60 * 1000; // نعيد جلب أي عملة ما تحدثت من 3 دقايق
+const scanCandleCache = {};
+const scanCacheUpdatedAt = {};
+const SCAN_CACHE_TTL_MS = 3 * 60 * 1000;
 
 async function refreshScanCache(symbol) {
   const now = Date.now();
@@ -601,14 +596,12 @@ async function refreshScanCache(symbol) {
   } catch (err) { /* تجاهل — نحاول العملة الجاية، هذا فحص أولي سريع مو تنفيذ */ }
 }
 
-// يرجّع أحدث شموع متاحة للعملة: البث المباشر لو موجود (أدق)، وإلا ذاكرة الفحص السريع
 function getCandlesForScan(symbol) {
   const live = candleStore[`${symbol}_15m`];
   if (live && live.length >= 60) return live;
   return scanCandleCache[symbol] || null;
 }
 
-// فحص محلي سريع بدون أي طلب شبكة إطلاقًا — يُستخدم لتقييم حوض الـ200 عملة كامل بسرعة كل دورة
 function quickScreenSymbol(symbol) {
   const candles = getCandlesForScan(symbol);
   if (!candles || candles.length < 60) return null;
@@ -628,7 +621,6 @@ function quickScreenSymbol(symbol) {
   return { symbol, composite, price: indicators.currentPrice, passesFilters: filter.ok };
 }
 
-// يدور على كل حوض البحث (200 عملة) بدفعات، يحدّث الذاكرة لو قديمة، ويرجّع أفضل مرشح شراء محتمل
 async function scanFullPool() {
   const results = [];
   const now = Date.now();
@@ -636,8 +628,8 @@ async function scanFullPool() {
   for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
     const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
     await Promise.all(batch.map(async (symbol) => {
-      if (validSet && !validSet.has(symbol)) return; // الرمز مو متاح فعليًا للتداول الفوري على Binance حاليًا
-      if (blacklistedSymbols[symbol] && blacklistedSymbols[symbol] > now) return; // عملة محظورة مؤقتًا بسبب فشل تنفيذ سابق
+      if (validSet && !validSet.has(symbol)) return;
+      if (blacklistedSymbols[symbol] && blacklistedSymbols[symbol] > now) return;
       if (!candleStore[`${symbol}_15m`]) await refreshScanCache(symbol);
       const r = quickScreenSymbol(symbol);
       if (r) results.push(r);
@@ -647,11 +639,9 @@ async function scanFullPool() {
   return results;
 }
 
-// تحقق حقيقي وحيّ من رموز Binance الفعلية (بعض العملات بالقائمة تتغيّر تسميتها أو تُشطب من Binance
-// رغم بقائها بمنصات ثانية — قبل هذا كان البوت يختار عملة زي هذي ويعلق عليها بلا نهاية لأن Binance يرفضها بأمر الشراء)
 let binanceValidSymbolsCache = null;
 let binanceValidSymbolsFetchedAt = 0;
-const BINANCE_SYMBOLS_TTL_MS = 60 * 60 * 1000; // نحدّث القائمة كل ساعة
+const BINANCE_SYMBOLS_TTL_MS = 60 * 60 * 1000;
 
 async function getBinanceValidSymbols() {
   const now = Date.now();
@@ -669,13 +659,11 @@ async function getBinanceValidSymbols() {
   } catch (err) {
     console.warn('[binance-symbols] فشل جلب قائمة رموز Binance:', err.message);
   }
-  return binanceValidSymbolsCache; // ممكن يرجّع null لو فشلت أول محاولة تحميل — بنتجاهل الفلترة وقتها
+  return binanceValidSymbolsCache;
 }
 
-// حظر مؤقت لأي عملة يفشل تنفيذ أمر الشراء عليها فعليًا (رمز غير صحيح، سوق مقفول، إلخ) — يمنع البوت من التعليق
-// على نفس العملة الفاشلة دورة بعد دورة
-const blacklistedSymbols = {}; // symbol -> timestamp الانتهاء
-const SYMBOL_BLACKLIST_MS = 60 * 60 * 1000; // ساعة كاملة
+const blacklistedSymbols = {};
+const SYMBOL_BLACKLIST_MS = 60 * 60 * 1000;
 
 async function ensureStream(symbol, interval) {
   const key = `${symbol}_${interval}`;
@@ -776,6 +764,137 @@ function connectOkxStream(symbol, interval) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// المؤشر الموحد الشامل — Universal Composite Indicator (Server)
+// ═══════════════════════════════════════════════════════════════
+function computeUniversalComposite(ind) {
+  if (!ind) return null;
+  const price = ind.currentPrice;
+
+  // ═══ 1. الاتجاه (Trend) — الوزن 25% ═══
+  let trendSignals = [];
+  if (ind.ema50 != null && ind.ema200 != null) trendSignals.push(ind.ema50 > ind.ema200 ? 1 : -1);
+  if (ind.ema50 != null && price != null) trendSignals.push(price > ind.ema50 ? 1 : price < ind.ema50 ? -1 : 0);
+  if (ind.ema200 != null && price != null) trendSignals.push(price > ind.ema200 ? 1 : price < ind.ema200 ? -1 : 0);
+  if (ind.supertrend) trendSignals.push(ind.supertrend.trendUp ? 1 : -1);
+  if (ind.ichimoku && price != null) {
+    const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB);
+    const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB);
+    trendSignals.push(price > top ? 1 : price < bottom ? -1 : 0);
+  }
+  if (ind.adx) {
+    const strong = ind.adx.adx >= 20;
+    trendSignals.push(!strong ? 0 : ind.adx.pdi > ind.adx.mdi ? 1 : -1);
+  }
+  const trendScore = trendSignals.length > 0 ? trendSignals.reduce((a, b) => a + b, 0) / trendSignals.length : 0;
+
+  // ═══ 2. الزخم (Momentum) — الوزن 25% ═══
+  let momentumSignals = [];
+  if (ind.rsi != null) momentumSignals.push(ind.rsi > 55 ? 1 : ind.rsi < 45 ? -1 : 0);
+  if (ind.macd && ind.macd.value != null && ind.macd.signal != null) momentumSignals.push(ind.macd.value > ind.macd.signal ? 1 : -1);
+  if (ind.macd && ind.macd.histogram != null) momentumSignals.push(ind.macd.histogram > 0 ? 1 : -1);
+  if (ind.stochastic) {
+    const { k, d } = ind.stochastic;
+    momentumSignals.push((k > 55 && k >= d) ? 1 : (k < 45 && k <= d) ? -1 : 0);
+  }
+  if (ind.bb && price != null && ind.bb.upper && ind.bb.lower) {
+    const range = ind.bb.upper - ind.bb.lower;
+    const cci = range !== 0 ? (price - ind.bb.middle) / (0.015 * range || 1) : 0;
+    momentumSignals.push(cci > 100 ? -1 : cci < -100 ? 1 : 0);
+  }
+  const momentumScore = momentumSignals.length > 0 ? momentumSignals.reduce((a, b) => a + b, 0) / momentumSignals.length : 0;
+
+  // ═══ 3. التذبذب (Volatility) — الوزن 15% ═══
+  let volatilitySignals = [];
+  if (ind.bb && price != null) volatilitySignals.push(price < ind.bb.lower ? 1 : price > ind.bb.upper ? -1 : 0);
+  if (ind.donchian && price != null) {
+    const dcMid = (ind.donchian.upper + ind.donchian.lower) / 2;
+    volatilitySignals.push(price > dcMid ? 1 : -1);
+  }
+  const volatilityScore = volatilitySignals.length > 0 ? volatilitySignals.reduce((a, b) => a + b, 0) / volatilitySignals.length : 0;
+
+  // ═══ 4. الحجم (Volume) — الوزن 15% ═══
+  let volumeSignals = [];
+  if (ind.obv != null && ind.obvTrendRef != null) volumeSignals.push(ind.obv > ind.obvTrendRef ? 1 : -1);
+  if (ind.rsi != null) {
+    const mfiEst = ind.rsi;
+    volumeSignals.push(mfiEst > 80 ? -1 : mfiEst < 20 ? 1 : 0);
+  }
+  if (ind.vwap != null && price != null) volumeSignals.push(price > ind.vwap ? 1 : -1);
+  const volumeScore = volumeSignals.length > 0 ? volumeSignals.reduce((a, b) => a + b, 0) / volumeSignals.length : 0;
+
+  // ═══ 5. الارتداد (Reversal) — الوزن 20% ═══
+  let reversalSignals = [];
+  if (ind.stochRsi) {
+    const { crossUp, crossDown, zoneUp, zoneDown } = ind.stochRsi;
+    reversalSignals.push(crossUp ? 1 : crossDown ? -1 : zoneUp ? 0.5 : zoneDown ? -0.5 : 0);
+  }
+  if (ind.williamsR) {
+    const wr = ind.williamsR.now;
+    reversalSignals.push(wr <= -80 ? 1 : wr >= -20 ? -1 : 0);
+  }
+  if (ind.bbPercentB) {
+    const bbB = ind.bbPercentB.now;
+    reversalSignals.push(bbB < 0.2 ? 1 : bbB > 0.8 ? -1 : 0);
+  }
+  if (ind.rsiDivergence) {
+    reversalSignals.push(ind.rsiDivergence.type === 'bullish' ? 1 : ind.rsiDivergence.type === 'bearish' ? -1 : 0);
+  }
+  const reversalScore = reversalSignals.length > 0 ? reversalSignals.reduce((a, b) => a + b, 0) / reversalSignals.length : 0;
+
+  // ═══ النتيجة الموحدة ═══
+  const wTrend = 25, wMomentum = 25, wVolatility = 15, wVolume = 15, wReversal = 20;
+  const totalWeight = wTrend + wMomentum + wVolatility + wVolume + wReversal;
+  const composite = (
+    trendScore * wTrend +
+    momentumScore * wMomentum +
+    volatilityScore * wVolatility +
+    volumeScore * wVolume +
+    reversalScore * wReversal
+  ) / totalWeight;
+
+  const score = Math.max(0, Math.min(100, Math.round((composite + 1) * 50)));
+  let verdict, verdictClass;
+  if (score >= 75) { verdict = 'شراء قوي 🟢🟢'; verdictClass = 'strong-buy'; }
+  else if (score >= 60) { verdict = 'شراء 🟢'; verdictClass = 'buy'; }
+  else if (score >= 40) { verdict = 'محايد 🟡'; verdictClass = 'neutral'; }
+  else if (score >= 25) { verdict = 'بيع 🔴'; verdictClass = 'sell'; }
+  else { verdict = 'بيع قوي 🔴🔴'; verdictClass = 'strong-sell'; }
+
+  return {
+    score,
+    verdict,
+    verdictClass,
+    groups: {
+      trend: {
+        score: Math.round((trendScore + 1) * 50),
+        signal: trendScore > 0.15 ? '▲ صاعد' : trendScore < -0.15 ? '▼ هابط' : '— محايد',
+        weight: wTrend
+      },
+      momentum: {
+        score: Math.round((momentumScore + 1) * 50),
+        signal: momentumScore > 0.15 ? '▲ صاعد' : momentumScore < -0.15 ? '▼ هابط' : '— محايد',
+        weight: wMomentum
+      },
+      volatility: {
+        score: Math.round((volatilityScore + 1) * 50),
+        signal: volatilityScore > 0.15 ? '▲ صاعد' : volatilityScore < -0.15 ? '▼ هابط' : '— محايد',
+        weight: wVolatility
+      },
+      volume: {
+        score: Math.round((volumeScore + 1) * 50),
+        signal: volumeScore > 0.15 ? '▲ صاعد' : volumeScore < -0.15 ? '▼ هابط' : '— محايد',
+        weight: wVolume
+      },
+      reversal: {
+        score: Math.round((reversalScore + 1) * 50),
+        signal: reversalScore > 0.15 ? '▲ صاعد' : reversalScore < -0.15 ? '▼ هابط' : '— محايد',
+        weight: wReversal
+      }
+    }
+  };
+}
+
 function computeIndicatorsFixedReversal(symbol, interval, candles) {
   const indicators = computeIndicators(candles);
   if (!indicators) return indicators;
@@ -792,6 +911,8 @@ function computeIndicatorsFixedReversal(symbol, interval, candles) {
     }
   }
   indicators.hourlyLayer = computeHourlyLayer(symbol);
+  // ═══ المؤشر الموحد الشامل ═══
+  indicators.universalComposite = computeUniversalComposite(indicators);
   return indicators;
 }
 
@@ -1177,7 +1298,6 @@ function computeIndicators(candles) {
     }
   }
 
-  // نحتاج keltner لاحقاً لحساب squeeze momentum
   let keltner = null;
   if (n >= 20 && atr) {
     const ema20 = last(EMA.calculate({ values: closes, period: 20 }));
@@ -1527,11 +1647,11 @@ let botState = {
   tradeSizeUsdt: 50,
   takeProfitPercent: 1,
   maxConcurrentPositions: 1,
-  scanWindowMinutes: 2, // وقت الفحص المخصص لكل عملة — قابل للتعديل من اللوحة
-  strategyMode: 'auto', // 'auto' = خوارزمية البوت التلقائية | 'manual' = المستخدم يحدد شروط الشراء/البيع بنفسه
-  manualSymbol: null, // بوضع "يدوي": لو محددة، البوت يراقب هذي العملة بس. لو null، يفحص كل حوض البحث بنفس قواعد المستخدم
-  buyRules: { rsiBelow: null, priceBelow: null, dropPercentFromHigh: null, bbLowerTouch: false }, // قواعد الشراء اليدوية — كلها اختيارية، والمفعّل منها لازم يتحقق كله مع بعض
-  sellRules: { stopLossPercent: null, rsiAbove: null, priceAbove: null }, // قواعد بيع إضافية فوق جني الربح التلقائي الموجود أصلاً
+  scanWindowMinutes: 2,
+  strategyMode: 'auto',
+  manualSymbol: null,
+  buyRules: { rsiBelow: null, priceBelow: null, dropPercentFromHigh: null, bbLowerTouch: false },
+  sellRules: { stopLossPercent: null, rsiAbove: null, priceAbove: null },
   positions: {},
   pendingOrders: {},
   pendingSellOrders: {},
@@ -1540,12 +1660,11 @@ let botState = {
   scanStatus: { active: false, symbol: null, poolIndex: 0, windowStartedAt: null, checked: 0, total: 0 },
 };
 
-// خُفِّفت هذي العتبة من 0.35 إلى 0.22 (بطلب المستخدم) عشان يزيد تردد الشراء — راقب الأداء وعدّل حسب الحاجة
 const BOT_BUY_THRESHOLD = 0.22;
 const BOT_SELL_THRESHOLD = -0.22;
 const MAX_PENDING_BUY_MINUTES = 45;
 const TP_LEVELS = [1, 1.5, 2];
-const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء الفحص السريع (REST خفيف)
+const SCAN_BATCH_SIZE = 15;
 
 function computeFourBoxScore(indicators) {
   if (!indicators) return 0;
@@ -1670,7 +1789,6 @@ function computeBotOwnSignalTerms(indicators, candles) {
   }
   return terms;
 }
-// نسخة سريعة بدون أي طلب شبكة — تُستخدم بالفحص الأولي على كل العملات (150+) عشان ما نبطّئ الدورة بمكالمات API
 function computeBotOwnSignalLocal(indicators, candles) {
   if (!indicators || !candles || candles.length < 20) return 0;
   const terms = computeBotOwnSignalTerms(indicators, candles);
@@ -1695,7 +1813,6 @@ async function computeBotOwnSignal(indicators, candles, symbol) {
   return totalWeight > 0 ? rawScore / totalWeight : 0;
 }
 
-// خُفِّف من 100000 إلى 50000 (بطلب المستخدم) عشان يقبل عملات أقل سيولة شوي
 const MIN_LIQUIDITY_USDT = 50000;
 
 function passesEntryFilters(candles) {
@@ -1709,7 +1826,6 @@ function passesEntryFilters(candles) {
   const posInRange = rangeHigh > rangeLow ? (currentPrice - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const avgQuoteVolume = last10.reduce((s, c) => s + c.volume * c.close, 0) / last10.length;
 
-  // خُفِّفت هذي الشروط (بطلب المستخدم): نزول أقل تشددًا، ونطاق أوسع بالقرب من الأسفل
   const declineConfirmed = changePct < -0.08;
   const nearLowerZone = posInRange <= 0.70;
   const liquidOk = avgQuoteVolume >= MIN_LIQUIDITY_USDT;
@@ -1727,10 +1843,6 @@ function fmtBig(n) {
   return n.toFixed(0);
 }
 
-// ── قواعد التداول اليدوية (المستخدم يحدد شروط الشراء والبيع بنفسه) ─────────────
-
-// يتحقق من شروط الشراء اللي فعّلها المستخدم. أي شرط قيمته null/false يُتجاهل تمامًا.
-// كل الشروط المفعّلة لازم تتحقق مع بعض (AND) — لازم يكون فيه شرط واحد مفعّل على الأقل وإلا ما يشتري إطلاقًا.
 function evaluateManualBuyRules(indicators, candles) {
   const rules = botState.buyRules || {};
   const reasons = [];
@@ -1764,8 +1876,6 @@ function evaluateManualBuyRules(indicators, candles) {
   return { ok: true, reason: reasons.join(' + ') };
 }
 
-// يتحقق من شروط البيع الإضافية اللي فعّلها المستخدم فوق جني الربح التلقائي الموجود أصلاً (TP ladder).
-// أول شرط يتحقق يكفي وحده لإصدار أمر بيع فوري (Market) — هذي شروط طوارئ/خروج، مو AND.
 function evaluateManualSellRules(indicators, position) {
   const rules = botState.sellRules || {};
   if (!position || !position.entryPrice) return { ok: false };
@@ -1783,7 +1893,6 @@ function evaluateManualSellRules(indicators, position) {
   return { ok: false };
 }
 
-// دورة الشراء بوضع "يدوي" — إما عملة محددة، أو فحص كل الحوض بنفس قواعد المستخدم فقط (بدون خوارزمية التقييم التلقائية)
 async function runManualBuyCycle(now) {
   if (botState.manualSymbol) {
     const symbol = botState.manualSymbol;
@@ -1810,7 +1919,6 @@ async function runManualBuyCycle(now) {
     return;
   }
 
-  // ما فيه عملة محددة — يفحص كل حوض البحث ويشتري أول عملة تحقق قواعد المستخدم
   const validSet = botState.exchange === 'binance' ? await getBinanceValidSymbols() : null;
   let matched = null;
   for (const symbol of SCAN_POOL) {
@@ -1828,8 +1936,7 @@ async function runManualBuyCycle(now) {
 
   if (matched) {
     if (!candleStore[`${matched.symbol}_15m`] || candleStore[`${matched.symbol}_15m`].length < 60) {
-      try { await ensureStream(matched.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل */ }
-    }
+      try { await ensureStream(matched.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل */ } }
     botState.scanStatus = { active: true, symbol: matched.symbol, windowStartedAt: now, checked: SCAN_POOL.length, total: SCAN_POOL.length };
     const sig = {
       symbol: matched.symbol, price: matched.price,
@@ -1930,12 +2037,12 @@ function queryOrder(exchange, symbol, orderId) {
 
 async function cancelMexcOrder(symbol, orderId) {
   const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.delete(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  const { data } = await axios.delete(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
   return data;
 }
 async function cancelBinanceOrder(symbol, orderId) {
   const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
   return data;
 }
 function cancelOrder(exchange, symbol, orderId) {
@@ -2092,7 +2199,6 @@ async function runBotCycle() {
   const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
   for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
 
-  // مراقبة وقف الخسارة وأي قواعد بيع إضافية على كل صفقة مفتوحة — تعمل دائمًا (بكل الأوضاع) فوق جني الربح التلقائي
   for (const symbol of Object.keys(botState.positions)) {
     try {
       const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
@@ -2108,22 +2214,18 @@ async function runBotCycle() {
   if (openCount >= botState.maxConcurrentPositions) {
     botState.scanStatus.active = false;
     broadcastBotStatus();
-    return; // ما فيه مكان لصفقة جديدة حاليًا — نوقف البحث النشط لحد ما تتحرر صفقة
+    return;
   }
 
   const now = Date.now();
 
-  // ── الوضع اليدوي: المستخدم يحدد شروط الشراء بنفسه، بدون خوارزمية التقييم التلقائية ──
   if (botState.strategyMode === 'manual') {
     try { await runManualBuyCycle(now); } catch (err) { logBotError(botState.manualSymbol || 'manual-scan', err); }
     broadcastBotStatus();
     return;
   }
 
-  // ── الوضع التلقائي (الافتراضي) ──
   const focus = botState.scanStatus;
-
-  // لو عندنا عملة "قيد الفحص" حاليًا وضمن نافذتها المخصصة (قابلة للتعديل من اللوحة)، كمّل فحصها بعمق (مع طلبات الشبكة الكاملة)
   const scanWindowMs = (botState.scanWindowMinutes || 2) * 60 * 1000;
   if (focus.active && focus.symbol && (now - focus.windowStartedAt) < scanWindowMs) {
     try {
@@ -2139,23 +2241,20 @@ async function runBotCycle() {
       }
     } catch (err) { logBotError(focus.symbol, err); }
     broadcastBotStatus();
-    return; // لسا بالوقت المسموح لهذي العملة — ما نبحث عن غيرها إلا لو خلصت الدقيقتين أو لقينا فرصة
+    return;
   }
 
-  // انتهت نافذة العملة السابقة (أو ما فيه عملة قيد الفحص أصلًا) — ما لقينا فيها فرصة، نطلع ونبحث عن غيرها
   if (focus.active && focus.symbol) {
     botState.tradeLog.unshift({ time: now, symbol: focus.symbol, type: 'error', message: `لا فرصة خلال ${botState.scanWindowMinutes || 2} دقيقة — انتقل البحث لعملة أخرى` });
     botState.tradeLog = botState.tradeLog.slice(0, 50);
   }
 
-  // فحص سريع (محلي، بدون شبكة) لكل حوض البحث (~200 عملة) لاختيار أفضل مرشح جديد
   const results = await scanFullPool();
   const candidate = results.find((r) => r.composite >= BOT_BUY_THRESHOLD * 0.6 && !botState.positions[r.symbol] && !botState.pendingOrders[r.symbol]);
 
   if (candidate) {
     if (!candleStore[`${candidate.symbol}_15m`]) {
-      try { await ensureStream(candidate.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل الترقية */ }
-    }
+      try { await ensureStream(candidate.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل الترقية */ } }
     botState.scanStatus = { active: true, symbol: candidate.symbol, windowStartedAt: now, checked: results.length, total: SCAN_POOL.length };
     try {
       const sig = await evaluateBotSignal(candidate.symbol, true);
@@ -2187,8 +2286,6 @@ async function evaluateBotSignal(symbol, includeNetwork = true) {
   const secondarySignal = computeSecondaryScore(indicators, decision);
   const frameSignal = computeFrameScore(symbol, indicators);
   const dashboardSignal = 0.30 * decision7Signal + 0.20 * secondarySignal + 0.45 * fourBoxSignal + 0.05 * frameSignal;
-  // مكالمات الشبكة (تمويل بايننس الآجل) غالية لو كررناها على 100+ عملة كل دورة — نتجاوزها بالفحص السريع الأولي
-  // ونجيبها بس للمرشحين المختصرين قبل قرار الشراء النهائي (شوف runBotCycle)
   const botOwnSignal = includeNetwork ? await computeBotOwnSignal(indicators, candles, symbol) : computeBotOwnSignalLocal(indicators, candles);
   const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
   let action = 'hold';
@@ -2247,6 +2344,6 @@ function broadcastBotStatus() {
   }
 }
 
-setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية
+setInterval(runBotCycle, 30 * 1000);
 
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));
