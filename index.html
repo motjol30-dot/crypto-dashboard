@@ -258,7 +258,6 @@
     padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
   }
   #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
-  #notes-list.open { display: flex; }
   #notes-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
   #notes-list li .dot { flex-shrink:0; margin-top:4px; width:6px;height:6px;border-radius:50%; }
   #notes-list li .dot.bull { background: var(--green); }
@@ -533,6 +532,74 @@
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <div id="indicators-list">
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- 🎯 المؤشر الموحد الشامل — Universal Composite Indicator      -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="group-header" style="border-bottom: 2px solid var(--accent); padding-bottom: 6px;">
+    🎯 المؤشر الموحد الشامل (Universal Composite)
+    <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— يجمع +30 مؤشر</span>
+  </div>
+  <div class="group-summary" id="grp-composite">—</div>
+
+  <!-- البطاقة الرئيسية -->
+  <div id="composite-score-box" style="
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 12px;
+    text-align: center;
+  ">
+    <div style="font-size:0.68rem; color:var(--muted); font-weight:700; margin-bottom:6px;">النتيجة الموحدة</div>
+    <div id="composite-score-value" style="font-size:2.2rem; font-weight:900; font-family:'Courier New',monospace; color:var(--yellow);">—</div>
+    <div id="composite-verdict" style="font-size:0.9rem; font-weight:800; margin-top:4px; color:var(--yellow);">—</div>
+    <div id="composite-bar-wrap" style="margin-top:8px; background:rgba(255,255,255,0.06); border-radius:8px; height:10px; overflow:hidden;">
+      <div id="composite-bar" style="height:100%; width:0%; border-radius:8px; transition:width 0.5s, background 0.5s;"></div>
+    </div>
+  </div>
+
+  <!-- المجموعات الفرعية (5 مجموعات قابلة للطي) -->
+  <div class="acc-item" data-key="uc-trend">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">📈 الاتجاه (Trend) — 25%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-trend">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-trend">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-momentum">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">⚡ الزخم (Momentum) — 25%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-momentum">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-momentum">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-volatility">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🌊 التذبذب (Volatility) — 15%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volatility">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-volatility">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-volume">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">💧 الحجم (Volume) — 15%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volume">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-volume">—</div>
+  </div>
+
+  <div class="acc-item" data-key="uc-reversal">
+    <div class="acc-head">
+      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🔄 الارتداد (Reversal) — 20%</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-reversal">—</span><span class="acc-arrow">▾</span></div>
+    </div>
+    <div class="acc-body" id="b-uc-reversal">—</div>
+  </div>
+  <!-- ═══════ نهاية المؤشر الموحد ═══════ -->
+
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
   <div class="acc-item" data-key="stochrsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochrsi">—</div></div>
@@ -855,6 +922,199 @@
     item.querySelector('.acc-head').addEventListener('click', () => item.classList.toggle('open'));
   }
 
+  // ═══════════════════ المؤشر الموحد الشامل — العميل ═══════════════════
+  function computeUniversalCompositeClient(ind) {
+    if (!ind) return null;
+    const price = ind.currentPrice;
+
+    // ═══ 1. الاتجاه (Trend) — الوزن 25% ═══
+    let trendSignals = [];
+    if (ind.ema50 != null && ind.ema200 != null) trendSignals.push(ind.ema50 > ind.ema200 ? 1 : -1);
+    if (ind.ema50 != null && price != null) trendSignals.push(price > ind.ema50 ? 1 : price < ind.ema50 ? -1 : 0);
+    if (ind.ema200 != null && price != null) trendSignals.push(price > ind.ema200 ? 1 : price < ind.ema200 ? -1 : 0);
+    if (ind.supertrend) trendSignals.push(ind.supertrend.trendUp ? 1 : -1);
+    if (ind.ichimoku && price != null) {
+      const top = Math.max(ind.ichimoku.spanA, ind.ichimoku.spanB);
+      const bottom = Math.min(ind.ichimoku.spanA, ind.ichimoku.spanB);
+      trendSignals.push(price > top ? 1 : price < bottom ? -1 : 0);
+    }
+    if (ind.adx) {
+      const strong = ind.adx.adx >= 20;
+      trendSignals.push(!strong ? 0 : ind.adx.pdi > ind.adx.mdi ? 1 : -1);
+    }
+    const trendScore = trendSignals.length > 0 ? trendSignals.reduce((a, b) => a + b, 0) / trendSignals.length : 0;
+
+    // ═══ 2. الزخم (Momentum) — الوزن 25% ═══
+    let momentumSignals = [];
+    if (ind.rsi != null) momentumSignals.push(ind.rsi > 55 ? 1 : ind.rsi < 45 ? -1 : 0);
+    if (ind.macd && ind.macd.value != null && ind.macd.signal != null) momentumSignals.push(ind.macd.value > ind.macd.signal ? 1 : -1);
+    if (ind.macd && ind.macd.histogram != null) momentumSignals.push(ind.macd.histogram > 0 ? 1 : -1);
+    if (ind.stochastic) {
+      const { k, d } = ind.stochastic;
+      momentumSignals.push((k > 55 && k >= d) ? 1 : (k < 45 && k <= d) ? -1 : 0);
+    }
+    if (ind.bb && price != null && ind.bb.upper && ind.bb.lower) {
+      const range = ind.bb.upper - ind.bb.lower;
+      const cci = range !== 0 ? (price - ind.bb.middle) / (0.015 * range || 1) : 0;
+      momentumSignals.push(cci > 100 ? -1 : cci < -100 ? 1 : 0);
+    }
+    const momentumScore = momentumSignals.length > 0 ? momentumSignals.reduce((a, b) => a + b, 0) / momentumSignals.length : 0;
+
+    // ═══ 3. التذبذب (Volatility) — الوزن 15% ═══
+    let volatilitySignals = [];
+    if (ind.bb && price != null) volatilitySignals.push(price < ind.bb.lower ? 1 : price > ind.bb.upper ? -1 : 0);
+    if (ind.donchian && price != null) {
+      const dcMid = (ind.donchian.upper + ind.donchian.lower) / 2;
+      volatilitySignals.push(price > dcMid ? 1 : -1);
+    }
+    const volatilityScore = volatilitySignals.length > 0 ? volatilitySignals.reduce((a, b) => a + b, 0) / volatilitySignals.length : 0;
+
+    // ═══ 4. الحجم (Volume) — الوزن 15% ═══
+    let volumeSignals = [];
+    if (ind.obv != null && ind.obvTrendRef != null) volumeSignals.push(ind.obv > ind.obvTrendRef ? 1 : -1);
+    if (ind.rsi != null) {
+      const mfiEst = ind.rsi;
+      volumeSignals.push(mfiEst > 80 ? -1 : mfiEst < 20 ? 1 : 0);
+    }
+    if (ind.vwap != null && price != null) volumeSignals.push(price > ind.vwap ? 1 : -1);
+    const volumeScore = volumeSignals.length > 0 ? volumeSignals.reduce((a, b) => a + b, 0) / volumeSignals.length : 0;
+
+    // ═══ 5. الارتداد (Reversal) — الوزن 20% ═══
+    let reversalSignals = [];
+    if (ind.stochRsi) {
+      const { crossUp, crossDown, zoneUp, zoneDown } = ind.stochRsi;
+      reversalSignals.push(crossUp ? 1 : crossDown ? -1 : zoneUp ? 0.5 : zoneDown ? -0.5 : 0);
+    }
+    if (ind.williamsR) {
+      const wr = ind.williamsR.now;
+      reversalSignals.push(wr <= -80 ? 1 : wr >= -20 ? -1 : 0);
+    }
+    if (ind.bbPercentB) {
+      const bbB = ind.bbPercentB.now;
+      reversalSignals.push(bbB < 0.2 ? 1 : bbB > 0.8 ? -1 : 0);
+    }
+    if (ind.rsiDivergence) {
+      reversalSignals.push(ind.rsiDivergence.type === 'bullish' ? 1 : ind.rsiDivergence.type === 'bearish' ? -1 : 0);
+    }
+    const reversalScore = reversalSignals.length > 0 ? reversalSignals.reduce((a, b) => a + b, 0) / reversalSignals.length : 0;
+
+    // ═══ النتيجة الموحدة ═══
+    const wTrend = 25, wMomentum = 25, wVolatility = 15, wVolume = 15, wReversal = 20;
+    const totalWeight = wTrend + wMomentum + wVolatility + wVolume + wReversal;
+    const composite = (
+      trendScore * wTrend +
+      momentumScore * wMomentum +
+      volatilityScore * wVolatility +
+      volumeScore * wVolume +
+      reversalScore * wReversal
+    ) / totalWeight;
+
+    const score = Math.max(0, Math.min(100, Math.round((composite + 1) * 50)));
+    let verdict, verdictClass;
+    if (score >= 75) { verdict = 'شراء قوي 🟢🟢'; verdictClass = 'strong-buy'; }
+    else if (score >= 60) { verdict = 'شراء 🟢'; verdictClass = 'buy'; }
+    else if (score >= 40) { verdict = 'محايد 🟡'; verdictClass = 'neutral'; }
+    else if (score >= 25) { verdict = 'بيع 🔴'; verdictClass = 'sell'; }
+    else { verdict = 'بيع قوي 🔴🔴'; verdictClass = 'strong-sell'; }
+
+    return {
+      score,
+      verdict,
+      verdictClass,
+      groups: {
+        trend: {
+          score: Math.round((trendScore + 1) * 50),
+          signal: trendScore > 0.15 ? '▲ صاعد' : trendScore < -0.15 ? '▼ هابط' : '— محايد',
+          weight: wTrend
+        },
+        momentum: {
+          score: Math.round((momentumScore + 1) * 50),
+          signal: momentumScore > 0.15 ? '▲ صاعد' : momentumScore < -0.15 ? '▼ هابط' : '— محايد',
+          weight: wMomentum
+        },
+        volatility: {
+          score: Math.round((volatilityScore + 1) * 50),
+          signal: volatilityScore > 0.15 ? '▲ صاعد' : volatilityScore < -0.15 ? '▼ هابط' : '— محايد',
+          weight: wVolatility
+        },
+        volume: {
+          score: Math.round((volumeScore + 1) * 50),
+          signal: volumeScore > 0.15 ? '▲ صاعد' : volumeScore < -0.15 ? '▼ هابط' : '— محايد',
+          weight: wVolume
+        },
+        reversal: {
+          score: Math.round((reversalScore + 1) * 50),
+          signal: reversalScore > 0.15 ? '▲ صاعد' : reversalScore < -0.15 ? '▼ هابط' : '— محايد',
+          weight: wReversal
+        }
+      }
+    };
+  }
+
+  // ═══════════════════ عرض المؤشر الموحد ═══════════════════
+  function renderUniversalComposite(ind) {
+    const uc = ind && computeUniversalCompositeClient(ind);
+    if (!uc) return;
+
+    const scoreColor = uc.score >= 75 ? '#00c853' :
+                       uc.score >= 60 ? '#4caf50' :
+                       uc.score >= 40 ? '#ffeb3b' :
+                       uc.score >= 25 ? '#ff5252' : '#d50000';
+
+    const scoreEl = document.getElementById('composite-score-value');
+    if (scoreEl) {
+      scoreEl.textContent = uc.score + '/100';
+      scoreEl.style.color = scoreColor;
+    }
+
+    const verdictEl = document.getElementById('composite-verdict');
+    if (verdictEl) {
+      verdictEl.textContent = uc.verdict;
+      verdictEl.style.color = scoreColor;
+    }
+
+    const bar = document.getElementById('composite-bar');
+    if (bar) {
+      bar.style.width = uc.score + '%';
+      bar.style.background = scoreColor;
+    }
+
+    const grpEl = document.getElementById('grp-composite');
+    if (grpEl) {
+      const vc = uc.verdictClass;
+      grpEl.className = 'group-summary ' + (vc.includes('buy') ? 'pos' : vc.includes('sell') ? 'neg' : '');
+      grpEl.textContent = `النتيجة: ${uc.score}/100 — ${uc.verdict}`;
+    }
+
+    // عرض المجموعات الفرعية الخمس
+    const groups = uc.groups;
+    if (groups.trend) {
+      const g = groups.trend;
+      const cls = g.score > 55 ? 'bull' : g.score < 45 ? 'bear' : 'neutral';
+      setAcc('uc-trend', cls, g.signal + ' (' + g.score + '%)', `وزن: <b>${g.weight}%</b> — النتيجة: <b>${g.score}/100</b>`);
+    }
+    if (groups.momentum) {
+      const g = groups.momentum;
+      const cls = g.score > 55 ? 'bull' : g.score < 45 ? 'bear' : 'neutral';
+      setAcc('uc-momentum', cls, g.signal + ' (' + g.score + '%)', `وزن: <b>${g.weight}%</b> — النتيجة: <b>${g.score}/100</b>`);
+    }
+    if (groups.volatility) {
+      const g = groups.volatility;
+      const cls = g.score > 55 ? 'bull' : g.score < 45 ? 'bear' : 'neutral';
+      setAcc('uc-volatility', cls, g.signal + ' (' + g.score + '%)', `وزن: <b>${g.weight}%</b> — النتيجة: <b>${g.score}/100</b>`);
+    }
+    if (groups.volume) {
+      const g = groups.volume;
+      const cls = g.score > 55 ? 'bull' : g.score < 45 ? 'bear' : 'neutral';
+      setAcc('uc-volume', cls, g.signal + ' (' + g.score + '%)', `وزن: <b>${g.weight}%</b> — النتيجة: <b>${g.score}/100</b>`);
+    }
+    if (groups.reversal) {
+      const g = groups.reversal;
+      const cls = g.score > 55 ? 'bull' : g.score < 45 ? 'bear' : 'neutral';
+      setAcc('uc-reversal', cls, g.signal + ' (' + g.score + '%)', `وزن: <b>${g.weight}%</b> — النتيجة: <b>${g.score}/100</b>`);
+    }
+  }
+
   // ═══════════════════ عرض المؤشرات ═══════════════════
   let consensusTracker = {};
 
@@ -1136,6 +1396,9 @@
       setAcc('marketFacilitation', verdict, verdict === 'bull' ? 'تيسير إيجابي' : 'تيسير سلبي',
         `MFI: <b>${fmt(ind.marketFacilitation)}</b>`);
     }
+
+    // ═══ المؤشر الموحد الشامل ═══
+    renderUniversalComposite(ind);
   }
 
   let lastHourlyLayer = null;
@@ -1372,7 +1635,7 @@
 
   // ═══════════════════ الحالة العامة ═══════════════════
   let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
-  let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0;
+  let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0, lastEarlyLean = 0;
 
   function setPill(id, cls, text) { const el = document.getElementById(id); if (el) { el.className = `pill-value ${cls}`; el.textContent = text; } }
 
@@ -1519,7 +1782,6 @@
     renderBoxConfigDropdown('allind', 'allind-cfg');
   }
 
-  let lastEarlyLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
   function renderEarlyBox() {
     const pillEl = document.getElementById('p-early');
     if (!pillEl) return;
