@@ -111,6 +111,13 @@
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
   #chart-change { font-size: 0.8rem; font-weight: 700; }
   #chart-container { position: relative; height: 46vh; min-height: 260px; }
+  #uci-header {
+    padding: 6px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    background: var(--surface); border-bottom: 1px solid var(--border); border-top: 1px solid var(--border);
+  }
+  #uci-title { font-size: 0.78rem; font-weight: 700; color: var(--muted); }
+  #uci-value { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; color: var(--yellow); }
+  #uci-container { position: relative; height: 16vh; min-height: 110px; }
   #loading {
     position: absolute; inset: 0; background: rgba(13,17,23,0.85);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -326,6 +333,12 @@
 <div id="chart-container">
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
 </div>
+
+<div id="uci-header">
+  <span id="uci-title">📊 Universal Composite Indicator (UCI)</span>
+  <span id="uci-value">—</span>
+</div>
+<div id="uci-container"></div>
 
 <div id="status-row">
   <div class="pill" id="p-decision-wrap" style="cursor:pointer;">
@@ -594,6 +607,53 @@
     }).observe(container);
   }
 
+  // ═══════════════════ لوحة المؤشر المركب الشامل (UCI) — مستقلة تمامًا عن القرار النهائي ═══════════════════
+  let uciChart = null;
+  let uciCompositeSeries = null;
+  let uciSignalSeries = null;
+  function initUciChart() {
+    const container = document.getElementById('uci-container');
+    if (!container) return;
+    if (uciChart) uciChart.remove();
+    uciChart = LightweightCharts.createChart(container, {
+      layout: { background: { color: '#0d1117' }, textColor: '#7d8590' },
+      grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: '#21262d' },
+      timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false },
+    });
+    uciCompositeSeries = uciChart.addLineSeries({ color: '#3fb950', lineWidth: 2, title: 'UCI' });
+    uciSignalSeries = uciChart.addLineSeries({ color: '#7d8590', lineWidth: 1, title: 'Signal' });
+    uciCompositeSeries.createPriceLine({ price: 80, color: 'rgba(248,81,73,0.5)', lineStyle: LightweightCharts.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: 'ذروة شراء' });
+    uciCompositeSeries.createPriceLine({ price: 20, color: 'rgba(63,185,80,0.5)', lineStyle: LightweightCharts.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: 'ذروة بيع' });
+    uciCompositeSeries.createPriceLine({ price: 50, color: 'rgba(125,133,144,0.35)', lineStyle: LightweightCharts.LineStyle.Dotted, lineWidth: 1, axisLabelVisible: false, title: '' });
+    new ResizeObserver(() => {
+      const r = container.getBoundingClientRect();
+      uciChart.resize(r.width, r.height);
+    }).observe(container);
+  }
+
+  let lastUciSeriesSymbol = null, lastUciSeriesInterval = null;
+  function updateUciChart(msg) {
+    if (!uciChart || !Array.isArray(msg.uci)) return;
+    const compositeData = msg.uci.filter(p => p.composite != null).map(p => ({ time: p.time, value: p.composite }));
+    const signalData = msg.uci.filter(p => p.signal != null).map(p => ({ time: p.time, value: p.signal }));
+    uciCompositeSeries.setData(compositeData);
+    uciSignalSeries.setData(signalData);
+    const valueEl = document.getElementById('uci-value');
+    if (valueEl) {
+      const lastPt = msg.uci.length ? msg.uci[msg.uci.length - 1] : null;
+      if (lastPt && lastPt.composite != null) {
+        valueEl.textContent = lastPt.composite.toFixed(1);
+        valueEl.style.color = lastPt.composite > 80 ? '#f85149' : lastPt.composite < 20 ? '#3fb950'
+          : (lastPt.signal != null && lastPt.composite > lastPt.signal ? '#3fb950' : '#f85149');
+      } else {
+        valueEl.textContent = '—';
+        valueEl.style.color = '';
+      }
+    }
+  }
+
   function showBlockOverlay(message) {
     let overlay = document.getElementById('block-overlay');
     if (!overlay) {
@@ -729,6 +789,7 @@
     document.getElementById('chart-symbol').textContent = msg.symbol;
     renderIndicators(msg.indicators);
     renderDecision(msg.decision);
+    updateUciChart(msg);
   }
 
   function handleMtfUpdate(msg) {
@@ -834,10 +895,13 @@
     return Array.isArray(g) ? g.includes(group) : g === group;
   }
 
+  // مستقل تمامًا — لا يدخل consensusTracker ولا GROUP_MAP، فقط متاح كخيار يدوي غير مرتبط تلقائيًا بأي نسبة
+  let lastUciLean = null;
   function renderIndicators(ind) {
     if (!ind) return;
     consensusTracker = {};
     renderHourlyLayer(ind.hourlyLayer);
+    lastUciLean = (ind.uci && ind.uci.composite != null) ? Math.max(-1, Math.min(1, (ind.uci.composite - 50) / 50)) : null;
 
     // RSI
     if (ind.rsi != null) {
@@ -1173,6 +1237,7 @@
       { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 30 },
       { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
+      { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: false, weight: 10 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -1326,7 +1391,7 @@
     setPill('p-action', ac, al);
     lastActionSign = d.action === 'buy zone' ? 1 : d.action === 'sell zone' ? -1 : 0;
     const conf = Math.min(100, Math.max(0, d.confidence));
-    setPill('p-conf', conf >= 50 ? 'up' : 'down', `${conf}%`);
+    setPill('p-conf', conf >= 50 ? 'up' : 'down', conf >= 50 ? 'مرتفعة' : 'منخفضة');
     lastConfidence = conf;
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
@@ -1388,7 +1453,7 @@
     const decision7Base = weightedLean('decision', decisionLeanMap);
     const decision7Lean = Math.max(-1, Math.min(1, decision7Base + btcBoost));
     const decision7V = dirWord3(decision7Lean);
-    setPill('p-decision', decision7V.dir, `${decision7V.word} ${Math.round(Math.abs(decision7Lean) * 100)}%`);
+    setPill('p-decision', decision7V.dir, decision7V.word);
     renderBoxConfigDropdown('decision', 'decision-cfg');
 
     renderFourBoxDecision();
@@ -1397,7 +1462,7 @@
     renderEarlyBox();
     renderEarlyBoxes();
 
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean };
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
@@ -1421,7 +1486,7 @@
     const avgLean = weightedLean('fourbox', leanMap);
     lastFourBoxLean = avgLean;
     const v = dirWord3(avgLean);
-    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
+    pillEl.textContent = v.word;
     pillEl.className = `pill-value ${v.dir}`;
     renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
   }
@@ -1437,7 +1502,7 @@
     const avgLean = weightedLean('secondary', leanMap);
     lastSecondaryLean = avgLean;
     const v = dirWord3(avgLean);
-    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
+    pillEl.textContent = v.word;
     pillEl.className = `pill-value ${v.dir}`;
     renderBoxConfigDropdown('secondary', 'secondary-cfg');
   }
@@ -1453,7 +1518,7 @@
     const avgLean = weightedLean('allind', leanMap);
     lastAllIndLean = avgLean;
     const v = dirWord3(avgLean);
-    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
+    pillEl.textContent = v.word;
     pillEl.className = `pill-value ${v.dir}`;
     renderBoxConfigDropdown('allind', 'allind-cfg');
   }
@@ -1471,13 +1536,13 @@
     lastEarlyLean = avgLean;
     const v = dirWord3(avgLean, 0.2);
     if (v.dir === 'up') {
-      pillEl.textContent = `صعود ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = 'صعود';
       pillEl.className = 'pill-value up';
     } else if (v.dir === 'down') {
-      pillEl.textContent = `هبوط ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = 'هبوط';
       pillEl.className = 'pill-value down';
     } else {
-      pillEl.textContent = `محايد ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.textContent = 'محايد';
       pillEl.className = 'pill-value neutral';
     }
     renderBoxConfigDropdown('early', 'early-cfg');
@@ -1788,6 +1853,7 @@
 
   // ═══════════════════ تهيئة ═══════════════════
   initChart();
+  initUciChart();
   connect();
   connectBtcTicker();
   connectGoldTicker();

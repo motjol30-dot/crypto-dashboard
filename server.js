@@ -6,7 +6,7 @@ const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
 const crypto = require('crypto');
-const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
+const { RSI, MACD, BollingerBands, EMA, CCI, ATR } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
@@ -834,8 +834,10 @@ function broadcastUpdate(symbol, interval) {
   const candles = candleStore[key];
   if (!candles || !candles.length) return;
   const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
+  const uci = computeUCISeries(candles);
+  if (indicators) indicators.uci = uci.length ? { composite: uci[uci.length - 1].composite, signal: uci[uci.length - 1].signal } : null;
   const decision = makeDecision(indicators);
-  const payload = JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision });
+  const payload = JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision, uci });
   for (const [client, sub] of clientSubs) {
     if (client.readyState === WebSocket.OPEN && sub.symbol === symbol && sub.interval === interval) client.send(payload);
   }
@@ -847,8 +849,10 @@ function sendSnapshot(ws, symbol, interval) {
   const candles = candleStore[key];
   if (!candles || !candles.length) return;
   const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
+  const uci = computeUCISeries(candles);
+  if (indicators) indicators.uci = uci.length ? { composite: uci[uci.length - 1].composite, signal: uci[uci.length - 1].signal } : null;
   const decision = makeDecision(indicators);
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision }));
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision, uci }));
 }
 
 function computeMtfSnapshot(symbol) {
@@ -885,6 +889,92 @@ function computeWMA(values, period) {
   const sumW = w.reduce((a, b) => a + b, 0);
   const sumWV = values.reduce((s, v, i) => s + v * w[i], 0);
   return sumWV / sumW;
+}
+
+// ── Universal Composite Indicator (UCI) ────────────────────────────────────
+// مستقل تمامًا عن نظام المربعات/الإجماع الحالي — لا يُضاف لـ consensusTracker ولا GROUP_MAP.
+// يعيد سلسلة زمنية كاملة {time, composite, signal} لعرضها في لوحة منفصلة تحت الشموع،
+// مطابقة لمنطق مؤشر Pine Script (RSI + Stochastic + MACD/ATR + CCI → EMA5 → EMA9).
+function computeUCISeries(candles) {
+  const n = candles.length;
+  if (n < 45) return [];
+  const closes = candles.map(c => c.close);
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+
+  const RSI_LEN = 14, STOCH_K = 14, STOCH_SMOOTH = 3;
+  const MACD_FAST = 12, MACD_SLOW = 26, MACD_SIGNAL = 9, ATR_LEN = 14;
+  const CCI_LEN = 20, COMP_EMA = 5, SIGNAL_EMA = 9;
+
+  const alignEnd = (arr) => { const out = new Array(n).fill(null); const off = n - arr.length; for (let i = 0; i < arr.length; i++) out[off + i] = arr[i]; return out; };
+
+  // RSI
+  const rsiAligned = alignEnd(RSI.calculate({ values: closes, period: RSI_LEN }));
+
+  // Stochastic %K (raw) + SMA smoothing — يطابق ta.stoch(...) ثم sma(stochSmooth) في Pine
+  const stochRaw = new Array(n).fill(null);
+  for (let i = STOCH_K - 1; i < n; i++) {
+    let hh = -Infinity, ll = Infinity;
+    for (let j = i - STOCH_K + 1; j <= i; j++) { if (highs[j] > hh) hh = highs[j]; if (lows[j] < ll) ll = lows[j]; }
+    stochRaw[i] = hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100;
+  }
+  const stochSmoothed = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (i < STOCH_K - 1 + STOCH_SMOOTH - 1) continue;
+    let sum = 0, ok = true;
+    for (let j = i - STOCH_SMOOTH + 1; j <= i; j++) { if (stochRaw[j] == null) { ok = false; break; } sum += stochRaw[j]; }
+    if (ok) stochSmoothed[i] = sum / STOCH_SMOOTH;
+  }
+
+  // MACD histogram normalized by ATR(14)
+  const macdAligned = alignEnd(MACD.calculate({ values: closes, fastPeriod: MACD_FAST, slowPeriod: MACD_SLOW, signalPeriod: MACD_SIGNAL, SimpleMAOscillator: false, SimpleMASignal: false }));
+  const atrAligned = alignEnd(ATR.calculate({ period: ATR_LEN, high: highs, low: lows, close: closes }));
+  const macdNorm = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    const m = macdAligned[i], atrV = atrAligned[i];
+    if (!m || m.MACD == null || m.signal == null || atrV == null || !atrV) continue;
+    let v = ((m.MACD - m.signal) / atrV) * 25 + 50;
+    macdNorm[i] = Math.max(0, Math.min(100, v));
+  }
+
+  // CCI normalized
+  const cciAligned = alignEnd(CCI.calculate({ period: CCI_LEN, high: highs, low: lows, close: closes }));
+  const cciNorm = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (cciAligned[i] == null) continue;
+    let v = ((cciAligned[i] + 200) / 400) * 100;
+    cciNorm[i] = Math.max(0, Math.min(100, v));
+  }
+
+  // compositeRaw = متوسط الأربعة، فقط حيث تتوفر كلها
+  const compositeRaw = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    const a = rsiAligned[i], b = stochSmoothed[i], c = macdNorm[i], d = cciNorm[i];
+    if (a == null || b == null || c == null || d == null) continue;
+    compositeRaw[i] = (a + b + c + d) / 4;
+  }
+
+  const idx1 = [], vals1 = [];
+  for (let i = 0; i < n; i++) if (compositeRaw[i] != null) { idx1.push(i); vals1.push(compositeRaw[i]); }
+  if (vals1.length < COMP_EMA) return [];
+  const compEma = EMA.calculate({ period: COMP_EMA, values: vals1 });
+  const compositeLine = new Array(n).fill(null);
+  const off1 = vals1.length - compEma.length;
+  for (let i = 0; i < compEma.length; i++) compositeLine[idx1[off1 + i]] = compEma[i];
+
+  const idx2 = [], vals2 = [];
+  for (let i = 0; i < n; i++) if (compositeLine[i] != null) { idx2.push(i); vals2.push(compositeLine[i]); }
+  const signalEma = vals2.length >= SIGNAL_EMA ? EMA.calculate({ period: SIGNAL_EMA, values: vals2 }) : [];
+  const signalLine = new Array(n).fill(null);
+  const off2 = vals2.length - signalEma.length;
+  for (let i = 0; i < signalEma.length; i++) signalLine[idx2[off2 + i]] = signalEma[i];
+
+  const series = [];
+  for (let i = 0; i < n; i++) {
+    if (compositeLine[i] == null) continue;
+    series.push({ time: candles[i].time, composite: Math.round(compositeLine[i] * 100) / 100, signal: signalLine[i] == null ? null : Math.round(signalLine[i] * 100) / 100 });
+  }
+  return series;
 }
 
 function computeIndicators(candles) {
