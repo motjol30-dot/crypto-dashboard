@@ -362,6 +362,71 @@
 <div id="allind-cfg" class="cfg-dropdown"></div>
 <div id="early-cfg" class="cfg-dropdown"></div>
 
+<!-- 🎯 المؤشر الموحد الشامل — تم نقله إلى هنا (فوق الفريمات) -->
+<div class="group-header" style="border-bottom: 2px solid var(--accent); padding-bottom: 6px;">
+  🎯 المؤشر الموحد الشامل (Universal Composite)
+  <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— يجمع +30 مؤشر</span>
+</div>
+<div class="group-summary" id="grp-composite">—</div>
+
+<div id="composite-score-box" style="
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  text-align: center;
+">
+  <div style="font-size:0.68rem; color:var(--muted); font-weight:700; margin-bottom:6px;">النتيجة الموحدة</div>
+  <div id="composite-score-value" style="font-size:2.2rem; font-weight:900; font-family:'Courier New',monospace; color:var(--yellow);">—</div>
+  <div id="composite-verdict" style="font-size:0.9rem; font-weight:800; margin-top:4px; color:var(--yellow);">—</div>
+  <div id="composite-bar-wrap" style="margin-top:8px; background:rgba(255,255,255,0.06); border-radius:8px; height:10px; overflow:hidden;">
+    <div id="composite-bar" style="height:100%; width:0%; border-radius:8px; transition:width 0.5s, background 0.5s;"></div>
+  </div>
+</div>
+
+<!-- المجموعات الفرعية -->
+<div class="acc-item" data-key="uc-trend">
+  <div class="acc-head">
+    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">📈 الاتجاه (Trend) — 25%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-trend">—</span><span class="acc-arrow">▾</span></div>
+  </div>
+  <div class="acc-body" id="b-uc-trend">—</div>
+</div>
+
+<div class="acc-item" data-key="uc-momentum">
+  <div class="acc-head">
+    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">⚡ الزخم (Momentum) — 25%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-momentum">—</span><span class="acc-arrow">▾</span></div>
+  </div>
+  <div class="acc-body" id="b-uc-momentum">—</div>
+</div>
+
+<div class="acc-item" data-key="uc-volatility">
+  <div class="acc-head">
+    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🌊 التذبذب (Volatility) — 15%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volatility">—</span><span class="acc-arrow">▾</span></div>
+  </div>
+  <div class="acc-body" id="b-uc-volatility">—</div>
+</div>
+
+<div class="acc-item" data-key="uc-volume">
+  <div class="acc-head">
+    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">💧 الحجم (Volume) — 15%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volume">—</span><span class="acc-arrow">▾</span></div>
+  </div>
+  <div class="acc-body" id="b-uc-volume">—</div>
+</div>
+
+<div class="acc-item" data-key="uc-reversal">
+  <div class="acc-head">
+    <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🔄 الارتداد (Reversal) — 20%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-reversal">—</span><span class="acc-arrow">▾</span></div>
+  </div>
+  <div class="acc-body" id="b-uc-reversal">—</div>
+</div>
+<!-- ═══════ نهاية المؤشر الموحد ═══════ -->
+
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
   <div id="tf-bar">
@@ -379,7 +444,7 @@
     <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
   </div>
   <div id="final-verdict-row" style="cursor:pointer;">
-    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 5 مربعات)</div>
+    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 6 مربعات)</div>
     <div class="final-value neutral" id="p-final">—</div>
   </div>
   <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
@@ -532,74 +597,6 @@
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <div id="indicators-list">
-  <!-- ═══════════════════════════════════════════════════════════════ -->
-  <!-- 🎯 المؤشر الموحد الشامل — Universal Composite Indicator      -->
-  <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="group-header" style="border-bottom: 2px solid var(--accent); padding-bottom: 6px;">
-    🎯 المؤشر الموحد الشامل (Universal Composite)
-    <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— يجمع +30 مؤشر</span>
-  </div>
-  <div class="group-summary" id="grp-composite">—</div>
-
-  <!-- البطاقة الرئيسية -->
-  <div id="composite-score-box" style="
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    margin-bottom: 10px;
-    padding: 12px;
-    text-align: center;
-  ">
-    <div style="font-size:0.68rem; color:var(--muted); font-weight:700; margin-bottom:6px;">النتيجة الموحدة</div>
-    <div id="composite-score-value" style="font-size:2.2rem; font-weight:900; font-family:'Courier New',monospace; color:var(--yellow);">—</div>
-    <div id="composite-verdict" style="font-size:0.9rem; font-weight:800; margin-top:4px; color:var(--yellow);">—</div>
-    <div id="composite-bar-wrap" style="margin-top:8px; background:rgba(255,255,255,0.06); border-radius:8px; height:10px; overflow:hidden;">
-      <div id="composite-bar" style="height:100%; width:0%; border-radius:8px; transition:width 0.5s, background 0.5s;"></div>
-    </div>
-  </div>
-
-  <!-- المجموعات الفرعية (5 مجموعات قابلة للطي) -->
-  <div class="acc-item" data-key="uc-trend">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">📈 الاتجاه (Trend) — 25%</span></div>
-      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-trend">—</span><span class="acc-arrow">▾</span></div>
-    </div>
-    <div class="acc-body" id="b-uc-trend">—</div>
-  </div>
-
-  <div class="acc-item" data-key="uc-momentum">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">⚡ الزخم (Momentum) — 25%</span></div>
-      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-momentum">—</span><span class="acc-arrow">▾</span></div>
-    </div>
-    <div class="acc-body" id="b-uc-momentum">—</div>
-  </div>
-
-  <div class="acc-item" data-key="uc-volatility">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🌊 التذبذب (Volatility) — 15%</span></div>
-      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volatility">—</span><span class="acc-arrow">▾</span></div>
-    </div>
-    <div class="acc-body" id="b-uc-volatility">—</div>
-  </div>
-
-  <div class="acc-item" data-key="uc-volume">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">💧 الحجم (Volume) — 15%</span></div>
-      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-volume">—</span><span class="acc-arrow">▾</span></div>
-    </div>
-    <div class="acc-body" id="b-uc-volume">—</div>
-  </div>
-
-  <div class="acc-item" data-key="uc-reversal">
-    <div class="acc-head">
-      <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">🔄 الارتداد (Reversal) — 20%</span></div>
-      <div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-uc-reversal">—</span><span class="acc-arrow">▾</span></div>
-    </div>
-    <div class="acc-body" id="b-uc-reversal">—</div>
-  </div>
-  <!-- ═══════ نهاية المؤشر الموحد ═══════ -->
-
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
   <div class="acc-item" data-key="stochrsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochrsi">—</div></div>
@@ -923,6 +920,9 @@
   }
 
   // ═══════════════════ المؤشر الموحد الشامل — العميل ═══════════════════
+  let lastCompositeData = null;
+  let lastCompositeLean = 0;
+
   function computeUniversalCompositeClient(ind) {
     if (!ind) return null;
     const price = ind.currentPrice;
@@ -1055,6 +1055,7 @@
   function renderUniversalComposite(ind) {
     const uc = ind && computeUniversalCompositeClient(ind);
     if (!uc) return;
+    lastCompositeData = uc;
 
     const scoreColor = uc.score >= 75 ? '#00c853' :
                        uc.score >= 60 ? '#4caf50' :
@@ -1492,11 +1493,12 @@
       { key: 'marketFacilitation', name: 'تيسير الحركة', checked: true, weight: 1 },
     ]},
     final: { label: 'القرار النهائي', indicators: [
-      { key: 'decision', name: 'مربع القرار', checked: true, weight: 30 },
-      { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 20 },
-      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 30 },
+      { key: 'decision', name: 'مربع القرار', checked: true, weight: 25 },
+      { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 15 },
+      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 25 },
       { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
+      { key: 'composite', name: 'المؤشر الموحد الشامل', checked: true, weight: 15 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -1721,7 +1723,18 @@
     renderEarlyBox();
     renderEarlyBoxes();
 
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean };
+    // ═══ القرار النهائي مع المؤشر الموحد ═══
+    const compositeLean = lastCompositeData ? Math.max(-1, Math.min(1, (lastCompositeData.score - 50) / 50)) : 0;
+    lastCompositeLean = compositeLean;
+
+    const finalLeanMap = {
+      decision: decision7Lean,
+      secondary: lastSecondaryLean,
+      fourbox: lastFourBoxLean,
+      allind: lastAllIndLean,
+      early: lastEarlyLean,
+      composite: compositeLean
+    };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
