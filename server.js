@@ -297,6 +297,41 @@ wss.on('connection', (ws, req) => {
       const v = parseFloat(msg.scanWindowMinutes);
       if (v > 0 && v <= 60) { botState.scanWindowMinutes = v; broadcastBotStatus(); }
     }
+    else if (msg.type === 'bot_set_strategy_mode') {
+      if (msg.mode === 'auto' || msg.mode === 'manual') { botState.strategyMode = msg.mode; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_set_manual_symbol') {
+      const raw = (msg.symbol || '').toString().trim().toUpperCase();
+      if (!raw) { botState.manualSymbol = null; broadcastBotStatus(); }
+      else if (/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
+        botState.manualSymbol = raw;
+        ensureStream(raw, SCAN_INTERVAL).catch(() => {});
+        broadcastBotStatus();
+      } else {
+        ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح — لازم ينتهي بـ USDT' }));
+      }
+    }
+    else if (msg.type === 'bot_set_buy_rules') {
+      const r = msg.buyRules || {};
+      const clean = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      botState.buyRules = {
+        rsiBelow: r.rsiBelow === '' || r.rsiBelow == null ? null : clean(r.rsiBelow),
+        priceBelow: r.priceBelow === '' || r.priceBelow == null ? null : clean(r.priceBelow),
+        dropPercentFromHigh: r.dropPercentFromHigh === '' || r.dropPercentFromHigh == null ? null : clean(r.dropPercentFromHigh),
+        bbLowerTouch: !!r.bbLowerTouch,
+      };
+      broadcastBotStatus();
+    }
+    else if (msg.type === 'bot_set_sell_rules') {
+      const r = msg.sellRules || {};
+      const clean = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      botState.sellRules = {
+        stopLossPercent: r.stopLossPercent === '' || r.stopLossPercent == null ? null : clean(r.stopLossPercent),
+        rsiAbove: r.rsiAbove === '' || r.rsiAbove == null ? null : clean(r.rsiAbove),
+        priceAbove: r.priceAbove === '' || r.priceAbove == null ? null : clean(r.priceAbove),
+      };
+      broadcastBotStatus();
+    }
     else if (msg.type === 'bot_manual_close') {
       const { symbol } = msg;
       if (botState.positions[symbol]) {
@@ -1493,6 +1528,10 @@ let botState = {
   takeProfitPercent: 1,
   maxConcurrentPositions: 1,
   scanWindowMinutes: 2, // وقت الفحص المخصص لكل عملة — قابل للتعديل من اللوحة
+  strategyMode: 'auto', // 'auto' = خوارزمية البوت التلقائية | 'manual' = المستخدم يحدد شروط الشراء/البيع بنفسه
+  manualSymbol: null, // بوضع "يدوي": لو محددة، البوت يراقب هذي العملة بس. لو null، يفحص كل حوض البحث بنفس قواعد المستخدم
+  buyRules: { rsiBelow: null, priceBelow: null, dropPercentFromHigh: null, bbLowerTouch: false }, // قواعد الشراء اليدوية — كلها اختيارية، والمفعّل منها لازم يتحقق كله مع بعض
+  sellRules: { stopLossPercent: null, rsiAbove: null, priceAbove: null }, // قواعد بيع إضافية فوق جني الربح التلقائي الموجود أصلاً
   positions: {},
   pendingOrders: {},
   pendingSellOrders: {},
@@ -1504,7 +1543,7 @@ let botState = {
 // خُفِّفت هذي العتبة من 0.35 إلى 0.22 (بطلب المستخدم) عشان يزيد تردد الشراء — راقب الأداء وعدّل حسب الحاجة
 const BOT_BUY_THRESHOLD = 0.22;
 const BOT_SELL_THRESHOLD = -0.22;
-const MAX_PENDING_BUY_MINUTES = 45;
+const MAX_PENDING_BUY_MINUTES = 5; // كان 45 دقيقة — هذا كان يعلّق البوت كامل لو أمر واحد ما نفذ، خصوصًا مع سعر بعيد عن السوق
 const TP_LEVELS = [1, 1.5, 2];
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء الفحص السريع (REST خفيف)
 
@@ -1688,6 +1727,122 @@ function fmtBig(n) {
   return n.toFixed(0);
 }
 
+// ── قواعد التداول اليدوية (المستخدم يحدد شروط الشراء والبيع بنفسه) ─────────────
+
+// يتحقق من شروط الشراء اللي فعّلها المستخدم. أي شرط قيمته null/false يُتجاهل تمامًا.
+// كل الشروط المفعّلة لازم تتحقق مع بعض (AND) — لازم يكون فيه شرط واحد مفعّل على الأقل وإلا ما يشتري إطلاقًا.
+function evaluateManualBuyRules(indicators, candles) {
+  const rules = botState.buyRules || {};
+  const reasons = [];
+  let anyRuleSet = false;
+
+  if (rules.rsiBelow != null) {
+    anyRuleSet = true;
+    if (indicators.rsi == null || indicators.rsi >= rules.rsiBelow) return { ok: false };
+    reasons.push(`RSI (${indicators.rsi.toFixed(1)}) تحت ${rules.rsiBelow}`);
+  }
+  if (rules.priceBelow != null) {
+    anyRuleSet = true;
+    if (indicators.currentPrice == null || indicators.currentPrice >= rules.priceBelow) return { ok: false };
+    reasons.push(`السعر (${indicators.currentPrice}) تحت ${rules.priceBelow}`);
+  }
+  if (rules.dropPercentFromHigh != null) {
+    anyRuleSet = true;
+    const highs = candles.slice(-20).map(c => c.high);
+    const recentHigh = Math.max(...highs);
+    const dropPct = recentHigh ? ((recentHigh - indicators.currentPrice) / recentHigh) * 100 : 0;
+    if (dropPct < rules.dropPercentFromHigh) return { ok: false };
+    reasons.push(`انخفض ${dropPct.toFixed(2)}% عن أعلى قمة بآخر 20 شمعة`);
+  }
+  if (rules.bbLowerTouch) {
+    anyRuleSet = true;
+    if (!indicators.bb || indicators.currentPrice > indicators.bb.lower) return { ok: false };
+    reasons.push('السعر لمس/تحت بولينجر السفلي');
+  }
+
+  if (!anyRuleSet) return { ok: false };
+  return { ok: true, reason: reasons.join(' + ') };
+}
+
+// يتحقق من شروط البيع الإضافية اللي فعّلها المستخدم فوق جني الربح التلقائي الموجود أصلاً (TP ladder).
+// أول شرط يتحقق يكفي وحده لإصدار أمر بيع فوري (Market) — هذي شروط طوارئ/خروج، مو AND.
+function evaluateManualSellRules(indicators, position) {
+  const rules = botState.sellRules || {};
+  if (!position || !position.entryPrice) return { ok: false };
+  const pnlPct = ((indicators.currentPrice - position.entryPrice) / position.entryPrice) * 100;
+
+  if (rules.stopLossPercent != null && pnlPct <= -Math.abs(rules.stopLossPercent)) {
+    return { ok: true, reason: `وقف خسارة: الصفقة عند ${pnlPct.toFixed(2)}%` };
+  }
+  if (rules.rsiAbove != null && indicators.rsi != null && indicators.rsi > rules.rsiAbove) {
+    return { ok: true, reason: `RSI (${indicators.rsi.toFixed(1)}) فوق ${rules.rsiAbove}` };
+  }
+  if (rules.priceAbove != null && indicators.currentPrice > rules.priceAbove) {
+    return { ok: true, reason: `السعر (${indicators.currentPrice}) فوق ${rules.priceAbove}` };
+  }
+  return { ok: false };
+}
+
+// دورة الشراء بوضع "يدوي" — إما عملة محددة، أو فحص كل الحوض بنفس قواعد المستخدم فقط (بدون خوارزمية التقييم التلقائية)
+async function runManualBuyCycle(now) {
+  if (botState.manualSymbol) {
+    const symbol = botState.manualSymbol;
+    if (botState.positions[symbol] || botState.pendingOrders[symbol]) {
+      botState.scanStatus = { active: false, symbol: null, windowStartedAt: null, checked: 1, total: 1 };
+      return;
+    }
+    if (!candleStore[`${symbol}_15m`]) { try { await ensureStream(symbol, SCAN_INTERVAL); } catch (err) { /* نكمل لو فشل */ } }
+    const candles = candleStore[`${symbol}_15m`];
+    botState.scanStatus = { active: true, symbol, windowStartedAt: now, checked: 1, total: 1 };
+    if (!candles || candles.length < 30) return;
+    const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+    if (!indicators) return;
+    const buyCheck = evaluateManualBuyRules(indicators, candles);
+    if (buyCheck.ok) {
+      const sig = {
+        symbol, price: indicators.currentPrice,
+        buyPoints: [{ point: 1, label: 'قاعدة يدوية', price: indicators.currentPrice, triggered: true }],
+        filterReason: buyCheck.reason, strongReversalUp: false,
+      };
+      await placeBotLimitBuy(sig);
+      botState.scanStatus.active = false;
+    }
+    return;
+  }
+
+  // ما فيه عملة محددة — يفحص كل حوض البحث ويشتري أول عملة تحقق قواعد المستخدم
+  const validSet = botState.exchange === 'binance' ? await getBinanceValidSymbols() : null;
+  let matched = null;
+  for (const symbol of SCAN_POOL) {
+    if (validSet && !validSet.has(symbol)) continue;
+    if (blacklistedSymbols[symbol] && blacklistedSymbols[symbol] > now) continue;
+    if (botState.positions[symbol] || botState.pendingOrders[symbol]) continue;
+    if (!candleStore[`${symbol}_15m`]) await refreshScanCache(symbol);
+    const candles = getCandlesForScan(symbol);
+    if (!candles || candles.length < 30) continue;
+    const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+    if (!indicators) continue;
+    const buyCheck = evaluateManualBuyRules(indicators, candles);
+    if (buyCheck.ok) { matched = { symbol, price: indicators.currentPrice, reason: buyCheck.reason }; break; }
+  }
+
+  if (matched) {
+    if (!candleStore[`${matched.symbol}_15m`] || candleStore[`${matched.symbol}_15m`].length < 60) {
+      try { await ensureStream(matched.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل */ }
+    }
+    botState.scanStatus = { active: true, symbol: matched.symbol, windowStartedAt: now, checked: SCAN_POOL.length, total: SCAN_POOL.length };
+    const sig = {
+      symbol: matched.symbol, price: matched.price,
+      buyPoints: [{ point: 1, label: 'قاعدة يدوية', price: matched.price, triggered: true }],
+      filterReason: matched.reason, strongReversalUp: false,
+    };
+    await placeBotLimitBuy(sig);
+    botState.scanStatus.active = false;
+  } else {
+    botState.scanStatus = { active: false, symbol: null, windowStartedAt: null, checked: SCAN_POOL.length, total: SCAN_POOL.length };
+  }
+}
+
 function computeBuyPoints(candles, indicators, sig) {
   if (!candles || candles.length < 20 || !indicators) return [];
   const price = indicators.currentPrice;
@@ -1695,9 +1850,12 @@ function computeBuyPoints(candles, indicators, sig) {
   const recentLow = Math.min(...lows);
   const bbLower = indicators.bb?.lower;
   return [
-    { point: 1, label: 'نقطة الهبوط المبكر المكتمل', price: roundPrice(price * 0.995), triggered: sig.action === 'buy' && sig.passesFilters },
-    { point: 2, label: 'ارتداد من بولينجر السفلي + StochRSI', price: roundPrice(bbLower || price * 0.99), triggered: sig.action === 'buy' && indicators.stochRsi?.crossUp },
-    { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && indicators.candleCompare?.bullEngulf },
+    // نقطة 2 و3 تحتاجان شرط فني فعلي (تحققهما ليس دائمًا). نقطة 1 هي البديل الافتراضي —
+    // لازم سعرها يكون قريب من السوق (فوقه بشعرة) لا 0.5% تحته، وإلا الأمر يعلّق للأبد
+    // لو السعر ما ينزل لهالمستوى (كان هذا هو سبب تعليق الشراء الأساسي).
+    { point: 2, label: 'ارتداد من بولينجر السفلي + StochRSI', price: roundPrice(bbLower || price * 0.99), triggered: sig.action === 'buy' && !!indicators.stochRsi?.crossUp },
+    { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && !!indicators.candleCompare?.bullEngulf },
+    { point: 1, label: 'دخول قريب من السعر الحالي (بديل افتراضي)', price: roundPrice(price * 1.0015), triggered: sig.action === 'buy' && sig.passesFilters },
   ];
 }
 
@@ -1839,8 +1997,11 @@ async function placeBotTakeProfitSells(symbol, position) {
 
 async function placeBotLimitBuy(sig) {
   const { symbol } = sig;
-  const buyPoint = sig.buyPoints?.find(p => p.triggered) || sig.buyPoints?.[0];
-  const buyPrice = roundPrice(buyPoint?.price || sig.price);
+  const buyPoint = sig.buyPoints?.find(p => p.triggered);
+  // نقطة الدخول: لو فيه نقطة فنية فعليًا محققة (بولينجر/ابتلاع) نستخدم سعرها، وإلا نشتري قريب من السعر
+  // الحالي (فوقه بشعرة) بدل نقطة عامة أبعد 0.5% كانت تخلي الأمر يعلّق لأنه ما يوصله السعر أبدًا
+  const rawPrice = buyPoint ? buyPoint.price : sig.price * 1.0015;
+  const buyPrice = roundPrice(rawPrice);
   const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
   if (!qty || qty <= 0) return;
 
@@ -1899,11 +2060,13 @@ async function checkPendingOrders(symbol) {
       delete botState.pendingOrders[symbol];
     } else {
       const ageMinutes = (Date.now() - buyOrder.placedAt) / 60000;
-      const sig = botState.lastSignals[symbol];
-      if (ageMinutes > MAX_PENDING_BUY_MINUTES && sig && sig.price > buyOrder.price * 1.01) {
+      // نلغي أي أمر شراء ما تنفذ بعد انتهاء المهلة، بغض النظر عن اتجاه السعر — كان الشرط القديم
+      // يطلب ابتعاد السعر 1% فوق سعر الأمر، فلو السعر ما تحرك (سوق هادئ) الأمر يفضل معلّق للأبد
+      // ويقفل البوت كامل عن البحث عن فرص جديدة. الهدف هنا: تحرير البوت بسرعة لعملة أفضل.
+      if (ageMinutes > MAX_PENDING_BUY_MINUTES) {
         try { await cancelOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch {}
         delete botState.pendingOrders[symbol];
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: 'أُلغي أمر الشراء المعلق لابتعاد السعر' });
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `أُلغي أمر الشراء المعلق بعد ${MAX_PENDING_BUY_MINUTES} دقائق بدون تنفيذ` });
         botState.tradeLog = botState.tradeLog.slice(0, 50);
       }
     }
@@ -1937,6 +2100,18 @@ async function runBotCycle() {
   const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
   for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
 
+  // مراقبة وقف الخسارة وأي قواعد بيع إضافية على كل صفقة مفتوحة — تعمل دائمًا (بكل الأوضاع) فوق جني الربح التلقائي
+  for (const symbol of Object.keys(botState.positions)) {
+    try {
+      const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+      if (!candles || candles.length < 30) continue;
+      const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+      if (!indicators) continue;
+      const manualSell = evaluateManualSellRules(indicators, botState.positions[symbol]);
+      if (manualSell.ok) await executeBotSell(symbol, null, `بيع حسب القاعدة: ${manualSell.reason}`);
+    } catch (err) { logBotError(symbol, err); }
+  }
+
   const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
   if (openCount >= botState.maxConcurrentPositions) {
     botState.scanStatus.active = false;
@@ -1945,6 +2120,15 @@ async function runBotCycle() {
   }
 
   const now = Date.now();
+
+  // ── الوضع اليدوي: المستخدم يحدد شروط الشراء بنفسه، بدون خوارزمية التقييم التلقائية ──
+  if (botState.strategyMode === 'manual') {
+    try { await runManualBuyCycle(now); } catch (err) { logBotError(botState.manualSymbol || 'manual-scan', err); }
+    broadcastBotStatus();
+    return;
+  }
+
+  // ── الوضع التلقائي (الافتراضي) ──
   const focus = botState.scanStatus;
 
   // لو عندنا عملة "قيد الفحص" حاليًا وضمن نافذتها المخصصة (قابلة للتعديل من اللوحة)، كمّل فحصها بعمق (مع طلبات الشبكة الكاملة)
@@ -2057,6 +2241,8 @@ function botStatusPayload() {
     type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
     tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
     maxConcurrentPositions: botState.maxConcurrentPositions, scanWindowMinutes: botState.scanWindowMinutes,
+    strategyMode: botState.strategyMode, manualSymbol: botState.manualSymbol,
+    buyRules: botState.buyRules, sellRules: botState.sellRules,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20), lastSignals: botState.lastSignals,
     scanStatus: botState.scanStatus,
