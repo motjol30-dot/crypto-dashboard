@@ -124,144 +124,42 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--muted); font-size: 0.85rem; }
-
-  /* ═══════════════════ صف المربعات الخمسة ═══════════════════ */
-  #status-row {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 6px;
-    padding: 8px 10px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    overflow-x: auto;
+  #status-row, #status-row-lower {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .pill {
-    flex: 1;
-    min-width: 60px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 6px 4px;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: border-color 0.2s;
+    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 8px; text-align: center;
   }
-  .pill:hover { border-color: var(--accent); }
-  .pill .pill-label {
-    font-size: 0.58rem;
-    color: var(--muted);
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  .pill .pill-value {
-    font-size: 0.82rem;
-    font-weight: 800;
-    margin-top: 2px;
-  }
+  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
+  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
   .pill-value.up, .pill-value.pos   { color: var(--green); }
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
-
-  /* ═══════════════════ المربع السادس — النتيجة الموحدة ═══════════════════ */
-  #composite-row {
-    display: flex;
-    padding: 8px 10px;
-    background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  #composite-row .composite-box {
-    flex: 1;
-    min-width: 100px;
-    background: var(--bg);
-    border: 1px solid var(--accent);
-    border-radius: 10px;
-    padding: 8px 12px;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-  #composite-row .composite-score {
-    font-size: 1.3rem;
-    font-weight: 900;
-    font-family: 'Courier New', monospace;
-    line-height: 1.2;
-  }
-  #composite-row .composite-bar-wrap {
-    width: 100%;
-    height: 6px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 6px;
-    margin: 4px 0 2px;
-    overflow: hidden;
-  }
-  #composite-row .composite-bar {
-    height: 100%;
-    border-radius: 6px;
-    transition: width 0.5s, background 0.5s;
-  }
-  #composite-row .composite-verdict {
-    font-size: 0.68rem;
-    font-weight: 700;
-    margin-top: 2px;
-  }
-
-  /* القوائم المنسدلة */
   .cfg-dropdown {
-    display: none;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    padding: 8px 10px;
-    margin: 4px 10px 8px;
-    font-size: 0.72rem;
+    display: none; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 8px 10px; margin: 4px 10px 8px; font-size: 0.72rem;
   }
   .cfg-dropdown.open { display: block; }
-  .cfg-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 0;
-    border-bottom: 1px dashed rgba(255,255,255,0.07);
-  }
+  .cfg-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
   .cfg-row:last-of-type { border-bottom: none; }
   .cfg-check { width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
   .cfg-name { flex: 1; color: var(--text); text-align: right; }
   .cfg-weight {
-    width: 52px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 3px 5px;
-    text-align: center;
-    font-size: 0.72rem;
+    width: 52px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
   }
   .cfg-pct-sign { color: var(--muted); }
   .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
   .cfg-save-btn {
-    width: 100%;
-    margin-top: 8px;
-    background: rgba(88,166,255,0.15);
-    border: 1px solid rgba(88,166,255,0.4);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 6px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    cursor: pointer;
+    width: 100%; margin-top: 8px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
+    color: var(--text); border-radius: 6px; padding: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
   }
-
   #final-row-wrap { display: flex; align-items: stretch; background: var(--surface2); border-bottom: 2px solid var(--accent); }
-  #final-verdict-row { flex: 1; padding: 10px; text-align: center; cursor: pointer; }
+  #final-verdict-row {
+    flex: 1; padding: 10px; text-align: center; cursor: pointer;
+  }
   .final-label { font-size: 0.68rem; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
   .final-value { font-size: 1.3rem; font-weight: 900; }
   .final-value.pos { color: var(--green); }
@@ -274,7 +172,6 @@
   .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
-
   #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
   .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
   .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
@@ -283,7 +180,6 @@
   .zone-box.buy .zt  { color: var(--green); }
   .zone-box.sell .zt { color: var(--red); }
   .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
-
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
@@ -317,7 +213,6 @@
   .bot-log-row.buy-row { color: var(--green); }
   .bot-log-row.sell-row { color: var(--red); }
   .bot-log-row.error-row { color: var(--yellow); }
-
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
@@ -331,16 +226,10 @@
   .explosion-box.dir-up .explosion-symbol { color: var(--green); }
   .explosion-box.dir-down .explosion-symbol { color: var(--red); }
   .explosion-box.empty { opacity: 0.5; cursor: default; }
-
-  /* ═══ المؤشرات (الطبقات) ═══ */
   #indicators-list { padding: 4px 10px 10px; }
   .group-header {
-    font-size: 0.8rem;
-    font-weight: 800;
-    color: var(--accent);
-    margin: 14px 0 4px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem; font-weight: 800; color: var(--accent);
+    margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
   }
   .group-header:first-child { margin-top: 0; }
   .group-summary { font-size: 0.68rem; color: var(--muted); margin-bottom: 6px; }
@@ -363,27 +252,17 @@
   .acc-body { display: none; padding: 0 12px 10px; font-size: 0.78rem; color: var(--muted); line-height: 1.7; }
   .acc-item.open .acc-body { display: block; }
   .acc-body b { color: var(--text); font-family: 'Courier New', monospace; }
-
   #notes-toggle {
-    width: calc(100% - 20px);
-    margin: 0 10px 10px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--accent);
-    border-radius: 8px;
-    padding: 8px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    cursor: pointer;
+    width: calc(100% - 20px); margin: 0 10px 10px; background: var(--surface);
+    border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
+    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
   }
   #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
-  #notes-list.open { display: flex; }
   #notes-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
   #notes-list li .dot { flex-shrink:0; margin-top:4px; width:6px;height:6px;border-radius:50%; }
   #notes-list li .dot.bull { background: var(--green); }
   #notes-list li .dot.bear { background: var(--red); }
   #notes-list li .dot.neutral { background: var(--yellow); }
-
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -454,7 +333,6 @@
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
 </div>
 
-<!-- ═══════════════════ المربعات الخمسة (بدون نسب) ═══════════════════ -->
 <div id="status-row">
   <div class="pill" id="p-decision-wrap" style="cursor:pointer;">
     <div class="pill-label">القرار</div>
@@ -478,23 +356,11 @@
   </div>
 </div>
 
-<!-- ═══════════════════ المربع السادس — النتيجة الموحدة ═══════════════════ -->
-<div id="composite-row">
-  <div class="composite-box" id="p-composite-wrap" style="cursor:pointer;">
-    <div class="pill-label" style="font-size:0.62rem; color:var(--muted); font-weight:700;">النتيجة الموحدة</div>
-    <div class="composite-score" id="p-composite-score" style="color:var(--yellow);">—</div>
-    <div class="composite-bar-wrap"><div class="composite-bar" id="p-composite-bar" style="width:0%;background:var(--yellow);"></div></div>
-    <div class="composite-verdict" id="p-composite-verdict" style="color:var(--yellow);">—</div>
-  </div>
-</div>
-
-<!-- القوائم المنسدلة للمربعات -->
 <div id="decision-cfg" class="cfg-dropdown"></div>
 <div id="fourbox-cfg" class="cfg-dropdown"></div>
 <div id="secondary-cfg" class="cfg-dropdown"></div>
 <div id="allind-cfg" class="cfg-dropdown"></div>
 <div id="early-cfg" class="cfg-dropdown"></div>
-<div id="composite-cfg" class="cfg-dropdown"></div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -513,7 +379,7 @@
     <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
   </div>
   <div id="final-verdict-row" style="cursor:pointer;">
-    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 6 مربعات)</div>
+    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 5 مربعات)</div>
     <div class="final-value neutral" id="p-final">—</div>
   </div>
   <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
@@ -666,13 +532,33 @@
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
 <div id="indicators-list">
-  <!-- ═══════ النتيجة الموحدة — الطبقة التفصيلية ═══════ -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- 🎯 المؤشر الموحد الشامل — Universal Composite Indicator      -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="group-header" style="border-bottom: 2px solid var(--accent); padding-bottom: 6px;">
-    🎯 تفاصيل النتيجة الموحدة (Universal Composite)
-    <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— 5 مجموعات</span>
+    🎯 المؤشر الموحد الشامل (Universal Composite)
+    <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— يجمع +30 مؤشر</span>
   </div>
-  <div class="group-summary" id="grp-composite-detail">—</div>
+  <div class="group-summary" id="grp-composite">—</div>
 
+  <!-- البطاقة الرئيسية -->
+  <div id="composite-score-box" style="
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 12px;
+    text-align: center;
+  ">
+    <div style="font-size:0.68rem; color:var(--muted); font-weight:700; margin-bottom:6px;">النتيجة الموحدة</div>
+    <div id="composite-score-value" style="font-size:2.2rem; font-weight:900; font-family:'Courier New',monospace; color:var(--yellow);">—</div>
+    <div id="composite-verdict" style="font-size:0.9rem; font-weight:800; margin-top:4px; color:var(--yellow);">—</div>
+    <div id="composite-bar-wrap" style="margin-top:8px; background:rgba(255,255,255,0.06); border-radius:8px; height:10px; overflow:hidden;">
+      <div id="composite-bar" style="height:100%; width:0%; border-radius:8px; transition:width 0.5s, background 0.5s;"></div>
+    </div>
+  </div>
+
+  <!-- المجموعات الفرعية (5 مجموعات قابلة للطي) -->
   <div class="acc-item" data-key="uc-trend">
     <div class="acc-head">
       <div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">📈 الاتجاه (Trend) — 25%</span></div>
@@ -712,8 +598,8 @@
     </div>
     <div class="acc-body" id="b-uc-reversal">—</div>
   </div>
+  <!-- ═══════ نهاية المؤشر الموحد ═══════ -->
 
-  <!-- ═══ باقي المؤشرات كالمعتاد ═══ -->
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
   <div class="acc-item" data-key="stochrsi"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Stochastic RSI</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-stochrsi">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-stochrsi">—</div></div>
@@ -775,7 +661,7 @@
 <ul id="notes-list"></ul>
 
 <script>
-  // ═══════════════════ المتغيرات العامة ═══════════════════
+      // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
   let ws = null;
@@ -1037,9 +923,6 @@
   }
 
   // ═══════════════════ المؤشر الموحد الشامل — العميل ═══════════════════
-  let lastCompositeData = null;
-  let lastCompositeLean = 0;
-
   function computeUniversalCompositeClient(ind) {
     if (!ind) return null;
     const price = ind.currentPrice;
@@ -1168,53 +1051,42 @@
     };
   }
 
-  // ═══════════════════ عرض المؤشر الموحد (في المربع السادس + الطبقة) ═══════════════════
+  // ═══════════════════ عرض المؤشر الموحد ═══════════════════
   function renderUniversalComposite(ind) {
     const uc = ind && computeUniversalCompositeClient(ind);
-    if (!uc) {
-      // إخفاء العناصر
-      const scoreEl = document.getElementById('p-composite-score');
-      if (scoreEl) { scoreEl.textContent = '—'; scoreEl.style.color = 'var(--yellow)'; }
-      const barEl = document.getElementById('p-composite-bar');
-      if (barEl) { barEl.style.width = '0%'; barEl.style.background = 'var(--yellow)'; }
-      const verdictEl = document.getElementById('p-composite-verdict');
-      if (verdictEl) { verdictEl.textContent = '—'; verdictEl.style.color = 'var(--yellow)'; }
-      return;
-    }
-    lastCompositeData = uc;
+    if (!uc) return;
 
     const scoreColor = uc.score >= 75 ? '#00c853' :
                        uc.score >= 60 ? '#4caf50' :
                        uc.score >= 40 ? '#ffeb3b' :
                        uc.score >= 25 ? '#ff5252' : '#d50000';
 
-    // المربع السادس
-    const scoreEl = document.getElementById('p-composite-score');
+    const scoreEl = document.getElementById('composite-score-value');
     if (scoreEl) {
       scoreEl.textContent = uc.score + '/100';
       scoreEl.style.color = scoreColor;
     }
 
-    const barEl = document.getElementById('p-composite-bar');
-    if (barEl) {
-      barEl.style.width = uc.score + '%';
-      barEl.style.background = scoreColor;
-    }
-
-    const verdictEl = document.getElementById('p-composite-verdict');
+    const verdictEl = document.getElementById('composite-verdict');
     if (verdictEl) {
       verdictEl.textContent = uc.verdict;
       verdictEl.style.color = scoreColor;
     }
 
-    // الطبقة التفصيلية (المجموعات الخمس في قائمة المؤشرات)
-    const grpEl = document.getElementById('grp-composite-detail');
+    const bar = document.getElementById('composite-bar');
+    if (bar) {
+      bar.style.width = uc.score + '%';
+      bar.style.background = scoreColor;
+    }
+
+    const grpEl = document.getElementById('grp-composite');
     if (grpEl) {
       const vc = uc.verdictClass;
       grpEl.className = 'group-summary ' + (vc.includes('buy') ? 'pos' : vc.includes('sell') ? 'neg' : '');
-      grpEl.textContent = `النتيجة الموحدة: ${uc.score}/100 — ${uc.verdict}`;
+      grpEl.textContent = `النتيجة: ${uc.score}/100 — ${uc.verdict}`;
     }
 
+    // عرض المجموعات الفرعية الخمس
     const groups = uc.groups;
     if (groups.trend) {
       const g = groups.trend;
@@ -1619,20 +1491,12 @@
       { key: 'relativeStrengthBTC', name: 'القوة النسبية مقارنة بالبيتكوين', checked: true, weight: 1 },
       { key: 'marketFacilitation', name: 'تيسير الحركة', checked: true, weight: 1 },
     ]},
-    composite: { label: 'النتيجة الموحدة', indicators: [
-      { key: 'uc-trend', name: 'الاتجاه', checked: true, weight: 25 },
-      { key: 'uc-momentum', name: 'الزخم', checked: true, weight: 25 },
-      { key: 'uc-volatility', name: 'التذبذب', checked: true, weight: 15 },
-      { key: 'uc-volume', name: 'الحجم', checked: true, weight: 15 },
-      { key: 'uc-reversal', name: 'الارتداد', checked: true, weight: 20 },
-    ]},
     final: { label: 'القرار النهائي', indicators: [
-      { key: 'decision', name: 'مربع القرار', checked: true, weight: 25 },
-      { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 15 },
-      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 25 },
+      { key: 'decision', name: 'مربع القرار', checked: true, weight: 30 },
+      { key: 'secondary', name: 'مربع التحليل', checked: true, weight: 20 },
+      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 30 },
       { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
-      { key: 'composite', name: 'النتيجة الموحدة', checked: true, weight: 15 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -1738,7 +1602,7 @@
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
 
-  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'composite', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1765,7 +1629,6 @@
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
   document.getElementById('p-allind-wrap').addEventListener('click', () => toggleCfgDropdown('allind-cfg'));
   document.getElementById('p-early-wrap').addEventListener('click', () => toggleCfgDropdown('early-cfg'));
-  document.getElementById('p-composite-wrap').addEventListener('click', () => toggleCfgDropdown('composite-cfg'));
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
   document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
@@ -1836,85 +1699,29 @@
       const margin = Math.abs(reversalBullCount - reversalBearCount);
       if (margin < 2) reversalMajority = 0;
     }
+    setPill('p-momentum', momentumMajority > 0 ? 'up' : momentumMajority < 0 ? 'down' : 'neutral', momentumMajority > 0 ? 'صعود' : momentumMajority < 0 ? 'هبوط' : 'محايد');
+    setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral', volumeMajority > 0 ? 'صعود' : volumeMajority < 0 ? 'هبوط' : 'محايد');
+    setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral', reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
+    setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral', stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
 
-    // ═══ المربعات الخمسة — عرض الكلمة فقط بدون نسبة ═══
-    const decisionLeanMap = { trend: lastTrendSign, action: lastActionSign, momentum: momentumMajority, volume: volumeMajority, reversal: reversalMajority, stability: stabilityMajority };
-    lastLeanMaps.decision = decisionLeanMap;
-    const decision7Base = weightedLean('decision', decisionLeanMap);
     const btcMoved70 = Math.abs(btcLayerLastDiff) >= BTC_LAYER_STEP;
     const btcPct = Math.min(100, Math.round((Math.abs(btcLayerLastDiff) / BTC_LAYER_PCT_CAP) * 100));
     const btcBoost = btcMoved70 ? (btcLayerSign * (btcPct / 100) * 0.3) : 0;
+    const decisionLeanMap = { trend: lastTrendSign, action: lastActionSign, momentum: momentumMajority, volume: volumeMajority, reversal: reversalMajority, stability: stabilityMajority };
+    lastLeanMaps.decision = decisionLeanMap;
+    const decision7Base = weightedLean('decision', decisionLeanMap);
     const decision7Lean = Math.max(-1, Math.min(1, decision7Base + btcBoost));
     const decision7V = dirWord3(decision7Lean);
-    setPill('p-decision', decision7V.dir, decision7V.word);
+    setPill('p-decision', decision7V.dir, `${decision7V.word} ${Math.round(Math.abs(decision7Lean) * 100)}%`);
     renderBoxConfigDropdown('decision', 'decision-cfg');
 
-    // ═══ مربع الارتداد ═══
-    const stability = groupVerdictCounts('stability');
-    const reversal = groupVerdictCounts('reversal');
-    const momentum = groupVerdictCounts('momentum');
-    const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
-    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0);
-    const fourboxLeanMap = { stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly) };
-    lastLeanMaps.fourbox = fourboxLeanMap;
-    const fourboxAvg = weightedLean('fourbox', fourboxLeanMap);
-    lastFourBoxLean = fourboxAvg;
-    const fourboxV = dirWord3(fourboxAvg);
-    setPill('p-fourbox', fourboxV.dir, fourboxV.word);
-    renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
+    renderFourBoxDecision();
+    renderSecondaryBox();
+    renderAllIndicatorsBox();
+    renderEarlyBox();
+    renderEarlyBoxes();
 
-    // ═══ مربع التحليل ═══
-    const volume = groupVerdictCounts('volume');
-    const volumeLean = volume.total > 0 ? (volume.bull - volume.bear) / volume.total : 0;
-    const confWeight = lastConfidence / 100;
-    const confidenceLean = lastActionSign * confWeight;
-    const secondaryLeanMap = { trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign };
-    lastLeanMaps.secondary = secondaryLeanMap;
-    const secondaryAvg = weightedLean('secondary', secondaryLeanMap);
-    lastSecondaryLean = secondaryAvg;
-    const secondaryV = dirWord3(secondaryAvg);
-    setPill('p-secondary', secondaryV.dir, secondaryV.word);
-    renderBoxConfigDropdown('secondary', 'secondary-cfg');
-
-    // ═══ مربع المؤشرات ═══
-    const allindLeanMap = {};
-    for (const [key, verdict] of Object.entries(consensusTracker)) {
-      allindLeanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
-    }
-    lastLeanMaps.allind = allindLeanMap;
-    const allindAvg = weightedLean('allind', allindLeanMap);
-    lastAllIndLean = allindAvg;
-    const allindV = dirWord3(allindAvg);
-    setPill('p-allind', allindV.dir, allindV.word);
-    renderBoxConfigDropdown('allind', 'allind-cfg');
-
-    // ═══ مربع المسافة ═══
-    const earlyLeanMap = {};
-    for (const [key, verdict] of Object.entries(consensusTracker)) {
-      earlyLeanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
-    }
-    lastLeanMaps.early = earlyLeanMap;
-    const earlyAvg = weightedLean('early', earlyLeanMap);
-    lastEarlyLean = earlyAvg;
-    const earlyV = dirWord3(earlyAvg, 0.2);
-    setPill('p-early', earlyV.dir, earlyV.word);
-    renderBoxConfigDropdown('early', 'early-cfg');
-
-    // ═══ المربع السادس: النتيجة الموحدة (يعرضها renderUniversalComposite) ═══
-    // نعدّل المربع السادس عبر دالة renderUniversalComposite التي تُستدعى من renderIndicators
-
-    // ═══ القرار النهائي ═══
-    const compositeLean = lastCompositeData ? Math.max(-1, Math.min(1, (lastCompositeData.score - 50) / 50)) : 0;
-    lastCompositeLean = compositeLean;
-
-    const finalLeanMap = {
-      decision: decision7Lean,
-      secondary: lastSecondaryLean,
-      fourbox: lastFourBoxLean,
-      allind: lastAllIndLean,
-      early: lastEarlyLean,
-      composite: compositeLean
-    };
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
@@ -1924,9 +1731,79 @@
     document.getElementById('p-final').textContent = finalLabel;
     document.getElementById('p-final').className = `final-value ${finalClass}`;
     renderBoxConfigDropdown('final', 'final-cfg');
+  }
 
-    // ═══ مربعا الارتفاع والنزول المبكر ═══
-    renderEarlyBoxes();
+  function renderFourBoxDecision() {
+    const pillEl = document.getElementById('p-fourbox');
+    const stability = groupVerdictCounts('stability');
+    const reversal = groupVerdictCounts('reversal');
+    const momentum = groupVerdictCounts('momentum');
+    const hourly = lastHourlyLayer ? { bull: lastHourlyLayer.bull, bear: lastHourlyLayer.bear, total: lastHourlyLayer.bull + lastHourlyLayer.bear } : { bull: 0, bear: 0, total: 0 };
+    const leanOf = (g) => (g.total > 0 ? (g.bull - g.bear) / g.total : 0);
+    const leanMap = { stability: leanOf(stability), reversal: leanOf(reversal), momentum: leanOf(momentum), hourly: leanOf(hourly) };
+    lastLeanMaps.fourbox = leanMap;
+    const avgLean = weightedLean('fourbox', leanMap);
+    lastFourBoxLean = avgLean;
+    const v = dirWord3(avgLean);
+    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
+    pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('fourbox', 'fourbox-cfg');
+  }
+
+  function renderSecondaryBox() {
+    const pillEl = document.getElementById('p-secondary');
+    const volume = groupVerdictCounts('volume');
+    const volumeLean = volume.total > 0 ? (volume.bull - volume.bear) / volume.total : 0;
+    const confWeight = lastConfidence / 100;
+    const confidenceLean = lastActionSign * confWeight;
+    const leanMap = { trend: lastTrendSign, action: lastActionSign, volume: volumeLean, confidence: confidenceLean, analysisGeneral: lastTrendSign };
+    lastLeanMaps.secondary = leanMap;
+    const avgLean = weightedLean('secondary', leanMap);
+    lastSecondaryLean = avgLean;
+    const v = dirWord3(avgLean);
+    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
+    pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('secondary', 'secondary-cfg');
+  }
+
+  function renderAllIndicatorsBox() {
+    const pillEl = document.getElementById('p-allind');
+    if (!pillEl) return;
+    const leanMap = {};
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
+    }
+    lastLeanMaps.allind = leanMap;
+    const avgLean = weightedLean('allind', leanMap);
+    lastAllIndLean = avgLean;
+    const v = dirWord3(avgLean);
+    pillEl.textContent = `${v.word} ${Math.round(Math.abs(avgLean) * 100)}%`;
+    pillEl.className = `pill-value ${v.dir}`;
+    renderBoxConfigDropdown('allind', 'allind-cfg');
+  }
+
+  function renderEarlyBox() {
+    const pillEl = document.getElementById('p-early');
+    if (!pillEl) return;
+    const leanMap = {};
+    for (const [key, verdict] of Object.entries(consensusTracker)) {
+      leanMap[key] = verdict === 'bull' ? 1 : verdict === 'bear' ? -1 : 0;
+    }
+    lastLeanMaps.early = leanMap;
+    const avgLean = weightedLean('early', leanMap);
+    lastEarlyLean = avgLean;
+    const v = dirWord3(avgLean, 0.2);
+    if (v.dir === 'up') {
+      pillEl.textContent = `صعود ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.className = 'pill-value up';
+    } else if (v.dir === 'down') {
+      pillEl.textContent = `هبوط ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.className = 'pill-value down';
+    } else {
+      pillEl.textContent = `محايد ${Math.round(Math.abs(avgLean) * 100)}%`;
+      pillEl.className = 'pill-value neutral';
+    }
+    renderBoxConfigDropdown('early', 'early-cfg');
   }
 
   function renderFrameBox() {
