@@ -117,7 +117,45 @@
   }
   #uci-title { font-size: 0.78rem; font-weight: 700; color: var(--muted); }
   #uci-value { font-size: 0.95rem; font-weight: 800; font-family: 'Courier New', monospace; color: var(--yellow); }
-  #uci-container { position: relative; height: 16vh; min-height: 110px; }
+  #uci-container {
+    position: relative; height: 16vh; min-height: 110px;
+    display: flex; flex-direction: column; justify-content: center; gap: 10px;
+    padding: 16px 16px 10px;
+  }
+  #uci-gauge-track {
+    position: relative; height: 20px; border-radius: 10px; display: flex;
+    border: 1px solid var(--border); overflow: visible;
+  }
+  .uci-zone { height: 100%; }
+  .uci-zone:first-child { border-radius: 9px 0 0 9px; }
+  .uci-zone:last-child  { border-radius: 0 9px 9px 0; }
+  #uci-needle {
+    position: absolute; top: -8px; left: 50%; width: 0; height: 0;
+    transform: translateX(-50%); transition: left .5s ease; z-index: 3; text-align: center;
+  }
+  #uci-needle-tip {
+    width: 0; height: 0; margin: 0 auto;
+    border-left: 6px solid transparent; border-right: 6px solid transparent;
+    border-top: 9px solid #e6edf3; transition: border-top-color .3s ease;
+  }
+  #uci-needle::after {
+    content: ''; position: absolute; top: 9px; left: 50%; width: 2px; height: 20px;
+    background: var(--needle-color, #e6edf3); transform: translateX(-50%); transition: background .3s ease;
+  }
+  #uci-signal-marker {
+    position: absolute; top: 0; left: 50%; width: 2px; height: 20px;
+    background: rgba(125,133,144,0.9); transition: left .5s ease; z-index: 2;
+  }
+  #uci-gauge-scale {
+    display: flex; justify-content: space-between; font-size: 0.6rem; color: var(--muted);
+    font-family: 'Courier New', monospace; padding: 0 1px;
+  }
+  #uci-gauge-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #uci-label-badge {
+    font-size: 0.85rem; font-weight: 800; padding: 3px 12px; border-radius: 6px;
+    background: var(--surface2); transition: color .3s ease, background .3s ease;
+  }
+  #uci-sub-values { font-size: 0.68rem; color: var(--muted); font-family: 'Courier New', monospace; }
   #loading {
     position: absolute; inset: 0; background: rgba(13,17,23,0.85);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -338,7 +376,24 @@
   <span id="uci-title">📊 Universal Composite Indicator (UCI)</span>
   <span id="uci-value">—</span>
 </div>
-<div id="uci-container"></div>
+<div id="uci-container">
+  <div id="uci-gauge-track">
+    <div class="uci-zone" style="width:15%;background:rgba(46,160,67,0.9);"></div>
+    <div class="uci-zone" style="width:17%;background:rgba(63,185,80,0.55);"></div>
+    <div class="uci-zone" style="width:14%;background:rgba(63,185,80,0.22);"></div>
+    <div class="uci-zone" style="width:8%;background:rgba(125,133,144,0.25);"></div>
+    <div class="uci-zone" style="width:14%;background:rgba(248,81,73,0.22);"></div>
+    <div class="uci-zone" style="width:17%;background:rgba(248,81,73,0.55);"></div>
+    <div class="uci-zone" style="width:15%;background:rgba(248,81,73,0.9);"></div>
+    <div id="uci-signal-marker" title="Signal"></div>
+    <div id="uci-needle"><div id="uci-needle-tip"></div></div>
+  </div>
+  <div id="uci-gauge-scale"><span>0</span><span>20</span><span>50</span><span>80</span><span>100</span></div>
+  <div id="uci-gauge-footer">
+    <span id="uci-label-badge">—</span>
+    <span id="uci-sub-values">UCI: — · Signal: —</span>
+  </div>
+</div>
 
 <div id="status-row">
   <div class="pill" id="p-decision-wrap" style="cursor:pointer;">
@@ -608,49 +663,76 @@
   }
 
   // ═══════════════════ لوحة المؤشر المركب الشامل (UCI) — مستقلة تمامًا عن القرار النهائي ═══════════════════
-  let uciChart = null;
-  let uciCompositeSeries = null;
-  let uciSignalSeries = null;
+  // نفس البيانات القادمة من السيرفر (msg.uci: composite/signal) بدون أي تغيير في الحساب — فقط طريقة العرض تحولت من شارت خطي إلى مقياس (Gauge) دقيق بالنسبة المئوية مع تصنيف نصي.
+  const UCI_ZONES = [
+    { max: 15,  label: 'شراء قوية',  color: '#3fb950' },
+    { max: 32,  label: 'شراء',       color: '#3fb950' },
+    { max: 46,  label: 'شراء ضعيف',  color: '#8fd99a' },
+    { max: 54,  label: 'محايد',      color: '#7d8590' },
+    { max: 68,  label: 'بيع ضعيف',   color: '#f2938e' },
+    { max: 85,  label: 'بيع',        color: '#f85149' },
+    { max: Infinity, label: 'بيع قوية', color: '#f85149' },
+  ];
+  function uciZoneFor(v) {
+    for (const z of UCI_ZONES) if (v <= z.max) return z;
+    return UCI_ZONES[UCI_ZONES.length - 1];
+  }
   function initUciChart() {
-    const container = document.getElementById('uci-container');
-    if (!container) return;
-    if (uciChart) uciChart.remove();
-    uciChart = LightweightCharts.createChart(container, {
-      layout: { background: { color: '#0d1117' }, textColor: '#7d8590' },
-      grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
-      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      rightPriceScale: { borderColor: '#21262d' },
-      timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false },
-    });
-    uciCompositeSeries = uciChart.addLineSeries({ color: '#3fb950', lineWidth: 2, title: 'UCI' });
-    uciSignalSeries = uciChart.addLineSeries({ color: '#7d8590', lineWidth: 1, title: 'Signal' });
-    uciCompositeSeries.createPriceLine({ price: 80, color: 'rgba(248,81,73,0.5)', lineStyle: LightweightCharts.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: 'ذروة شراء' });
-    uciCompositeSeries.createPriceLine({ price: 20, color: 'rgba(63,185,80,0.5)', lineStyle: LightweightCharts.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: 'ذروة بيع' });
-    uciCompositeSeries.createPriceLine({ price: 50, color: 'rgba(125,133,144,0.35)', lineStyle: LightweightCharts.LineStyle.Dotted, lineWidth: 1, axisLabelVisible: false, title: '' });
-    new ResizeObserver(() => {
-      const r = container.getBoundingClientRect();
-      uciChart.resize(r.width, r.height);
-    }).observe(container);
+    // إعادة ضبط المقياس لحالته الافتراضية عند تبديل العملة/الفريم
+    const needle = document.getElementById('uci-needle');
+    const marker = document.getElementById('uci-signal-marker');
+    const badge = document.getElementById('uci-label-badge');
+    const sub = document.getElementById('uci-sub-values');
+    const valueEl = document.getElementById('uci-value');
+    if (needle) needle.style.left = '50%';
+    if (marker) { marker.style.left = '50%'; marker.style.display = 'none'; }
+    if (badge) { badge.textContent = '—'; badge.style.color = 'var(--muted)'; badge.style.background = 'var(--surface2)'; }
+    if (sub) sub.textContent = 'UCI: — · Signal: —';
+    if (valueEl) { valueEl.textContent = '—'; valueEl.style.color = ''; }
   }
 
-  let lastUciSeriesSymbol = null, lastUciSeriesInterval = null;
   function updateUciChart(msg) {
-    if (!uciChart || !Array.isArray(msg.uci)) return;
-    const compositeData = msg.uci.filter(p => p.composite != null).map(p => ({ time: p.time, value: p.composite }));
-    const signalData = msg.uci.filter(p => p.signal != null).map(p => ({ time: p.time, value: p.signal }));
-    uciCompositeSeries.setData(compositeData);
-    uciSignalSeries.setData(signalData);
+    if (!Array.isArray(msg.uci)) return;
+    const points = msg.uci.filter(p => p.composite != null);
+    if (!points.length) return;
+    const lastPt = points[points.length - 1];
+    const prevPt = points.length > 1 ? points[points.length - 2] : null;
+    const value = Math.max(0, Math.min(100, lastPt.composite));
+    const signalVal = lastPt.signal != null ? Math.max(0, Math.min(100, lastPt.signal)) : null;
+    const zone = uciZoneFor(value);
+
+    const needle = document.getElementById('uci-needle');
+    const tip = document.getElementById('uci-needle-tip');
+    const marker = document.getElementById('uci-signal-marker');
+    const badge = document.getElementById('uci-label-badge');
+    const sub = document.getElementById('uci-sub-values');
     const valueEl = document.getElementById('uci-value');
+
+    if (needle) {
+      needle.style.left = value + '%';
+      needle.style.setProperty('--needle-color', zone.color);
+    }
+    if (tip) tip.style.borderTopColor = zone.color;
+    if (marker) {
+      if (signalVal != null) { marker.style.left = signalVal + '%'; marker.style.display = ''; }
+      else marker.style.display = 'none';
+    }
+    if (badge) {
+      badge.textContent = zone.label;
+      badge.style.color = zone.color;
+      badge.style.background = zone.color + '22';
+    }
+    if (sub) sub.textContent = `UCI: ${value.toFixed(1)} · Signal: ${signalVal != null ? signalVal.toFixed(1) : '—'}`;
+
     if (valueEl) {
-      const lastPt = msg.uci.length ? msg.uci[msg.uci.length - 1] : null;
-      if (lastPt && lastPt.composite != null) {
-        valueEl.textContent = lastPt.composite.toFixed(1);
-        valueEl.style.color = lastPt.composite > 80 ? '#f85149' : lastPt.composite < 20 ? '#3fb950'
-          : (lastPt.signal != null && lastPt.composite > lastPt.signal ? '#3fb950' : '#f85149');
-      } else {
-        valueEl.textContent = '—';
-        valueEl.style.color = '';
+      let arrow = '▬', trendColor = 'var(--muted)';
+      if (prevPt && prevPt.composite != null) {
+        const diff = lastPt.composite - prevPt.composite;
+        if (diff > 0.05) { arrow = '▲'; trendColor = 'var(--green)'; }
+        else if (diff < -0.05) { arrow = '▼'; trendColor = 'var(--red)'; }
       }
+      valueEl.innerHTML = `${value.toFixed(1)} <span style="color:${trendColor}">${arrow}</span>`;
+      valueEl.style.color = zone.color;
     }
   }
 
