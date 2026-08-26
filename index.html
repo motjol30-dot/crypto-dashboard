@@ -235,11 +235,25 @@
   .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
   .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
-  #bot-scan-status { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
-  #bot-scan-status b { color: var(--accent); }
-  #bot-signal-box { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 7px 9px; margin-bottom: 8px; font-size: 0.7rem; }
-  #bot-signal-line { font-weight: 700; margin-bottom: 3px; }
-  #bot-signal-breakdown { color: var(--muted); font-size: 0.64rem; }
+  #bot-manual-symbol-line { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
+  #bot-manual-symbol-line b { color: var(--accent); }
+  #manual-order-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .manual-order-box {
+    flex: 1; border-radius: 10px; padding: 9px 8px; text-align: center; cursor: pointer; user-select: none;
+    border: 1px solid; transition: transform 0.12s;
+  }
+  .manual-order-box:active { transform: scale(0.97); }
+  .manual-order-box.buy { background: var(--buy-bg); border-color: rgba(63,185,80,0.4); }
+  .manual-order-box.sell { background: var(--sell-bg); border-color: rgba(248,81,73,0.4); }
+  .manual-order-label { font-size: 0.68rem; font-weight: 800; }
+  .manual-order-box.buy .manual-order-label { color: var(--green); }
+  .manual-order-box.sell .manual-order-label { color: var(--red); }
+  .manual-order-box.editing .manual-order-label::after { content: ' (اضغط للتنفيذ)'; font-weight: 600; opacity: 0.85; }
+  .manual-order-price { font-size: 1rem; font-weight: 800; color: var(--text); margin-top: 4px; font-family: 'Courier New', monospace; }
+  .manual-order-price input {
+    width: 92%; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.3); color: var(--text);
+    border-radius: 6px; padding: 4px 5px; font-size: 0.9rem; text-align: center; font-family: 'Courier New', monospace;
+  }
   #bot-action-row { display: flex; gap: 8px; margin-bottom: 8px; }
   #bot-action-row button { flex: 1; border-radius: 8px; padding: 8px; font-size: 0.72rem; font-weight: 800; cursor: pointer; border: 1px solid; }
   #bot-manual-close-btn { background: var(--sell-bg); border-color: rgba(248,81,73,0.4); color: var(--red); }
@@ -264,6 +278,7 @@
   .explosion-box.dir-up .explosion-symbol { color: var(--green); }
   .explosion-box.dir-down .explosion-symbol { color: var(--red); }
   .explosion-box.empty { opacity: 0.5; cursor: default; }
+  .explosion-box.selected-manual { outline: 2px solid var(--accent); outline-offset: -1px; }
   #indicators-list { padding: 4px 10px 10px; }
   .group-header {
     font-size: 0.8rem; font-weight: 800; color: var(--accent);
@@ -471,7 +486,17 @@
       <span id="bot-status-text">متوقف</span>
     </label>
   </div>
-  <div id="bot-scan-status">🔍 قيد الفحص الآن: <b id="bot-scan-symbol">—</b> <span id="bot-scan-detail" style="color:var(--muted); font-size:0.66rem;"></span></div>
+  <div id="bot-manual-symbol-line">🎯 عملة التداول اليدوي: <b id="bot-manual-symbol-value">لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق</b></div>
+  <div id="manual-order-row">
+    <div class="manual-order-box buy" id="manual-buy-box">
+      <div class="manual-order-label">شراء</div>
+      <div class="manual-order-price" id="manual-buy-price">—</div>
+    </div>
+    <div class="manual-order-box sell" id="manual-sell-box">
+      <div class="manual-order-label">بيع</div>
+      <div class="manual-order-price" id="manual-sell-price">—</div>
+    </div>
+  </div>
   <div id="bot-controls-row">
     <div class="bot-control">
       <span>المنصة</span>
@@ -495,15 +520,6 @@
       <input type="number" id="bot-max-positions-input" min="1" step="1" value="1">
       <button id="bot-save-maxpos-btn">حفظ</button>
     </div>
-    <div class="bot-control">
-      <span>وقت فحص كل عملة (دقائق)</span>
-      <input type="number" id="bot-scan-window-input" min="0.5" step="0.5" value="2">
-      <button id="bot-save-scanwindow-btn">حفظ</button>
-    </div>
-  </div>
-  <div id="bot-signal-box">
-    <div id="bot-signal-line">إشارة العملة الحالية: <span id="bot-signal-value">—</span></div>
-    <div id="bot-signal-breakdown">القرار (30%): <span id="bot-decision7-pct">—</span> &nbsp;|&nbsp; التحليل (20%): <span id="bot-secondary-pct">—</span> &nbsp;|&nbsp; الارتداد (45%): <span id="bot-fourbox-pct">—</span> &nbsp;|&nbsp; الفريم (5%): <span id="bot-frame-pct">—</span> &nbsp;|&nbsp; تحليل البوت (25%): <span id="bot-own-pct">—</span></div>
   </div>
   <div id="bot-action-row">
     <button id="bot-manual-close-btn" style="display:none;">🔴 إغلاق صفقة العملة الحالية</button>
@@ -612,16 +628,6 @@
   let lastPrice = null;
   let lastBotStatus = null;
   let lastMtfSnapshot = null;
-  let lastCandleTime = null;
-  setInterval(() => {
-    if (!lastBotStatus || !lastBotStatus.scanStatus || !lastBotStatus.scanStatus.active) return;
-    const el = document.getElementById('bot-scan-detail');
-    if (!el || !lastBotStatus.scanStatus.windowStartedAt) return;
-    const windowMin = lastBotStatus.scanWindowMinutes || 2;
-    const elapsedSec = Math.max(0, Math.round((Date.now() - lastBotStatus.scanStatus.windowStartedAt) / 1000));
-    const remainSec = Math.max(0, Math.round(windowMin * 60) - elapsedSec);
-    el.textContent = `(باقي ${remainSec}ث من نافذة ${windowMin} دقيقة)`;
-  }, 1000);
   let currentSeriesSymbol = null;
   let currentSeriesInterval = null;
 
@@ -772,6 +778,7 @@
       else if (msg.type === 'explosion_scan') handleExplosionScan(msg);
       else if (msg.type === 'mtf_update') handleMtfUpdate(msg);
       else if (msg.type === 'bot_status') handleBotStatus(msg);
+      else if (msg.type === 'manual_price') handleManualPrice(msg);
       else if (msg.type === 'error') handleBotError(msg);
     };
     ws.onclose = (ev) => {
@@ -904,11 +911,17 @@
     }
     box.classList.remove('empty', 'dir-up', 'dir-down');
     box.classList.add(item.direction === 'up' ? 'dir-up' : item.direction === 'down' ? 'dir-down' : '');
+    box.dataset.symbol = item.symbol;
+    box.classList.toggle('selected-manual', !!lastBotStatus && lastBotStatus.manualSymbol === item.symbol);
     box.querySelector('.explosion-symbol').textContent = item.symbol.replace('USDT', '');
     const qualityTag = item.overextended ? '⚠️ قريبة من قمتها مؤخرًا' : (item.pricePosition != null && item.pricePosition <= 60 ? '✅ مو منتفخة' : '');
     const priceTag = item.price != null ? `💰 السعر: <b>${item.price.toFixed(4)}</b>` : '';
     box.querySelector('.explosion-meta').innerHTML = `🔥 درجة الانضغاط: <b>${item.score}/100</b><br>${EXPLOSION_DIR_LABEL[item.direction] || ''}${qualityTag ? '<br>'+qualityTag : ''}${priceTag ? '<br>'+priceTag : ''}`;
-    box.onclick = () => switchToSymbol(item.symbol);
+    box.onclick = () => {
+      switchToSymbol(item.symbol);
+      // اختيار هذي العملة كمان للتداول اليدوي (مربعا الشراء والبيع فوق)
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_manual_symbol', symbol: item.symbol }));
+    };
   }
 
   // ═══════════════════ المؤشرات الديناميكية الجديدة ═══════════════════
@@ -1698,37 +1711,17 @@
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
     if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
     if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
-    if (msg.scanWindowMinutes != null) document.getElementById('bot-scan-window-input').value = msg.scanWindowMinutes;
 
-    const scanEl = document.getElementById('bot-scan-symbol');
-    const scanDetailEl = document.getElementById('bot-scan-detail');
-    const windowMin = msg.scanWindowMinutes || 2;
-    if (msg.scanStatus && msg.scanStatus.active && msg.scanStatus.symbol) {
-      scanEl.textContent = msg.scanStatus.symbol;
-      const elapsedSec = msg.scanStatus.windowStartedAt ? Math.max(0, Math.round((Date.now() - msg.scanStatus.windowStartedAt) / 1000)) : 0;
-      const remainSec = Math.max(0, Math.round(windowMin * 60) - elapsedSec);
-      scanDetailEl.textContent = `(باقي ${remainSec}ث من نافذة ${windowMin} دقيقة)`;
-    } else {
-      scanEl.textContent = '—';
-      const checkedCount = msg.scanStatus ? msg.scanStatus.checked : 0;
-      const totalCount = msg.scanStatus ? msg.scanStatus.total : 0;
-      scanDetailEl.textContent = msg.enabled ? `(ما فيه فرصة حاليًا — فحص ${checkedCount}/${totalCount} عملة، جاري البحث)` : '';
-    }
-    const sig = msg.lastSignals ? msg.lastSignals[currentSymbol] : null;
-    if (sig) {
-      const actionLabel = sig.action === 'buy' ? '🟢 شراء' : sig.action === 'sell' ? '🔴 بيع' : '⚪ انتظار';
-      document.getElementById('bot-signal-value').textContent = `${actionLabel} (مركّب ${(sig.composite * 100).toFixed(0)}%)`;
-      document.getElementById('bot-decision7-pct').textContent = `${(sig.decision7Signal * 100).toFixed(0)}%`;
-      document.getElementById('bot-fourbox-pct').textContent = `${(sig.fourBoxSignal * 100).toFixed(0)}%`;
-      document.getElementById('bot-secondary-pct').textContent = `${(sig.secondarySignal * 100).toFixed(0)}%`;
-      document.getElementById('bot-frame-pct').textContent = `${(sig.frameSignal * 100).toFixed(0)}%`;
-      document.getElementById('bot-own-pct').textContent = `${(sig.botOwnSignal * 100).toFixed(0)}%`;
-    } else {
-      document.getElementById('bot-signal-value').textContent = 'بانتظار أول دورة';
-      ['bot-decision7-pct','bot-fourbox-pct','bot-secondary-pct','bot-frame-pct','bot-own-pct'].forEach(id => document.getElementById(id).textContent = '—');
-    }
-    document.getElementById('bot-manual-close-btn').style.display = msg.positions && msg.positions[currentSymbol] ? 'block' : 'none';
-    document.getElementById('bot-cancel-pending-btn').style.display = msg.pendingOrders && msg.pendingOrders[currentSymbol] ? 'block' : 'none';
+    document.getElementById('bot-manual-symbol-value').textContent = msg.manualSymbol
+      ? msg.manualSymbol.replace('USDT', '')
+      : 'لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق';
+    document.querySelectorAll('.explosion-box').forEach(box => {
+      box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
+    });
+
+    const manualSym = msg.manualSymbol;
+    document.getElementById('bot-manual-close-btn').style.display = manualSym && msg.positions && msg.positions[manualSym] ? 'block' : 'none';
+    document.getElementById('bot-cancel-pending-btn').style.display = manualSym && msg.pendingOrders && msg.pendingOrders[manualSym] ? 'block' : 'none';
     document.getElementById('bot-positions-list').innerHTML = Object.entries(msg.positions || {}).length
       ? Object.entries(msg.positions).map(([sym, p]) => `<div class="bot-pos-row"><span>${sym}</span><span>${p.qty.toFixed(5)} @ ${p.entryPrice.toFixed(4)}</span></div>`).join('')
       : 'لا توجد صفقات مفتوحة';
@@ -1771,16 +1764,67 @@
     const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
     if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
   });
-  document.getElementById('bot-save-scanwindow-btn').addEventListener('click', () => {
-    const v = parseFloat(document.getElementById('bot-scan-window-input').value);
-    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_scan_window', scanWindowMinutes: v }));
-  });
   document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: currentSymbol }));
+    const sym = lastBotStatus && lastBotStatus.manualSymbol;
+    if (sym && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: sym }));
   });
   document.getElementById('bot-cancel-pending-btn').addEventListener('click', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_cancel_pending', symbol: currentSymbol }));
+    const sym = lastBotStatus && lastBotStatus.manualSymbol;
+    if (sym && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_cancel_pending', symbol: sym }));
   });
+
+  // ═══════════════════ مربعا الشراء/البيع اليدوي (سعر حي، تعديل بالضغط، تنفيذ بضغطة ثانية) ═══════════════════
+  let manualLivePrice = null;
+  const manualEditing = { buy: false, sell: false };
+
+  function fmtManualPrice(p) {
+    if (p == null || !Number.isFinite(p)) return '—';
+    return p >= 1 ? p.toFixed(4) : p.toFixed(8);
+  }
+
+  function handleManualPrice(msg) {
+    if (!lastBotStatus || msg.symbol !== lastBotStatus.manualSymbol) return;
+    manualLivePrice = msg.price;
+    if (!manualEditing.buy) document.getElementById('manual-buy-price').textContent = fmtManualPrice(msg.price);
+    if (!manualEditing.sell) document.getElementById('manual-sell-price').textContent = fmtManualPrice(msg.price);
+  }
+
+  function setupManualOrderBox(boxId, priceId, side, key) {
+    const box = document.getElementById(boxId);
+    const priceEl = document.getElementById(priceId);
+
+    priceEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (manualEditing[key]) return;
+      manualEditing[key] = true;
+      box.classList.add('editing');
+      const startVal = manualLivePrice != null ? manualLivePrice : '';
+      priceEl.innerHTML = `<input type="number" step="any" inputmode="decimal" id="${priceId}-input" value="${startVal}">`;
+      const input = document.getElementById(`${priceId}-input`);
+      input.addEventListener('click', (ev) => ev.stopPropagation());
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); box.click(); } });
+      input.focus();
+      input.select();
+    });
+
+    box.addEventListener('click', () => {
+      if (!lastBotStatus || !lastBotStatus.manualSymbol) { alert('اختر عملة أولًا من مربعات أقوى 3 عملات فوق'); return; }
+      let priceToSend = null;
+      if (manualEditing[key]) {
+        const input = document.getElementById(`${priceId}-input`);
+        const v = input ? parseFloat(input.value) : NaN;
+        if (Number.isFinite(v) && v > 0) priceToSend = v;
+        manualEditing[key] = false;
+        box.classList.remove('editing');
+        priceEl.textContent = fmtManualPrice(manualLivePrice);
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'bot_manual_order', side, price: priceToSend }));
+      }
+    });
+  }
+  setupManualOrderBox('manual-buy-box', 'manual-buy-price', 'BUY', 'buy');
+  setupManualOrderBox('manual-sell-box', 'manual-sell-price', 'SELL', 'sell');
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
   document.querySelectorAll('.tf-box').forEach(box => {
