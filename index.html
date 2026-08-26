@@ -1548,9 +1548,15 @@
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
-    const finalIcon = finalV.dir === 'up' ? '📈' : finalV.dir === 'down' ? '📉' : '⚪';
-    const finalLabel = `${finalIcon} ${finalV.word} ${Math.round(Math.abs(combinedLean) * 100)}%`;
-    const finalClass = finalV.dir === 'up' ? 'pos' : finalV.dir === 'down' ? 'neg' : 'neutral';
+    // عند وصول القرار النهائي لمرحلة "محايد" لا نعرض كلمة محايد إطلاقًا: نحسم الاتجاه حسب أي سهم مبكر (الأخضر يمين / الأحمر يسار) أكثر ارتفاعًا في شدته
+    let finalDir = finalV.dir, finalWord = finalV.word;
+    if (finalDir === 'neutral') {
+      if (lastEarlyUpPct >= lastEarlyDownPct) { finalDir = 'up'; finalWord = 'ارتفاع'; }
+      else { finalDir = 'down'; finalWord = 'هبوط'; }
+    }
+    const finalIcon = finalDir === 'up' ? '📈' : finalDir === 'down' ? '📉' : '⚪';
+    const finalLabel = `${finalIcon} ${finalWord} ${Math.round(Math.abs(combinedLean) * 100)}%`;
+    const finalClass = finalDir === 'up' ? 'pos' : finalDir === 'down' ? 'neg' : 'neutral';
     document.getElementById('p-final').textContent = finalLabel;
     document.getElementById('p-final').className = `final-value ${finalClass}`;
     renderBoxConfigDropdown('final', 'final-cfg');
@@ -1606,6 +1612,7 @@
   }
 
   let lastEarlyLean = 0; // يُستخدم لاحقًا في تجميع القرار النهائي
+  let lastEarlyUpPct = 0, lastEarlyDownPct = 0; // شدة سهمي الارتفاع/الهبوط المبكرين — تُستخدم لحسم "محايد" في القرار النهائي
   function renderEarlyBox() {
     const pillEl = document.getElementById('p-early');
     if (!pillEl) return;
@@ -1666,6 +1673,8 @@
     lastLeanMaps.earlydown = downTriggerMap;
     const upPct = weightedTriggerPct('earlyup', upTriggerMap);
     const downPct = weightedTriggerPct('earlydown', downTriggerMap);
+    lastEarlyUpPct = upPct;
+    lastEarlyDownPct = downPct;
     const upArrow = document.getElementById('early-up-arrow');
     const downArrow = document.getElementById('early-down-arrow');
     if (upArrow) { upArrow.style.opacity = (0.3 + upPct * 0.7).toFixed(2); upArrow.style.transform = `scale(${(1 + upPct * 0.35).toFixed(2)})`; }
