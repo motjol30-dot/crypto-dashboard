@@ -228,6 +228,8 @@
   .zone-box.sell .zt { color: var(--red); }
   .zone-box.editing .zt::after { content: ' ✏️'; }
   .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
+  #manual-live-price-line { text-align: center; font-size: 0.62rem; color: var(--muted); padding: 2px 10px 6px; font-family: 'Courier New', monospace; }
+  #manual-live-price-value { font-weight: 700; color: var(--text); }
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
@@ -467,6 +469,7 @@
     <div class="zr manual-order-price" id="manual-sell-price">—</div>
   </div>
 </div>
+<div id="manual-live-price-line">السعر الحي: <span id="manual-live-price-value">—</span></div>
 
 <div id="bot-panel">
   <div id="bot-panel-header">
@@ -1471,8 +1474,8 @@
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
     setPill('p-overall', oc, ol);
-    // مربع الشراء رجع يعرض منطقة الشراء التحليلية للعملة المعروضة بالرسم البياني (زي ما كان قبل)
-    if (d.buyZone) document.getElementById('buy-zone-range').innerHTML = `${d.buyZone.from} – ${d.buyZone.to}`;
+    // ملاحظة: مربع الشراء الأخضر فوق أصبح يُحدَّث من بث "manual_price" (منطقة شراء العملة المختارة يدويًا
+    // فعليًا)، مو من قرار العملة المعروضة بالرسم البياني الحالي — شوف handleManualPrice.
     // مربع البيع لسا مخصص لسعر التداول اليدوي الحي/المحسوب (شوف handleManualPrice)
     const list = document.getElementById('notes-list');
     list.innerHTML = '';
@@ -1696,6 +1699,11 @@
     document.getElementById('bot-manual-symbol-value').textContent = msg.manualSymbol
       ? msg.manualSymbol.replace('USDT', '')
       : 'لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق';
+    if (!msg.manualSymbol) {
+      document.getElementById('buy-zone-range').textContent = '—';
+      document.getElementById('manual-live-price-value').textContent = '—';
+      manualLivePrice = null;
+    }
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
@@ -1769,6 +1777,8 @@
     if (!lastBotStatus || msg.symbol !== lastBotStatus.manualSymbol) return;
     manualLivePrice = msg.price; // يُستخدم فقط كأساس لحساب سعر البيع المقترح لو ما فيه صفقة مفتوحة بعد
     if (!manualEditing.sell) document.getElementById('manual-sell-price').textContent = fmtManualPrice(computeSellTarget());
+    if (msg.buyZoneFrom != null) document.getElementById('buy-zone-range').textContent = msg.buyZoneFrom;
+    document.getElementById('manual-live-price-value').textContent = fmtManualPrice(msg.price);
   }
 
   // سعر البيع المقترح = سعر الدخول (لو فيه صفقة مفتوحة على العملة المختارة) أو السعر الحي (لو ما فيه بعد)
