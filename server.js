@@ -491,9 +491,11 @@ async function runExplosionScan() {
     const gi = SYMBOL_GROUP_INDEX[r.symbol];
     if (gi != null) byGroup[gi].push(r);
   }
-  explosionRanking = byGroup.map(list => {
+  // لو مجموعة ما طلعت لها أي عملة صالحة بهذي الدورة (فشل شبكة مؤقت مثلاً)، نبقي آخر ترشيح معروف
+  // لها بدل ما يفضى المربع تمامًا — يتحدّث فقط لما نلقى ترشيح جديد فعلي.
+  explosionRanking = byGroup.map((list, gi) => {
     list.sort((a, b) => b.score - a.score);
-    return list[0] || null;
+    return list[0] || explosionRanking[gi] || null;
   });
   broadcastExplosionScan();
 }
@@ -519,7 +521,7 @@ function broadcastExplosionScan() {
 })();
 
 // فحص أقوى 3 عملات على كامل الحوض كل 5 دقائق
-setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 5 * 60 * 1000);
+setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 3 * 60 * 1000);
 
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -597,13 +599,17 @@ const SCAN_CACHE_TTL_MS = 3 * 60 * 1000; // نعيد جلب أي عملة ما �
 async function refreshScanCache(symbol) {
   const now = Date.now();
   if (scanCacheUpdatedAt[symbol] && now - scanCacheUpdatedAt[symbol] < SCAN_CACHE_TTL_MS) return;
-  try {
-    const candles = await fetchHistorical(symbol, '15m', 100);
-    if (candles && candles.length >= 60) {
-      scanCandleCache[symbol] = candles;
-      scanCacheUpdatedAt[symbol] = now;
-    }
-  } catch (err) { /* تجاهل — نحاول العملة الجاية، هذا فحص أولي سريع مو تنفيذ */ }
+  // محاولتان قبل ما نتجاهل العملة — لتقليل فراغ المربعات بسبب فشل عابر بالشبكة/التقييد المؤقت من المنصة
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const candles = await fetchHistorical(symbol, '15m', 100);
+      if (candles && candles.length >= 60) {
+        scanCandleCache[symbol] = candles;
+        scanCacheUpdatedAt[symbol] = now;
+        return;
+      }
+    } catch (err) { /* حاول مرة ثانية، ولو فشلت كمان نتجاهل العملة هذي الدورة */ }
+  }
 }
 
 // يرجّع أحدث شموع متاحة للعملة: البث المباشر لو موجود (أدق)، وإلا ذاكرة الفحص السريع
