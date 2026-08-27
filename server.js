@@ -786,29 +786,12 @@ function computeHourlyLayer(symbol) {
 
 // يبث آخر سعر حي لعملة التداول اليدوي المختارة فورًا مع كل تحديث شمعة يوصل من البورصة (عدة مرات
 // بالثانية على العملات النشطة) — مستقل عن اشتراك الرسم البياني، عشان مربعي الشراء/البيع فوق يتحدثان لحظيًا.
-let manualZoneCache = { symbol: null, buyZoneFrom: null, computedAt: 0 };
-const MANUAL_ZONE_RECOMPUTE_MS = 5000; // نعيد حساب منطقة الشراء كل 5 ثواني بدل كل تحديث سعر (تحليل التحديد مكلف لو صار مع كل تكة)
-
 function maybeBroadcastManualPrice(symbol, interval) {
   if (interval !== SCAN_INTERVAL || symbol !== botState.manualSymbol) return;
   const candles = candleStore[`${symbol}_${interval}`];
   const lastCandle = candles && candles[candles.length - 1];
   if (!lastCandle) return;
-
-  const now = Date.now();
-  if (manualZoneCache.symbol !== symbol || now - manualZoneCache.computedAt > MANUAL_ZONE_RECOMPUTE_MS) {
-    let buyZoneFrom = null;
-    try {
-      const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
-      if (indicators) {
-        const decision = makeDecision(indicators);
-        if (decision && decision.buyZone) buyZoneFrom = decision.buyZone.from;
-      }
-    } catch (err) { /* تجاهل — نكتفي بالسعر الحي لو فشل حساب المنطقة */ }
-    manualZoneCache = { symbol, buyZoneFrom, computedAt: now };
-  }
-
-  const payload = JSON.stringify({ type: 'manual_price', symbol, price: lastCandle.close, buyZoneFrom: manualZoneCache.buyZoneFrom, time: now });
+  const payload = JSON.stringify({ type: 'manual_price', symbol, price: lastCandle.close, time: Date.now() });
   for (const client of wss.clients) { if (client.readyState === WebSocket.OPEN) client.send(payload); }
 }
 
@@ -1609,6 +1592,7 @@ let botState = {
   tradeLog: [],
 };
 
+const TP_LEVELS = [1, 1.5, 2];
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء فحص أقوى 3 عملات (REST خفيف)
 
 // ── أوامر API ────────────────────────────────────────────────────────────────
@@ -1728,64 +1712,23 @@ function logBotError(symbol, err) {
   botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
 
-// يبيع الصفقة كاملة بأمر Limit واحد فقط عند سعر = سعر الدخول × (1 + نسبة الربح %) — نفس السعر بالضبط
-// اللي يظهر بمربع "بيع" فوق، عشان ما يكون فيه تعارض بين عرض المربع وتنفيذ البوت الفعلي
 async function placeBotTakeProfitSells(symbol, position) {
-  const sellPrice = roundPrice(position.entryPrice * (1 + botState.takeProfitPercent / 100));
-  const qty = roundQty(position.qty, sellPrice);
-  if (!qty || qty <= 0) return;
-  try {
-    const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qty);
-    if (data.orderId) {
-      botState.pendingSellOrders[symbol] = [{ orderId: data.orderId, side: 'SELL', price: sellPrice, qty, placedAt: Date.now(), exchange: botState.exchange, point: 'بيع تلقائي (نسبة الربح)' }];
-      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty, exchange: botState.exchange, reason: `أمر بيع تلقائي حسب نسبة الربح معلّق عند ${sellPrice}` });
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
-    }
-  } catch (err) { logBotError(symbol, err); }
-}
-
-// يحاول يشتري تلقائيًا العملة المختارة يدويًا (من مربعات أقوى 3 عملات) حسب منطقة الشراء التحليلية:
-// لو السعر الحالي وصل فعلًا لمنطقة الشراء أو تحتها => شراء فوري بسعر السوق، وإلا => أمر شراء Limit
-// عند سعر منطقة الشراء وينتظر لين يوصله السعر. يشتغل فقط لو ما فيه صفقة أو أمر شراء مفتوح أصلًا.
-async function autoPlaceBuyAtZone(symbol) {
-  const hasKeys = botState.exchange === 'binance' ? (BINANCE_API_KEY && BINANCE_API_SECRET) : (MEXC_API_KEY && MEXC_API_SECRET);
-  if (!hasKeys) return;
-  const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
-  if (openCount >= botState.maxConcurrentPositions) return;
-
-  const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
-  if (!candles || candles.length < 30) return;
-  const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
-  if (!indicators) return;
-  const decision = makeDecision(indicators);
-  if (!decision.buyZone) return;
-
-  const buyPrice = roundPrice(parseFloat(decision.buyZone.from));
-  const currentPrice = indicators.currentPrice;
-  if (!buyPrice || buyPrice <= 0) return;
-
-  try {
-    if (currentPrice <= buyPrice) {
-      // السعر وصل لمنطقة الشراء بالفعل — شراء فوري بسعر السوق
-      const data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
-      const executedQty = parseFloat(data.executedQty || 0);
-      const quoteAmount = parseFloat(data.cummulativeQuoteQty || botState.tradeSizeUsdt);
-      const fillPrice = executedQty > 0 ? quoteAmount / executedQty : null;
-      if (!executedQty || !fillPrice) return;
-      botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
-      botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty, quoteAmount, exchange: botState.exchange, reason: 'شراء تلقائي — السعر وصل لمنطقة الشراء' });
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
-      await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
-    } else {
-      const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
-      if (!qty || qty <= 0) return;
-      const data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
-      if (!data.orderId) return;
-      botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
-      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange, reason: `أمر شراء تلقائي معلّق عند منطقة الشراء (${buyPrice})` });
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
-    }
-  } catch (err) { logBotError(symbol, err); }
+  const qtyPerOrder = roundQty(position.qty / 3, position.entryPrice);
+  if (!qtyPerOrder || qtyPerOrder <= 0) return;
+  const tpBase = botState.takeProfitPercent / 100;
+  botState.pendingSellOrders[symbol] = [];
+  for (const [i, mult] of TP_LEVELS.entries()) {
+    const sellPrice = roundPrice(position.entryPrice * (1 + tpBase * mult));
+    const pointName = `TP${i + 1} (${(botState.takeProfitPercent * mult).toFixed(1)}%)`;
+    try {
+      const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qtyPerOrder);
+      if (data.orderId) {
+        botState.pendingSellOrders[symbol].push({ orderId: data.orderId, side: 'SELL', price: sellPrice, qty: qtyPerOrder, placedAt: Date.now(), exchange: botState.exchange, point: pointName });
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty: qtyPerOrder, exchange: botState.exchange, reason: `أمر بيع ${pointName} معلّق عند ${sellPrice}` });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
+      }
+    } catch (err) { logBotError(symbol, err); }
+  }
 }
 
 // ── تنفيذ أوامر الشراء/البيع اليدوية (من مربعي "شراء" و"بيع" فوق) ──────────────
@@ -1897,9 +1840,9 @@ async function checkPendingOrders(symbol) {
         botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
         botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: fillPrice, qty: executedQty, quoteAmount, exchange: order.exchange, reason: `نفذ بيع ${order.point} عند ${fillPrice.toFixed(6)}`, pnl, pnlPct });
         botState.tradeLog = botState.tradeLog.slice(0, 50);
-        // كل أمر بيع الآن (يدوي أو تلقائي بنسبة الربح) يبيع الكمية كاملة دفعة وحدة —
-        // لما ينفذ نقفل الصفقة بالكامل من الحالة عشان يقدر البوت/المستخدم يشتري نفس العملة من جديد لو حب
-        if (botState.positions[symbol]) delete botState.positions[symbol];
+        // أمر البيع اليدوي (من مربع "بيع") يبيع الكمية كاملة، على عكس أوامر جني الربح المجزّأة (TP) —
+        // لما ينفذ نقفل الصفقة بالكامل من الحالة عشان يقدر المستخدم يشتري نفس العملة من جديد لو حب
+        if (order.point === 'بيع يدوي' && botState.positions[symbol]) delete botState.positions[symbol];
       } else if (['CANCELED', 'EXPIRED', 'REJECTED'].includes(data.status)) {
         botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
       }
@@ -1909,18 +1852,11 @@ async function checkPendingOrders(symbol) {
 }
 
 // البوت أصبح يدويًا بالكامل — دورته الدورية الوحيدة الآن هي متابعة تنفيذ الأوامر المعلّقة
-// (شراء Limit بانتظار وصول السعر، أو بيع TP/يدوي بانتظار التنفيذ) وتحديث السجل والحالة — بالإضافة
-// إلى محاولة الشراء التلقائي على العملة المختارة يدويًا حسب منطقة الشراء (شوف autoPlaceBuyAtZone).
+// (شراء Limit بانتظار وصول السعر، أو بيع TP/يدوي بانتظار التنفيذ) وتحديث السجل والحالة.
 async function runBotCycle() {
   if (!botState.enabled) return;
   const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
   for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
-
-  const symbol = botState.manualSymbol;
-  if (symbol && !botState.positions[symbol] && !botState.pendingOrders[symbol]) {
-    try { await autoPlaceBuyAtZone(symbol); } catch (err) { logBotError(symbol, err); }
-  }
-
   broadcastBotStatus();
 }
 
