@@ -464,19 +464,28 @@ function computeExplosionScore(candles) {
 // يفحص كامل حوض الـ~240 عملة (SCAN_POOL) عشان يطلع أقوى 3 عملات — بنفس أسلوب الفحص الخفيف
 // (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) اللي يستخدمه البوت لحوضه، حتى ما نثقل
 // السيرفر بفتح 240 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
-async function runExplosionScan() {
-  const results = [];
-  for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
-    const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
+// نقسّم حوض العملات (~211 عملة) إلى 3 مجموعات منفصلة (بالتناوب، عشان كل مجموعة فيها خليط متوازن)
+// ونختار أقوى عملة من كل مجموعة على حدة لكل مربع من المربعات الثلاثة — هذا يضمن ٣ عملات مختلفة
+// دائمًا (كل مربع مربوط بمجموعته الخاصة)، بدل ما يهيمن على النتيجة عملة أو عملتين متشابهتين بالتقييم.
+async function bestOfExplosionGroup(group) {
+  let best = null;
+  for (let i = 0; i < group.length; i += SCAN_BATCH_SIZE) {
+    const batch = group.slice(i, i + SCAN_BATCH_SIZE);
     await Promise.all(batch.map(async (symbol) => {
       if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
       const candles = getCandlesForScan(symbol);
       const res = computeExplosionScore(candles);
-      if (res) results.push({ symbol, ...res });
+      if (res && (!best || res.score > best.score)) best = { symbol, ...res };
     }));
   }
-  results.sort((a, b) => b.score - a.score);
-  explosionRanking = results.slice(0, 3);
+  return best;
+}
+
+async function runExplosionScan() {
+  const groups = [[], [], []];
+  SCAN_POOL.forEach((symbol, idx) => groups[idx % 3].push(symbol));
+  const [b1, b2, b3] = await Promise.all(groups.map(bestOfExplosionGroup));
+  explosionRanking = [b1, b2, b3].filter(Boolean);
   broadcastExplosionScan();
 }
 
