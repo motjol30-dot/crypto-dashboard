@@ -279,6 +279,12 @@
   .explosion-box.dir-down .explosion-symbol { color: var(--red); }
   .explosion-box.empty { opacity: 0.5; cursor: default; }
   .explosion-box.selected-manual { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .explosion-search {
+    width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 3px 5px; font-size: 0.62rem;
+    text-align: center; outline: none; margin-bottom: 3px;
+  }
+  .explosion-search:focus { border-color: var(--accent); }
   #indicators-list { padding: 4px 10px 10px; }
   .group-header {
     font-size: 0.8rem; font-weight: 800; color: var(--accent);
@@ -345,34 +351,25 @@
   <div id="conn-dot"></div>
 </header>
 
-<div id="symbol-row">
-  <div id="symbol-wrap">
-    <input id="symbol-input" list="symbol-suggestions" placeholder="اكتب رمز العملة… BTCUSDT" value="BTCUSDT" autocomplete="off" />
-    <span id="symbol-live-price">— <span class="updated-at" id="symbol-live-time"></span></span>
-    <datalist id="symbol-suggestions">
-      <option value="BTCUSDT"><option value="ETHUSDT"><option value="BNBUSDT"><option value="SOLUSDT"><option value="XRPUSDT"><option value="ADAUSDT"><option value="AVAXUSDT">
-      <option value="LINKUSDT"><option value="NEARUSDT"><option value="DOTUSDT"><option value="FETUSDT"><option value="GRTUSDT"><option value="RENDERUSDT"><option value="WLDUSDT">
-      <option value="AKTUSDT"><option value="ROSEUSDT"><option value="SEIUSDT"><option value="SUIUSDT"><option value="KASUSDT"><option value="HBARUSDT"><option value="VETUSDT">
-      <option value="ALGOUSDT"><option value="XLMUSDT"><option value="ATOMUSDT"><option value="MINAUSDT"><option value="XTZUSDT"><option value="POLUSDT"><option value="ARBUSDT">
-      <option value="OPUSDT"><option value="STRKUSDT"><option value="MANTAUSDT"><option value="ZKUSDT"><option value="STXUSDT"><option value="TIAUSDT"><option value="ALTUSDT">
-      <option value="JASMYUSDT"><option value="IOTXUSDT"><option value="ASTRUSDT"><option value="CKBUSDT"><option value="ACHUSDT">
-    </datalist>
-  </div>
-</div>
-
 <div id="explosion-row">
   <div class="explosion-box" id="explosion-box-1">
-    <div class="explosion-rank">🥇 الأقوى ترشيحًا</div>
+    <div class="explosion-rank">🥇 مجموعة 1</div>
+    <input type="text" class="explosion-search" id="explosion-search-1" list="explosion-group-1" placeholder="🔍 بحث…" autocomplete="off">
+    <datalist id="explosion-group-1"></datalist>
     <div class="explosion-symbol">—</div>
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
   <div class="explosion-box" id="explosion-box-2">
-    <div class="explosion-rank">🥈 الترشيح الثاني</div>
+    <div class="explosion-rank">🥈 مجموعة 2</div>
+    <input type="text" class="explosion-search" id="explosion-search-2" list="explosion-group-2" placeholder="🔍 بحث…" autocomplete="off">
+    <datalist id="explosion-group-2"></datalist>
     <div class="explosion-symbol">—</div>
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
   <div class="explosion-box" id="explosion-box-3">
-    <div class="explosion-rank">🥉 الترشيح الثالث</div>
+    <div class="explosion-rank">🥉 مجموعة 3</div>
+    <input type="text" class="explosion-search" id="explosion-search-3" list="explosion-group-3" placeholder="🔍 بحث…" autocomplete="off">
+    <datalist id="explosion-group-3"></datalist>
     <div class="explosion-symbol">—</div>
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
@@ -620,6 +617,8 @@
       // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
+  let lastBuyZonePrice = null;
+  let lastSellZonePrice = null;
   let ws = null;
   let btcWs = null;
   let goldWs = null;
@@ -873,7 +872,8 @@
         chEl.style.color = up ? 'var(--green)' : 'var(--red)';
       }
       lastPrice = latest.close;
-      document.getElementById('symbol-live-price').innerHTML = `${fmt(latest.close)} <span class="updated-at">آخر تحديث ${new Date().toLocaleTimeString('ar-EG')}</span>`;
+      const symbolLivePriceEl = document.getElementById('symbol-live-price');
+      if (symbolLivePriceEl) symbolLivePriceEl.innerHTML = `${fmt(latest.close)} <span class="updated-at">آخر تحديث ${new Date().toLocaleTimeString('ar-EG')}</span>`;
     }
     document.getElementById('chart-symbol').textContent = msg.symbol;
     renderIndicators(msg.indicators);
@@ -1491,8 +1491,16 @@
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
     setPill('p-overall', oc, ol);
-    if (d.buyZone) document.getElementById('buy-zone-range').innerHTML = `${d.buyZone.from} – ${d.buyZone.to}`;
-    if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
+    if (d.buyZone && d.buyZone.price != null) {
+      document.getElementById('buy-zone-range').textContent = d.buyZone.price;
+      lastBuyZonePrice = parseFloat(d.buyZone.price);
+      if (!manualEditing.buy) document.getElementById('manual-buy-price').textContent = fmtManualPrice(lastBuyZonePrice);
+    }
+    if (d.sellZone && d.sellZone.price != null) {
+      document.getElementById('sell-zone-range').textContent = d.sellZone.price;
+      lastSellZonePrice = parseFloat(d.sellZone.price);
+      if (!manualEditing.sell) document.getElementById('manual-sell-price').textContent = fmtManualPrice(lastSellZonePrice);
+    }
     const list = document.getElementById('notes-list');
     list.innerHTML = '';
     (d.notes || []).forEach(n => {
@@ -1773,7 +1781,7 @@
     if (sym && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_cancel_pending', symbol: sym }));
   });
 
-  // ═══════════════════ مربعا الشراء/البيع اليدوي (سعر حي، تعديل بالضغط، تنفيذ بضغطة ثانية) ═══════════════════
+  // ═══════════════════ مربعا الشراء/البيع اليدوي (مرتبطان بمنطقة الشراء/البيع فوق، تعديل بالضغط، تنفيذ بضغطة ثانية) ═══════════════════
   let manualLivePrice = null;
   const manualEditing = { buy: false, sell: false };
 
@@ -1784,12 +1792,12 @@
 
   function handleManualPrice(msg) {
     if (!lastBotStatus || msg.symbol !== lastBotStatus.manualSymbol) return;
+    // نحتفظ بالسعر اللحظي كمرجع فقط — العرض الفعلي في مربعي الشراء/البيع يعتمد على منطقة
+    // الشراء/البيع (buyZone/sellZone) القادمة من renderDecision وليس السعر اللحظي مباشرة.
     manualLivePrice = msg.price;
-    if (!manualEditing.buy) document.getElementById('manual-buy-price').textContent = fmtManualPrice(msg.price);
-    if (!manualEditing.sell) document.getElementById('manual-sell-price').textContent = fmtManualPrice(msg.price);
   }
 
-  function setupManualOrderBox(boxId, priceId, side, key) {
+  function setupManualOrderBox(boxId, priceId, side, key, getZonePrice) {
     const box = document.getElementById(boxId);
     const priceEl = document.getElementById(priceId);
 
@@ -1798,7 +1806,8 @@
       if (manualEditing[key]) return;
       manualEditing[key] = true;
       box.classList.add('editing');
-      const startVal = manualLivePrice != null ? manualLivePrice : '';
+      const currentVal = getZonePrice();
+      const startVal = currentVal != null ? currentVal : '';
       priceEl.innerHTML = `<input type="number" step="any" inputmode="decimal" id="${priceId}-input" value="${startVal}">`;
       const input = document.getElementById(`${priceId}-input`);
       input.addEventListener('click', (ev) => ev.stopPropagation());
@@ -1816,15 +1825,23 @@
         if (Number.isFinite(v) && v > 0) priceToSend = v;
         manualEditing[key] = false;
         box.classList.remove('editing');
-        priceEl.textContent = fmtManualPrice(manualLivePrice);
+        priceEl.textContent = fmtManualPrice(getZonePrice());
+      } else {
+        // لم يعدَّل السعر يدويًا — نرسل نفس السعر المعروض (منطقة الشراء/البيع) دائمًا كأمر
+        // Limit، حتى لا يتحول الضغط إلى أمر شراء/بيع مفتوح (Market) كما كان يحصل سابقًا.
+        priceToSend = getZonePrice();
+      }
+      if (priceToSend == null || !Number.isFinite(priceToSend) || priceToSend <= 0) {
+        alert('لا يوجد سعر منطقة شراء/بيع جاهز بعد — انتظر أول تحديث للعملة');
+        return;
       }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'bot_manual_order', side, price: priceToSend }));
       }
     });
   }
-  setupManualOrderBox('manual-buy-box', 'manual-buy-price', 'BUY', 'buy');
-  setupManualOrderBox('manual-sell-box', 'manual-sell-price', 'SELL', 'sell');
+  setupManualOrderBox('manual-buy-box', 'manual-buy-price', 'BUY', 'buy', () => lastBuyZonePrice);
+  setupManualOrderBox('manual-sell-box', 'manual-sell-price', 'SELL', 'sell', () => lastSellZonePrice);
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
   document.querySelectorAll('.tf-box').forEach(box => {
@@ -1841,17 +1858,6 @@
     subscribe();
   }
 
-  document.getElementById('symbol-input').addEventListener('change', applySymbolInput);
-  function applySymbolInput() {
-    let v = document.getElementById('symbol-input').value.trim().toUpperCase().replace(/\s+/g, '');
-    if (!v) return;
-    if (v.length % 2 === 0) {
-      const half = v.length / 2;
-      if (v.slice(0, half) === v.slice(half)) v = v.slice(0, half);
-    }
-    if (!v.endsWith('USDT')) v += 'USDT';
-    switchToSymbol(v);
-  }
   function switchToSymbol(v) {
     if (!v || v === currentSymbol) return;
     currentSymbol = v;
@@ -1859,12 +1865,40 @@
     lastCandleTime = null;
     lastPrice = null;
     showLoading(true);
-    document.getElementById('symbol-input').value = v;
     document.querySelectorAll('.tf-box').forEach(b => b.classList.remove('green','red','yellow'));
     subscribe();
     loadFuturesZone();
     if (lastBotStatus) handleBotStatus(lastBotStatus);
   }
+
+  // ═══════════════════ بحث كل مربع من مربعات "أقوى 3 عملات" داخل مجموعته الخاصة فقط ═══════════════════
+  async function loadExplosionGroups() {
+    try {
+      const r = await fetch('/api/explosion-groups');
+      const d = await r.json();
+      (d.groups || []).forEach((list, i) => {
+        const dl = document.getElementById(`explosion-group-${i + 1}`);
+        if (!dl) return;
+        dl.innerHTML = list.map(s => `<option value="${s.replace('USDT', '')}">`).join('');
+      });
+    } catch (e) {}
+  }
+  loadExplosionGroups();
+
+  [1, 2, 3].forEach(i => {
+    const input = document.getElementById(`explosion-search-${i}`);
+    if (!input) return;
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('change', () => {
+      let v = input.value.trim().toUpperCase().replace(/\s+/g, '');
+      if (!v) return;
+      if (!v.endsWith('USDT')) v += 'USDT';
+      switchToSymbol(v);
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_manual_symbol', symbol: v }));
+      input.value = '';
+      input.blur();
+    });
+  });
 
   // ═══════════════════ الأسعار والبيانات الخارجية ═══════════════════
   function fmt(v) {

@@ -51,6 +51,14 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
+// تقسيم حوض البحث الكامل (~211 عملة) على 3 مجموعات مستقلة — كل مجموعة مخصصة لمربع واحد من
+// مربعات "أقوى 3 عملات" فوق، وكل مربع يبحث/يرشّح فقط من داخل مجموعته الخاصة (توزيع round-robin
+// عشان كل مجموعة فيها خليط متوازن من عملات كبيرة وصغيرة بدل ما يجمّع التوزيع الأصلي كل نوع لحاله).
+const EXPLOSION_GROUPS = [[], [], []];
+SCAN_POOL.forEach((sym, i) => EXPLOSION_GROUPS[i % 3].push(sym));
+const SYMBOL_GROUP_INDEX = {};
+EXPLOSION_GROUPS.forEach((group, gi) => group.forEach(sym => { SYMBOL_GROUP_INDEX[sym] = gi; }));
+
 const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
 const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
 const OKX_BAR = { '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
@@ -142,6 +150,7 @@ if (AUTH_ENABLED) {
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
+app.get('/api/explosion-groups', (_req, res) => res.json({ groups: EXPLOSION_GROUPS }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
@@ -461,9 +470,11 @@ function computeExplosionScore(candles) {
   };
 }
 
-// يفحص كامل حوض الـ~240 عملة (SCAN_POOL) عشان يطلع أقوى 3 عملات — بنفس أسلوب الفحص الخفيف
-// (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) اللي يستخدمه البوت لحوضه، حتى ما نثقل
-// السيرفر بفتح 240 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
+// يفحص كامل حوض الـ~211 عملة (SCAN_POOL) — لكن بدل ما يطلع أقوى 3 عملات من نفس الترشيح العام،
+// كل عملة تُصنَّف حسب مجموعتها (EXPLOSION_GROUPS) وتترشّح أفضل عملة داخل كل مجموعة لوحدها،
+// فكل واحد من مربعات "أقوى 3 عملات" فوق يعرض ترشيح مستقل من ثلث الحوض المخصص له فقط.
+// بنفس أسلوب الفحص الخفيف (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) حتى ما نثقل
+// السيرفر بفتح 211 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
 async function runExplosionScan() {
   const results = [];
   for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
@@ -475,13 +486,20 @@ async function runExplosionScan() {
       if (res) results.push({ symbol, ...res });
     }));
   }
-  results.sort((a, b) => b.score - a.score);
-  explosionRanking = results.slice(0, 3);
+  const byGroup = [[], [], []];
+  for (const r of results) {
+    const gi = SYMBOL_GROUP_INDEX[r.symbol];
+    if (gi != null) byGroup[gi].push(r);
+  }
+  explosionRanking = byGroup.map(list => {
+    list.sort((a, b) => b.score - a.score);
+    return list[0] || null;
+  });
   broadcastExplosionScan();
 }
 
 function broadcastExplosionScan() {
-  if (!explosionRanking.length) return;
+  if (!explosionRanking.some(Boolean)) return;
   const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
@@ -1560,8 +1578,15 @@ function makeDecision(indicators) {
   if (trendStable === true) confidence = Math.min(100, Math.round(confidence * 1.1));
   else if (trendStable === false) confidence = Math.round(confidence * 0.85);
 
-  const buyZone = bb ? { from: bb.lower.toFixed(4), to: ((bb.lower + bb.middle) / 2).toFixed(4) } : null;
-  const sellZone = bb ? { from: ((bb.upper + bb.middle) / 2).toFixed(4), to: bb.upper.toFixed(4) } : null;
+  // منطقة الشراء ومنطقة البيع: مكان واحد فقط لكل منطقة (مش نطاق من رقمين) —
+  // الشراء = أفضل نقطة دخول (الحد الأدنى لبولينجر)، والبيع = نفس نقطة الدخول مضروبة
+  // بنسبة جني الربح التي يضبطها المستخدم (بوت-take-profit)، فتتحدّث تلقائيًا كل ما غيّر النسبة.
+  const fmtZonePrice = (p) => (p == null || !Number.isFinite(p)) ? null : (p >= 1 ? p.toFixed(4) : p.toFixed(8));
+  const buyPriceNum = bb ? bb.lower : null;
+  const tpPct = (botState && botState.takeProfitPercent > 0) ? botState.takeProfitPercent : 1;
+  const sellPriceNum = buyPriceNum != null ? buyPriceNum * (1 + tpPct / 100) : null;
+  const buyZone = buyPriceNum != null ? { price: fmtZonePrice(buyPriceNum) } : null;
+  const sellZone = sellPriceNum != null ? { price: fmtZonePrice(sellPriceNum) } : null;
   const early = computeEarlySignal(indicators);
   return { trend, action, confidence, notes, buyZone, sellZone, early };
 }
