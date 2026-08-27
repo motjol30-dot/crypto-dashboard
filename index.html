@@ -218,14 +218,12 @@
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
   #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
-  .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; cursor: pointer; user-select: none; transition: transform 0.12s; }
-  .zone-box:active { transform: scale(0.97); }
+  .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
   .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
   .zone-box.sell { background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.35); }
   .zone-box .zt { font-size: 0.68rem; font-weight: 800; }
   .zone-box.buy .zt  { color: var(--green); }
   .zone-box.sell .zt { color: var(--red); }
-  .zone-box.editing .zt::after { content: ' ✏️'; }
   .zone-box .zr { font-size: 0.72rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; }
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
@@ -239,6 +237,19 @@
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
   #bot-manual-symbol-line { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
   #bot-manual-symbol-line b { color: var(--accent); }
+  #manual-order-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .manual-order-box {
+    flex: 1; border-radius: 10px; padding: 9px 8px; text-align: center; cursor: pointer; user-select: none;
+    border: 1px solid; transition: transform 0.12s;
+  }
+  .manual-order-box:active { transform: scale(0.97); }
+  .manual-order-box.buy { background: var(--buy-bg); border-color: rgba(63,185,80,0.4); }
+  .manual-order-box.sell { background: var(--sell-bg); border-color: rgba(248,81,73,0.4); }
+  .manual-order-label { font-size: 0.68rem; font-weight: 800; }
+  .manual-order-box.buy .manual-order-label { color: var(--green); }
+  .manual-order-box.sell .manual-order-label { color: var(--red); }
+  .manual-order-box.editing .manual-order-label::after { content: ' (اضغط للتنفيذ)'; font-weight: 600; opacity: 0.85; }
+  .manual-order-price { font-size: 1rem; font-weight: 800; color: var(--text); margin-top: 4px; font-family: 'Courier New', monospace; }
   .manual-order-price input {
     width: 92%; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.3); color: var(--text);
     border-radius: 6px; padding: 4px 5px; font-size: 0.9rem; text-align: center; font-family: 'Courier New', monospace;
@@ -457,13 +468,13 @@
 <div id="earlydown-cfg" class="cfg-dropdown"></div>
 
 <div id="zones-row">
-  <div class="zone-box buy" id="manual-buy-box">
-    <div class="zt">🟢 شراء (اضغط للتنفيذ)</div>
-    <div class="zr manual-order-price" id="manual-buy-price">—</div>
+  <div class="zone-box buy">
+    <div class="zt">🟢 منطقة شراء</div>
+    <div class="zr" id="buy-zone-range">—</div>
   </div>
-  <div class="zone-box sell" id="manual-sell-box">
-    <div class="zt">🔴 بيع (اضغط للتنفيذ)</div>
-    <div class="zr manual-order-price" id="manual-sell-price">—</div>
+  <div class="zone-box sell">
+    <div class="zt">🔴 منطقة بيع</div>
+    <div class="zr" id="sell-zone-range">—</div>
   </div>
 </div>
 
@@ -475,7 +486,17 @@
       <span id="bot-status-text">متوقف</span>
     </label>
   </div>
-  <div id="bot-manual-symbol-line">🎯 عملة التداول اليدوي: <b id="bot-manual-symbol-value">لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق</b> — أماكن الشراء والبيع بمربعي "منطقة الشراء/البيع" أعلى الصفحة.</div>
+  <div id="bot-manual-symbol-line">🎯 عملة التداول اليدوي: <b id="bot-manual-symbol-value">لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق</b></div>
+  <div id="manual-order-row">
+    <div class="manual-order-box buy" id="manual-buy-box">
+      <div class="manual-order-label">شراء</div>
+      <div class="manual-order-price" id="manual-buy-price">—</div>
+    </div>
+    <div class="manual-order-box sell" id="manual-sell-box">
+      <div class="manual-order-label">بيع</div>
+      <div class="manual-order-price" id="manual-sell-price">—</div>
+    </div>
+  </div>
   <div id="bot-controls-row">
     <div class="bot-control">
       <span>المنصة</span>
@@ -1470,8 +1491,8 @@
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
     setPill('p-overall', oc, ol);
-    // ملاحظة: مربعا الشراء/البيع فوق أصبحا مخصصين لسعر التداول اليدوي الحي (شوف handleManualPrice) —
-    // ما عاد نعرض فيهم منطقة الشراء/البيع التحليلية القديمة.
+    if (d.buyZone) document.getElementById('buy-zone-range').innerHTML = `${d.buyZone.from} – ${d.buyZone.to}`;
+    if (d.sellZone) document.getElementById('sell-zone-range').innerHTML = `${d.sellZone.from} – ${d.sellZone.to}`;
     const list = document.getElementById('notes-list');
     list.innerHTML = '';
     (d.notes || []).forEach(n => {
@@ -1714,7 +1735,6 @@
           return `<div class="bot-log-row ${cls}"><span>${t.side} ${t.symbol}</span><span>${t.price.toFixed(4)}</span></div>`;
         }).join('')
       : 'لا يوجد سجل';
-    refreshManualSellDisplay();
   }
 
   let botErrorTimer = null;
@@ -1766,27 +1786,10 @@
     if (!lastBotStatus || msg.symbol !== lastBotStatus.manualSymbol) return;
     manualLivePrice = msg.price;
     if (!manualEditing.buy) document.getElementById('manual-buy-price').textContent = fmtManualPrice(msg.price);
-    if (!manualEditing.sell) document.getElementById('manual-sell-price').textContent = fmtManualPrice(computeSellTarget());
+    if (!manualEditing.sell) document.getElementById('manual-sell-price').textContent = fmtManualPrice(msg.price);
   }
 
-  // سعر البيع المقترح = سعر الدخول (لو فيه صفقة مفتوحة على العملة المختارة) أو السعر الحي (لو ما فيه بعد)
-  // مضروب في نسبة "جني ربح تلقائي %" الموجودة بإعدادات البوت تحت — يعني يحسب تلقائيًا بين الشراء والبيع
-  function computeSellTarget() {
-    const sym = lastBotStatus && lastBotStatus.manualSymbol;
-    const pos = sym && lastBotStatus.positions ? lastBotStatus.positions[sym] : null;
-    const base = pos ? pos.entryPrice : manualLivePrice;
-    if (base == null) return null;
-    const tp = parseFloat(document.getElementById('bot-take-profit-input').value) || 0;
-    return base * (1 + tp / 100);
-  }
-  function refreshManualSellDisplay() {
-    if (!manualEditing.sell) {
-      const t = computeSellTarget();
-      document.getElementById('manual-sell-price').textContent = fmtManualPrice(t);
-    }
-  }
-
-  function setupManualOrderBox(boxId, priceId, side, key, getDefaultValue) {
+  function setupManualOrderBox(boxId, priceId, side, key) {
     const box = document.getElementById(boxId);
     const priceEl = document.getElementById(priceId);
 
@@ -1795,8 +1798,7 @@
       if (manualEditing[key]) return;
       manualEditing[key] = true;
       box.classList.add('editing');
-      const dv = getDefaultValue();
-      const startVal = dv != null ? dv : '';
+      const startVal = manualLivePrice != null ? manualLivePrice : '';
       priceEl.innerHTML = `<input type="number" step="any" inputmode="decimal" id="${priceId}-input" value="${startVal}">`;
       const input = document.getElementById(`${priceId}-input`);
       input.addEventListener('click', (ev) => ev.stopPropagation());
@@ -1814,15 +1816,15 @@
         if (Number.isFinite(v) && v > 0) priceToSend = v;
         manualEditing[key] = false;
         box.classList.remove('editing');
-        priceEl.textContent = fmtManualPrice(getDefaultValue());
+        priceEl.textContent = fmtManualPrice(manualLivePrice);
       }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'bot_manual_order', side, price: priceToSend }));
       }
     });
   }
-  setupManualOrderBox('manual-buy-box', 'manual-buy-price', 'BUY', 'buy', () => manualLivePrice);
-  setupManualOrderBox('manual-sell-box', 'manual-sell-price', 'SELL', 'sell', () => computeSellTarget());
+  setupManualOrderBox('manual-buy-box', 'manual-buy-price', 'BUY', 'buy');
+  setupManualOrderBox('manual-sell-box', 'manual-sell-price', 'SELL', 'sell');
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
   document.querySelectorAll('.tf-box').forEach(box => {
