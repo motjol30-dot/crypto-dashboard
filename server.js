@@ -51,11 +51,13 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
-// ملاحظة: كنا سابقًا نقسم حوض الـ~211 عملة على 3 مجموعات ثابتة (round-robin) وكل مربع من مربعات
-// "أقوى 3 عملات" يترشّح من ثلثه الخاص فقط — هذا كان يسبب مربعات فاضية بشكل متكرر (لو ثلث معين ما
-// فيه عملة نظيفة البيانات هذي الدورة) والعملات ما تتغير غالبًا (نفس الترشيح المحدود بثلث واحد).
-// الآن نفحص الحوض كامل ونطلع أفضل 3 عملات فعليًا من كامل السوق — هذا يحل مشكلة الفراغ (يكفي وجود
-// 3 عملات صالحة بالحوض كامل، شبه مستحيل تصفر) ويخلي الترشيح فعلاً "أقوى 3" مو "أفضل واحدة من كل ثلث".
+// تقسيم حوض البحث الكامل (~211 عملة) على 3 مجموعات مستقلة — كل مجموعة مخصصة لمربع واحد من
+// مربعات "أقوى 3 عملات" فوق، وكل مربع يبحث/يرشّح فقط من داخل مجموعته الخاصة (توزيع round-robin
+// عشان كل مجموعة فيها خليط متوازن من عملات كبيرة وصغيرة بدل ما يجمّع التوزيع الأصلي كل نوع لحاله).
+const EXPLOSION_GROUPS = [[], [], []];
+SCAN_POOL.forEach((sym, i) => EXPLOSION_GROUPS[i % 3].push(sym));
+const SYMBOL_GROUP_INDEX = {};
+EXPLOSION_GROUPS.forEach((group, gi) => group.forEach(sym => { SYMBOL_GROUP_INDEX[sym] = gi; }));
 
 const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
 const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
@@ -147,8 +149,7 @@ if (AUTH_ENABLED) {
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
-// كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
-app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
+app.get('/api/explosion-groups', (_req, res) => res.json({ groups: EXPLOSION_GROUPS }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
@@ -346,9 +347,6 @@ const SCAN_SYMBOLS = SYMBOLS;
 
 let explosionRanking = [];
 
-// حد أدنى لمتوسط السيولة (بالدولار) على فريم 15 دقيقة عشان نستبعد العملات شبه الميتة من الترشيح
-const MIN_AVG_QUOTE_VOLUME_15M = 15000;
-
 function computeExplosionScore(candles) {
   if (!candles || candles.length < 80) return null;
   const closes = candles.map(c => c.close);
@@ -432,11 +430,13 @@ function computeExplosionScore(candles) {
   score -= rsiPenalty;
 
   const price = closes[n-1];
-
-  // 🚫 فلتر سيولة حقيقي: نرفض أي عملة متوسط تداولها بآخر 50 شمعة (15د) أقل من حد أدنى بالدولار —
-  // هذا يمنع ترشيح عملات "ميتة" حجمها ضعيف جدًا وممكن تواجه انزلاق سعر (slippage) كبير عند التنفيذ.
-  const avgQuoteVol50 = avgVol50 * price;
-  if (!Number.isFinite(avgQuoteVol50) || avgQuoteVol50 < MIN_AVG_QUOTE_VOLUME_15M) return null;
+  let priceBias = 0;
+  if (price < 1) priceBias = 12;
+  else if (price < 2) priceBias = 8;
+  else if (price < 5) priceBias = 5;
+  else if (price <= 50) priceBias = 2;
+  else if (price > 200) priceBias = -5;
+  score += priceBias;
 
   const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
 
@@ -449,13 +449,12 @@ function computeExplosionScore(candles) {
     recentGainPct: Math.round(recentGainPct*10)/10,
     rsi: lastRsi != null ? Math.round(lastRsi) : null,
     volRatio: Math.round(volRatio*100)/100,
-    avgQuoteVol50: Math.round(avgQuoteVol50),
   };
 }
 
-// يفحص كامل حوض الـ~211 عملة (SCAN_POOL) ويطلع فعليًا أقوى 3 عملات من كامل السوق (مو أفضل واحدة
-// من كل ثلث كما كان سابقًا) — هذا يحل مشكلتين كانتا موجودتين: (1) مربع فاضي بدون عملة لو ثلث معين
-// ما فيه ترشيح صالح هذي الدورة، و(2) نفس العملات ما تتغير لأن كل مربع محصور بثلث ثابت من البداية.
+// يفحص كامل حوض الـ~211 عملة (SCAN_POOL) — لكن بدل ما يطلع أقوى 3 عملات من نفس الترشيح العام،
+// كل عملة تُصنَّف حسب مجموعتها (EXPLOSION_GROUPS) وتترشّح أفضل عملة داخل كل مجموعة لوحدها،
+// فكل واحد من مربعات "أقوى 3 عملات" فوق يعرض ترشيح مستقل من ثلث الحوض المخصص له فقط.
 // بنفس أسلوب الفحص الخفيف (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) حتى ما نثقل
 // السيرفر بفتح 211 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
 async function runExplosionScan() {
@@ -469,11 +468,17 @@ async function runExplosionScan() {
       if (res) results.push({ symbol, ...res });
     }));
   }
-  results.sort((a, b) => b.score - a.score);
-  const top3 = results.slice(0, 3);
-  // نحتفظ بآخر ترشيح معروف لأي مركز ما لقينا له بديل هذي الدورة (نادر جدًا الآن — يكفي 3 عملات
-  // صالحة بكامل الحوض) بدل ما يفضى المربع تمامًا لمجرد تعثر شبكي عابر.
-  explosionRanking = [0, 1, 2].map((i) => top3[i] || explosionRanking[i] || null);
+  const byGroup = [[], [], []];
+  for (const r of results) {
+    const gi = SYMBOL_GROUP_INDEX[r.symbol];
+    if (gi != null) byGroup[gi].push(r);
+  }
+  // لو مجموعة ما طلعت لها أي عملة صالحة بهذي الدورة (فشل شبكة مؤقت مثلاً)، نبقي آخر ترشيح معروف
+  // لها بدل ما يفضى المربع تمامًا — يتحدّث فقط لما نلقى ترشيح جديد فعلي.
+  explosionRanking = byGroup.map((list, gi) => {
+    list.sort((a, b) => b.score - a.score);
+    return list[0] || explosionRanking[gi] || null;
+  });
   broadcastExplosionScan();
 }
 
@@ -497,8 +502,8 @@ function broadcastExplosionScan() {
   runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفحص الأول:', err.message));
 })();
 
-// فحص أقوى 3 عملات على كامل الحوض كل 4 دقائق (حسب طلب المستخدم)
-setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 4 * 60 * 1000);
+// فحص أقوى 3 عملات على كامل الحوض كل 5 دقائق
+setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 3 * 60 * 1000);
 
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
