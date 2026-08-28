@@ -217,28 +217,6 @@
   .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
-  #zones-row { display: flex; gap: 6px; padding: 8px 10px; }
-  .zone-box { flex: 1; border-radius: 8px; padding: 8px; text-align: center; }
-  .zone-box.buy  { background: var(--buy-bg);  border: 1px solid rgba(63,185,80,0.35); }
-  .zone-box.sell { background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.35); cursor: pointer; user-select: none; transition: transform 0.12s; }
-  .zone-box.sell:active { transform: scale(0.97); }
-  .zone-box .zt { font-size: 0.68rem; font-weight: 800; }
-  .zone-box.buy .zt  { color: var(--green); }
-  .zone-box.sell .zt { color: var(--red); }
-  .zone-box .zr { font-size: 0.9rem; color: var(--text); margin-top: 3px; font-family: 'Courier New', monospace; font-weight: 800; }
-  .zone-price-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 3px; }
-  .zone-step {
-    width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(63,185,80,0.5);
-    background: rgba(63,185,80,0.12); color: var(--green); font-size: 1rem; font-weight: 900;
-    cursor: pointer; line-height: 1; flex-shrink: 0;
-  }
-  .zone-step:active { transform: scale(0.92); }
-  .zone-save-btn {
-    width: 100%; margin-top: 6px; border-radius: 7px; padding: 6px; font-size: 0.68rem; font-weight: 800;
-    cursor: pointer; border: 1px solid rgba(63,185,80,0.5); background: rgba(63,185,80,0.18); color: var(--green);
-  }
-  .zone-save-btn:active { transform: scale(0.97); }
-  .zone-hint { font-size: 0.58rem; color: var(--muted); margin-top: 4px; }
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
@@ -251,13 +229,9 @@
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
   #bot-manual-symbol-line { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
   #bot-manual-symbol-line b { color: var(--accent); }
-  #bot-action-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  #bot-action-row button { flex: 1; border-radius: 8px; padding: 8px; font-size: 0.72rem; font-weight: 800; cursor: pointer; border: 1px solid; }
-  #bot-manual-close-btn { background: var(--sell-bg); border-color: rgba(248,81,73,0.4); color: var(--red); }
-  #bot-cancel-pending-btn { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: var(--muted); }
   #bot-error-line { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,79,0.35); color: var(--red); font-size: 0.66rem; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
   .bot-subheader { font-size: 0.66rem; font-weight: 800; color: var(--muted); margin: 6px 0 4px; }
-  #bot-positions-list, #bot-pending-list, #bot-trade-log { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
+  #bot-pending-list, #bot-trade-log { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
   .bot-pos-row, .bot-log-row { display: flex; justify-content: space-between; gap: 6px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
   .bot-log-row.buy-row { color: var(--green); }
   .bot-log-row.sell-row { color: var(--red); }
@@ -461,71 +435,39 @@
 <div id="earlyup-cfg" class="cfg-dropdown"></div>
 <div id="earlydown-cfg" class="cfg-dropdown"></div>
 
-<div id="zones-row">
-  <div class="zone-box buy" id="buy-zone-box">
-    <div class="zt">🟢 شراء (سعر حي)</div>
-    <div class="zone-price-row">
-      <button type="button" class="zone-step" id="buy-price-minus">−</button>
-      <div class="zr" id="buy-zone-range">—</div>
-      <button type="button" class="zone-step" id="buy-price-plus">+</button>
-    </div>
-    <button type="button" class="zone-save-btn" id="buy-zone-save">💾 حفظ (أمر شراء)</button>
-  </div>
-  <div class="zone-box sell" id="sell-zone-box">
-    <div class="zt">🔴 بيع (حسب النسبة)</div>
-    <div class="zr" id="sell-zone-range">—</div>
-    <div class="zone-hint">اضغط للبيع بهذا السعر</div>
-  </div>
-</div>
-
 <div id="bot-panel">
   <div id="bot-panel-header">
-    <span>🤖 بوت التداول الآلي</span>
+    <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
     <label id="bot-toggle-wrap">
       <input type="checkbox" id="bot-enable-checkbox">
       <span id="bot-status-text">متوقف</span>
     </label>
   </div>
-  <div id="bot-manual-symbol-line">🎯 عملة التداول اليدوي: <b id="bot-manual-symbol-value">لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق</b></div>
+  <div id="bot-manual-symbol-line">🎯 عملة الشبكة الحالية: <b id="bot-manual-symbol-value">BTCUSDT</b> (اختر عملة أخرى بالضغط على إحدى مربعات أقوى 3 عملات فوق — يلزم إيقاف البوت أولًا)</div>
   <div id="bot-controls-row">
     <div class="bot-control">
-      <span>المنصة</span>
-      <select id="bot-exchange-select">
-        <option value="binance">Binance</option>
-        <option value="mexc">MEXC</option>
-      </select>
-    </div>
-    <div class="bot-control">
-      <span>حجم الصفقة (USDT)</span>
+      <span>مبلغ كل مستوى (USDT)</span>
       <input type="number" id="bot-trade-size-input" min="1" step="1" value="50">
       <button id="bot-save-size-btn">حفظ</button>
     </div>
     <div class="bot-control">
-      <span>جني ربح تلقائي (%)</span>
+      <span>المسافة بين المستويات (%)</span>
       <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
       <button id="bot-save-tp-btn">حفظ</button>
     </div>
     <div class="bot-control">
-      <span>أقصى عدد صفقات</span>
-      <input type="number" id="bot-max-positions-input" min="1" step="1" value="1">
+      <span>عدد المستويات (كل جهة)</span>
+      <input type="number" id="bot-max-positions-input" min="1" step="1" value="5">
       <button id="bot-save-maxpos-btn">حفظ</button>
     </div>
   </div>
-  <div id="bot-action-row">
-    <button id="bot-manual-close-btn" style="display:none;">🔴 إغلاق صفقة العملة الحالية</button>
-    <button id="bot-cancel-pending-btn" style="display:none;">❌ إلغاء الأمر المعلّق</button>
-  </div>
   <div id="bot-error-line" style="display:none;"></div>
-  <div id="bot-positions-wrap">
-    <div class="bot-subheader">الصفقات المفتوحة</div>
-    <div id="bot-positions-list">لا توجد صفقات مفتوحة حاليًا</div>
-  </div>
   <div id="bot-pending-wrap">
-    <div class="bot-subheader">الأوامر المعلّقة (Limit)</div>
+    <div class="bot-subheader">أوامر الشبكة المفتوحة حاليًا</div>
     <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
   </div>
   <div id="bot-log-wrap">
-    <div class="bot-subheader">آخر الصفقات</div>
+    <div class="bot-subheader">آخر الأحداث</div>
     <div id="bot-trade-log">لا يوجد سجل بعد</div>
   </div>
 </div>
@@ -610,9 +552,6 @@
       // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
-  let buyLivePrice = null;      // آخر سعر حي فعلي من الشموع (يتحدث دايمًا بغض النظر عن التثبيت)
-  let buyFrozenPrice = null;    // null = يتبع السعر الحي؛ رقم = مثبَّت (بعد +/- أو حفظ) ولا يتغير لحاله
-  let lastSellZonePrice = null;
   let ws = null;
   let btcWs = null;
   let goldWs = null;
@@ -867,8 +806,6 @@
       lastPrice = latest.close;
       const symbolLivePriceEl = document.getElementById('symbol-live-price');
       if (symbolLivePriceEl) symbolLivePriceEl.innerHTML = `${fmt(latest.close)} <span class="updated-at">آخر تحديث ${new Date().toLocaleTimeString('ar-EG')}</span>`;
-      buyLivePrice = latest.close;
-      renderBuyZoneBox();
     }
     document.getElementById('chart-symbol').textContent = msg.symbol;
     renderIndicators(msg.indicators);
@@ -1486,8 +1423,6 @@
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
     setPill('p-overall', oc, ol);
-    // مربعا الشراء والبيع صارا يُحسبان من السعر الحي محليًا (buyLivePrice/buyFrozenPrice × نسبة
-    // جني الربح) — مو من هذا القرار القادم من السيرفر، فلا نلمسهم هنا.
     const list = document.getElementById('notes-list');
     list.innerHTML = '';
     (d.notes || []).forEach(n => {
@@ -1694,7 +1629,7 @@
     renderBoxConfigDropdown('earlydown', 'earlydown-cfg');
   }
 
-  // ═══════════════════ بوت التداول ═══════════════════
+  // ═══════════════════ بوت الشبكة (Grid Bot) ═══════════════════
   function handleBotStatus(msg) {
     lastBotStatus = msg;
     const checkbox = document.getElementById('bot-enable-checkbox');
@@ -1702,30 +1637,17 @@
     checkbox.checked = msg.enabled;
     statusText.textContent = msg.enabled ? 'يعمل الآن ⚡' : 'متوقف';
     statusText.className = msg.enabled ? 'on' : 'off';
-    document.getElementById('bot-exchange-select').value = msg.exchange;
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
-    if (msg.takeProfitPercent != null) {
-      document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
-      takeProfitPct = parseFloat(msg.takeProfitPercent) || takeProfitPct;
-      renderSellZoneBox();
-    }
+    if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
     if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
 
-    document.getElementById('bot-manual-symbol-value').textContent = msg.manualSymbol
-      ? msg.manualSymbol.replace('USDT', '')
-      : 'لم تُختر بعد — اضغط على إحدى مربعات أقوى 3 عملات فوق';
+    document.getElementById('bot-manual-symbol-value').textContent = msg.manualSymbol || 'BTCUSDT';
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
 
-    const manualSym = msg.manualSymbol;
-    document.getElementById('bot-manual-close-btn').style.display = manualSym && msg.positions && msg.positions[manualSym] ? 'block' : 'none';
-    document.getElementById('bot-cancel-pending-btn').style.display = manualSym && msg.pendingOrders && msg.pendingOrders[manualSym] ? 'block' : 'none';
-    document.getElementById('bot-positions-list').innerHTML = Object.entries(msg.positions || {}).length
-      ? Object.entries(msg.positions).map(([sym, p]) => `<div class="bot-pos-row"><span>${sym}</span><span>${p.qty.toFixed(5)} @ ${p.entryPrice.toFixed(4)}</span></div>`).join('')
-      : 'لا توجد صفقات مفتوحة';
     document.getElementById('bot-pending-list').innerHTML = Object.entries(msg.pendingOrders || {}).length
-      ? Object.entries(msg.pendingOrders).map(([sym, o]) => `<div class="bot-pos-row"><span>🟡 ${o.side} ${sym}</span><span>${o.qty.toFixed(5)} @ ${o.price}</span></div>`).join('')
+      ? Object.entries(msg.pendingOrders).map(([key, o]) => `<div class="bot-pos-row"><span>${o.side === 'BUY' ? '🟢' : '🔴'} ${o.side} ${o.symbol || ''}</span><span>${o.qty.toFixed(5)} @ ${o.price}</span></div>`).join('')
       : 'لا توجد أوامر معلّقة';
     document.getElementById('bot-trade-log').innerHTML = (msg.tradeLog || []).length
       ? msg.tradeLog.map(t => {
@@ -1733,7 +1655,7 @@
           const cls = t.side === 'BUY' ? 'buy-row' : 'sell-row';
           return `<div class="bot-log-row ${cls}"><span>${t.side} ${t.symbol}</span><span>${t.price.toFixed(4)}</span></div>`;
         }).join('')
-      : 'لا يوجد سجل';
+      : 'لا يوجد سجل بعد';
   }
 
   let botErrorTimer = null;
@@ -1748,103 +1670,18 @@
   document.getElementById('bot-enable-checkbox').addEventListener('change', (e) => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_toggle', enabled: e.target.checked }));
   });
-  document.getElementById('bot-exchange-select').addEventListener('change', (e) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_exchange', exchange: e.target.value }));
-  });
   document.getElementById('bot-save-size-btn').addEventListener('click', () => {
     const v = parseFloat(document.getElementById('bot-trade-size-input').value);
     if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: v }));
   });
   document.getElementById('bot-save-tp-btn').addEventListener('click', () => {
     const v = parseFloat(document.getElementById('bot-take-profit-input').value);
-    if (v > 0) {
-      takeProfitPct = v;
-      renderSellZoneBox();
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
-    }
+    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
   });
   document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
     const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
     if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
   });
-  document.getElementById('bot-manual-close-btn').addEventListener('click', () => {
-    const sym = lastBotStatus && lastBotStatus.manualSymbol;
-    if (sym && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_manual_close', symbol: sym }));
-  });
-  document.getElementById('bot-cancel-pending-btn').addEventListener('click', () => {
-    const sym = lastBotStatus && lastBotStatus.manualSymbol;
-    if (sym && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_cancel_pending', symbol: sym }));
-  });
-
-  // ═══════════════════ مربع الشراء (سعر حي قابل للتعديل بالزائد/الناقص + حفظ = أمر شراء) ═══════════════════
-  // ومربع البيع (يُحسب من سعر الشراء المعروض × نسبة جني الربح، ويُنفَّذ بضغطة واحدة على المربع نفسه)
-  const BUY_STEP_PCT = 0.001; // كل ضغطة زائد/ناقص تحرك السعر 0.1%
-  let takeProfitPct = parseFloat(document.getElementById('bot-take-profit-input').value) || 1;
-
-  function fmtManualPrice(p) {
-    if (p == null || !Number.isFinite(p)) return '—';
-    return p >= 1 ? p.toFixed(4) : p.toFixed(8);
-  }
-
-  function currentBuyDisplayPrice() {
-    return buyFrozenPrice != null ? buyFrozenPrice : buyLivePrice;
-  }
-
-  function renderBuyZoneBox() {
-    document.getElementById('buy-zone-range').textContent = fmtManualPrice(currentBuyDisplayPrice());
-    renderSellZoneBox();
-  }
-
-  function renderSellZoneBox() {
-    const buyPrice = currentBuyDisplayPrice();
-    if (buyPrice == null) { document.getElementById('sell-zone-range').textContent = '—'; lastSellZonePrice = null; return; }
-    lastSellZonePrice = buyPrice * (1 + takeProfitPct / 100);
-    document.getElementById('sell-zone-range').textContent = fmtManualPrice(lastSellZonePrice);
-  }
-
-  function resetBuyAdjustment() {
-    buyFrozenPrice = null; // يرجع يتبع السعر الحي (يصير عند اختيار عملة جديدة فقط)
-    renderBuyZoneBox();
-  }
-
-  document.getElementById('buy-price-minus').addEventListener('click', () => {
-    const base = currentBuyDisplayPrice();
-    if (base == null) return;
-    buyFrozenPrice = base * (1 - BUY_STEP_PCT);
-    renderBuyZoneBox();
-  });
-  document.getElementById('buy-price-plus').addEventListener('click', () => {
-    const base = currentBuyDisplayPrice();
-    if (base == null) return;
-    buyFrozenPrice = base * (1 + BUY_STEP_PCT);
-    renderBuyZoneBox();
-  });
-  document.getElementById('buy-zone-save').addEventListener('click', () => {
-    if (!lastBotStatus || !lastBotStatus.manualSymbol) { alert('اختر عملة أولًا من مربعات أقوى 3 عملات فوق'); return; }
-    const price = currentBuyDisplayPrice();
-    if (price == null || !Number.isFinite(price) || price <= 0) { alert('لا يوجد سعر حي جاهز بعد — انتظر أول تحديث للعملة'); return; }
-    const sellPrice = price * (1 + takeProfitPct / 100);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      // أمر شراء Limit بالسعر المعروض، مع إرسال سعر البيع (من مربع البيع) ليضعه البوت تلقائيًا
-      // فور تنفيذ الشراء — بدون انتظار تدخل يدوي ثاني.
-      ws.send(JSON.stringify({ type: 'bot_manual_order', side: 'BUY', price, sellPrice }));
-    }
-    // يثبت على السعر الذي حفظنا عليه بالضبط ولا يرجع يتبع السعر الحي إلا لما نختار عملة جديدة أو نعدّل بـ +/-
-    buyFrozenPrice = price;
-    renderBuyZoneBox();
-  });
-
-  document.getElementById('sell-zone-box').addEventListener('click', () => {
-    if (!lastBotStatus || !lastBotStatus.manualSymbol) { alert('اختر عملة أولًا من مربعات أقوى 3 عملات فوق'); return; }
-    if (lastSellZonePrice == null || !Number.isFinite(lastSellZonePrice) || lastSellZonePrice <= 0) {
-      alert('لا يوجد سعر بيع جاهز بعد — انتظر أول تحديث للعملة');
-      return;
-    }
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'bot_manual_order', side: 'SELL', price: lastSellZonePrice }));
-    }
-  });
-
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
   document.querySelectorAll('.tf-box').forEach(box => {
@@ -1867,10 +1704,6 @@
     currentSeriesSymbol = null;
     lastCandleTime = null;
     lastPrice = null;
-    buyLivePrice = null;
-    lastSellZonePrice = null;
-    resetBuyAdjustment();
-    document.getElementById('sell-zone-range').textContent = '—';
     showLoading(true);
     document.querySelectorAll('.tf-box').forEach(b => b.classList.remove('green','red','yellow'));
     subscribe();
