@@ -77,10 +77,9 @@ const SESSION_TTL_MS = 15 * 60 * 1000;
 const AUTH_ENABLED = process.env.AUTH_ENABLED === 'true';
 const activeSessions = new Map();
 
+// إعدادات API — البوت الآن يعمل على Binance فقط (بوت الشبكة الجديد)
 const BINANCE_API_KEY = process.env.BINANCE_API_KEY || '';
 const BINANCE_API_SECRET = process.env.BINANCE_API_SECRET || '';
-const MEXC_API_KEY = process.env.MEXC_API_KEY || '';
-const MEXC_API_SECRET = process.env.MEXC_API_SECRET || '';
 
 function sweepSessions() {
   const now = Date.now();
@@ -273,37 +272,56 @@ wss.on('connection', (ws, req) => {
     }
     else if (msg.type === 'bot_toggle') {
       if (msg.enabled) {
-        const hasKeys = botState.exchange === 'binance'
-          ? (BINANCE_API_KEY && BINANCE_API_SECRET)
-          : (MEXC_API_KEY && MEXC_API_SECRET);
-        if (!hasKeys) {
-          ws.send(JSON.stringify({ type: 'error', message: `لا يوجد مفتاح API معرّف لمنصة ${botState.exchange === 'binance' ? 'Binance' : 'MEXC'} — أضِف متغيرات البيئة أولاً` }));
+        if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
+          ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance — أضِف متغيرات البيئة أولاً' }));
           return;
         }
+        const symbol = botState.manualSymbol || 'BTCUSDT';
+        botState.manualSymbol = symbol;
+        try {
+          await ensureStream(symbol, SCAN_INTERVAL).catch(() => {});
+          await cancelAllOpenOrders(symbol);
+          const price = await getCurrentPrice(symbol);
+          botState.enabled = true;
+          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `🤖 تشغيل بوت الشبكة على ${symbol} — السعر الحالي ${price}` });
+          await placeGridOrders(symbol, price);
+        } catch (err) {
+          botState.enabled = false;
+          const detail = err.response?.data?.msg || err.message;
+          ws.send(JSON.stringify({ type: 'error', message: 'فشل تشغيل البوت: ' + detail }));
+        }
+      } else {
+        const symbol = botState.manualSymbol || 'BTCUSDT';
+        botState.enabled = false;
+        try { await cancelAllOpenOrders(symbol); } catch {}
+        botState.pendingOrders = {};
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: '⏹️ تم إيقاف البوت وإلغاء كل أوامر الشبكة المفتوحة' });
       }
-      botState.enabled = !!msg.enabled;
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
       broadcastBotStatus();
     }
-    else if (msg.type === 'bot_set_exchange') {
-      if (msg.exchange === 'mexc' || msg.exchange === 'binance') {
-        botState.exchange = msg.exchange;
-        broadcastBotStatus();
-      }
-    }
     else if (msg.type === 'bot_set_trade_size') {
+      // بوت الشبكة: هذه القيمة = مبلغ الصفقة بالـ USDT لكل مستوى في الشبكة
       const v = parseFloat(msg.tradeSizeUsdt);
       if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_take_profit') {
+      // بوت الشبكة: هذه القيمة = نسبة المسافة بين كل مستوى شراء/بيع والمستوى الذي يليه (GRID_STEP_PERCENT)
       const v = parseFloat(msg.takeProfitPercent);
-      if (v > 0 && v <= 100) { botState.takeProfitPercent = v; broadcastBotStatus(); }
+      if (v > 0 && v <= 20) { botState.takeProfitPercent = v; broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_max_positions') {
+      // بوت الشبكة: هذه القيمة = عدد مستويات الشراء (وعدد مستويات البيع، بنفس العدد) في الشبكة (GRID_SIZE)
       const v = parseInt(msg.maxConcurrentPositions, 10);
-      if (v >= 1 && v <= SCAN_SYMBOLS.length) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
+      if (v >= 1 && v <= 20) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_manual_symbol') {
-      // اختيار عملة التداول اليدوي — يحصل تلقائيًا لما يضغط المستخدم على أحد مربعات "أقوى 3 عملات" فوق
+      // اختيار عملة الشبكة — يحصل تلقائيًا لما يضغط المستخدم على أحد مربعات "أقوى 3 عملات" فوق.
+      // لتفادي أوامر شبكة يتيمة، يُمنع تغيير العملة والبوت شغّال — لازم إيقافه أولًا.
+      if (botState.enabled) {
+        ws.send(JSON.stringify({ type: 'error', message: 'أوقف البوت أولًا قبل تغيير عملة الشبكة' }));
+        return;
+      }
       const raw = (msg.symbol || '').toString().trim().toUpperCase();
       if (!raw) { botState.manualSymbol = null; broadcastBotStatus(); }
       else if (/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
@@ -314,45 +332,9 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح — لازم ينتهي بـ USDT' }));
       }
     }
-    else if (msg.type === 'bot_manual_order') {
-      if (!botState.enabled) {
-        ws.send(JSON.stringify({ type: 'error', message: 'فعّل البوت أولًا من المفتاح فوق' }));
-      } else {
-        const side = msg.side === 'SELL' ? 'SELL' : 'BUY';
-        placeManualOrder(ws, side, msg.price, msg.sellPrice).catch((err) => {
-          const detail = err.response?.data?.msg || err.message;
-          ws.send(JSON.stringify({ type: 'error', message: 'فشل تنفيذ الأمر: ' + detail }));
-        });
-      }
-    }
-    else if (msg.type === 'bot_manual_close') {
-      const { symbol } = msg;
-      if (botState.positions[symbol]) {
-        executeBotSell(symbol, null, 'إغلاق يدوي من المستخدم').catch((err) => {
-          const detail = err.response?.data?.msg || err.message;
-          ws.send(JSON.stringify({ type: 'error', message: 'فشل إغلاق الصفقة: ' + detail }));
-          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
-          broadcastBotStatus();
-        });
-      }
-    }
-    else if (msg.type === 'bot_cancel_pending') {
-      const { symbol } = msg;
-      const pending = botState.pendingOrders[symbol];
-      if (pending) {
-        (async () => {
-          try {
-            await cancelOrder(pending.exchange, symbol, pending.orderId);
-            delete botState.pendingOrders[symbol];
-            botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: 'أُلغي الأمر المعلّق يدويًا من المستخدم' });
-            botState.tradeLog = botState.tradeLog.slice(0, 50);
-            broadcastBotStatus();
-          } catch (err) {
-            const detail = err.response?.data?.msg || err.message;
-            ws.send(JSON.stringify({ type: 'error', message: 'فشل إلغاء الأمر: ' + detail }));
-          }
-        })();
-      }
+    else if (msg.type === 'bot_manual_order' || msg.type === 'bot_manual_close' || msg.type === 'bot_cancel_pending') {
+      // البوت الآن بوت شبكة تلقائي بالكامل — لا يوجد شراء/بيع يدوي، الشبكة تُدار وتُعاد موازنتها تلقائيًا
+      ws.send(JSON.stringify({ type: 'error', message: 'البوت أصبح بوت شبكة تلقائي بالكامل — لا حاجة لأوامر يدوية. شغّل/أوقف الشبكة من الزر فقط.' }));
     }
   });
 
@@ -1597,33 +1579,33 @@ function makeDecision(indicators) {
   return { trend, action, confidence, notes, buyZone, sellZone, early };
 }
 
-// ── بوت التداول ──────────────────────────────────────────────────────────────
+// ── بوت الشبكة (Grid Bot) ─────────────────────────────────────────────────────
+// امسحنا البوت اليدوي القديم بالكامل. البوت الآن بوت شبكة تلقائي كامل على Binance فقط،
+// نفس منطق سكربت Python اللي زوّدنا به المستخدم: عند التشغيل يلغي كل الأوامر المفتوحة على
+// الرمز، يجيب السعر الحالي، ثم يضع GRID_SIZE أوامر شراء Limit تحت السعر و GRID_SIZE أوامر بيع
+// Limit فوق السعر بمسافة GRID_STEP_PERCENT بين كل مستوى. كل 30 ثانية يفحص الأوامر المفتوحة،
+// ولو نقص عددها عن المتوقع (يعني تنفذت صفقة) يلغي الباقي ويعيد بناء الشبكة على السعر الجديد.
+//
+// ⚠️ ملاحظة مهمة (نفس قيد سكربت Python الأصلي): أوامر البيع Limit على Binance Spot تتطلب
+// إنك تملك فعليًا كمية من العملة الأساسية (مثلاً BTC) لتغطية أوامر البيع، وإلا سترفضها Binance
+// برسالة "insufficient balance". هذا سلوك طبيعي في أي بوت شبكة على Spot وليس خطأ بالكود.
 
-// بوت التداول أصبح يدويًا بالكامل: المستخدم يختار العملة من مربعات "أقوى 3 عملات" فوق،
-// ثم يشتري/يبيع مباشرة من مربعي الشراء والبيع (سعر السوق الحي، أو سعر يحدده هو).
 let botState = {
   enabled: false,
   exchange: 'binance',
-  tradeSizeUsdt: 50,
-  takeProfitPercent: 1,
-  maxConcurrentPositions: 1,
-  manualSymbol: null, // العملة المختارة حاليًا للتداول اليدوي (تُحدَّد بالضغط على أحد مربعات أقوى 3 عملات)
-  positions: {},
-  pendingOrders: {},
-  pendingSellOrders: {},
+  tradeSizeUsdt: 50,        // مبلغ الصفقة بالـ USDT لكل مستوى في الشبكة (AMOUNT_PER_GRID محسوبة ديناميكيًا)
+  takeProfitPercent: 1,     // GRID_STEP_PERCENT: نسبة المسافة بين كل مستوى (١٪ افتراضيًا)
+  maxConcurrentPositions: 5,// GRID_SIZE: عدد مستويات الشراء (ونفس العدد للبيع)
+  manualSymbol: 'BTCUSDT',  // الرمز اللي تعمل عليه الشبكة حاليًا
+  positions: {},            // غير مستخدم في بوت الشبكة (موجود فقط توافقًا مع الواجهة القديمة)
+  pendingOrders: {},        // أوامر الشبكة المفتوحة حاليًا، كل أمر بمفتاح فريد
+  pendingSellOrders: {},    // غير مستخدم في بوت الشبكة (توافقًا مع الواجهة القديمة)
   tradeLog: [],
 };
 
-const TP_LEVELS = [1, 1.5, 2];
-const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء فحص أقوى 3 عملات (REST خفيف)
+const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء فحص أقوى 3 عملات (REST خفيف) — يُستخدم في runExplosionScan فوق
 
-// ── أوامر API ────────────────────────────────────────────────────────────────
-
-function mexcSignedQuery(params) {
-  const qs = new URLSearchParams(params).toString();
-  const sig = crypto.createHmac('sha256', MEXC_API_SECRET).update(qs).digest('hex');
-  return `${qs}&signature=${sig}`;
-}
+// ── توقيع وأدوات Binance ────────────────────────────────────────────────────
 function binanceSignedQuery(params) {
   const qs = new URLSearchParams(params).toString();
   const sig = crypto.createHmac('sha256', BINANCE_API_SECRET).update(qs).digest('hex');
@@ -1645,270 +1627,96 @@ function roundPrice(price) {
   return Number(price.toFixed(8));
 }
 
-async function placeMexcOrder(symbol, side, quoteOrderQty, quantity) {
-  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
-  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
-  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
-  return data;
-}
-async function placeBinanceOrder(symbol, side, quoteOrderQty, quantity) {
-  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
-  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
-  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
-  return data;
-}
-function placeOrder(exchange, symbol, side, quoteOrderQty, quantity) {
-  return exchange === 'binance' ? placeBinanceOrder(symbol, side, quoteOrderQty, quantity) : placeMexcOrder(symbol, side, quoteOrderQty, quantity);
-}
-
-async function placeMexcLimitOrder(symbol, side, price, quantity) {
-  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
-  return data;
-}
-async function placeBinanceLimitOrder(symbol, side, price, quantity) {
+async function placeLimitOrder(symbol, side, price, quantity) {
   const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
   const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
   return data;
 }
-function placeLimitOrder(exchange, symbol, side, price, quantity) {
-  return exchange === 'binance' ? placeBinanceLimitOrder(symbol, side, price, quantity) : placeMexcLimitOrder(symbol, side, price, quantity);
-}
-
-async function queryMexcOrder(symbol, orderId) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.get(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
-  return data;
-}
-async function queryBinanceOrder(symbol, orderId) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
-  return data;
-}
-function queryOrder(exchange, symbol, orderId) {
-  return exchange === 'binance' ? queryBinanceOrder(symbol, orderId) : queryMexcOrder(symbol, orderId);
-}
-
-async function cancelMexcOrder(symbol, orderId) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.delete(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
-  return data;
-}
-async function cancelBinanceOrder(symbol, orderId) {
+async function cancelOrder(symbol, orderId) {
   const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
   const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
   return data;
 }
-function cancelOrder(exchange, symbol, orderId) {
-  return exchange === 'binance' ? cancelBinanceOrder(symbol, orderId) : cancelMexcOrder(symbol, orderId);
+async function getOpenOrders(symbol) {
+  const params = { symbol, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.get(`https://api.binance.com/api/v3/openOrders?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
 }
-
-async function executeBotSell(symbol, sig, reasonOverride) {
-  const pos = botState.positions[symbol];
-  if (!pos) return;
-  if (botState.pendingSellOrders[symbol]) {
-    for (const o of botState.pendingSellOrders[symbol]) { try { await cancelOrder(o.exchange, symbol, o.orderId); } catch {} }
-    delete botState.pendingSellOrders[symbol];
-  }
-  if (botState.pendingOrders[symbol] && botState.pendingOrders[symbol].side === 'SELL') {
-    try { await cancelOrder(botState.exchange, symbol, botState.pendingOrders[symbol].orderId); } catch {}
-    delete botState.pendingOrders[symbol];
-  }
-  const data = await placeOrder(botState.exchange, symbol, 'SELL', null, pos.qty);
-  const executedQty = parseFloat(data.executedQty || pos.qty);
-  const quoteReceived = parseFloat(data.cummulativeQuoteQty || 0);
-  const exitPrice = executedQty ? quoteReceived / executedQty : pos.entryPrice;
-  const pnl = quoteReceived - (pos.qty * pos.entryPrice);
-  const pnlPct = pos.entryPrice ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
-  delete botState.positions[symbol];
-  const reason = reasonOverride || 'إغلاق يدوي فوري';
-  botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: exitPrice, qty: executedQty, quoteAmount: quoteReceived, exchange: botState.exchange, reason, pnl, pnlPct });
-  botState.tradeLog = botState.tradeLog.slice(0, 50);
-  broadcastBotStatus();
+async function getCurrentPrice(symbol) {
+  const { data } = await axios.get(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`, { timeout: 10000 });
+  return parseFloat(data.price);
 }
 
 function logBotError(symbol, err) {
   const detail = err.response?.data?.msg || err.message;
-  console.error(`[BOT] خطأ في ${symbol}:`, detail);
+  console.error(`[GRID-BOT] خطأ في ${symbol}:`, detail);
   botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
 
-async function placeBotTakeProfitSells(symbol, position) {
-  const qtyPerOrder = roundQty(position.qty / 3, position.entryPrice);
-  if (!qtyPerOrder || qtyPerOrder <= 0) return;
-  const tpBase = botState.takeProfitPercent / 100;
-  botState.pendingSellOrders[symbol] = [];
-  for (const [i, mult] of TP_LEVELS.entries()) {
-    const sellPrice = roundPrice(position.entryPrice * (1 + tpBase * mult));
-    const pointName = `TP${i + 1} (${(botState.takeProfitPercent * mult).toFixed(1)}%)`;
+// 🧹 إلغاء كافة الأوامر المفتوحة على الرمز — نفس cancel_all_orders() في سكربت Python
+async function cancelAllOpenOrders(symbol) {
+  let orders;
+  try { orders = await getOpenOrders(symbol); } catch (err) { logBotError(symbol, err); return; }
+  for (const o of orders) {
+    try { await cancelOrder(symbol, o.orderId); } catch (err) { logBotError(symbol, err); }
+  }
+}
+
+// 🛠️ بناء وإرسال شبكة الأوامر الجديدة — نفس place_grid_orders() في سكربت Python
+async function placeGridOrders(symbol, currentPrice) {
+  const gridSize = botState.maxConcurrentPositions;
+  const stepPct = botState.takeProfitPercent / 100;
+  const usdtPerLevel = botState.tradeSizeUsdt;
+  botState.pendingOrders = {};
+
+  for (let i = 1; i <= gridSize; i++) {
+    const buyPrice = roundPrice(currentPrice * (1 - stepPct * i));
+    const qty = roundQty(usdtPerLevel / buyPrice, buyPrice);
+    if (!qty || qty <= 0) continue;
     try {
-      const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qtyPerOrder);
+      const data = await placeLimitOrder(symbol, 'BUY', buyPrice, qty);
       if (data.orderId) {
-        botState.pendingSellOrders[symbol].push({ orderId: data.orderId, side: 'SELL', price: sellPrice, qty: qtyPerOrder, placedAt: Date.now(), exchange: botState.exchange, point: pointName });
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty: qtyPerOrder, exchange: botState.exchange, reason: `أمر بيع ${pointName} معلّق عند ${sellPrice}` });
-        botState.tradeLog = botState.tradeLog.slice(0, 50);
+        botState.pendingOrders[`${symbol}_buy_${i}`] = { orderId: data.orderId, side: 'BUY', symbol, price: buyPrice, qty, level: i };
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: 'binance', reason: `📥 أمر شراء شبكة #${i} عند ${buyPrice}` });
       }
     } catch (err) { logBotError(symbol, err); }
   }
+
+  for (let i = 1; i <= gridSize; i++) {
+    const sellPrice = roundPrice(currentPrice * (1 + stepPct * i));
+    const qty = roundQty(usdtPerLevel / sellPrice, sellPrice);
+    if (!qty || qty <= 0) continue;
+    try {
+      const data = await placeLimitOrder(symbol, 'SELL', sellPrice, qty);
+      if (data.orderId) {
+        botState.pendingOrders[`${symbol}_sell_${i}`] = { orderId: data.orderId, side: 'SELL', symbol, price: sellPrice, qty, level: i };
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty, exchange: 'binance', reason: `📤 أمر بيع شبكة #${i} عند ${sellPrice}` });
+      }
+    } catch (err) { logBotError(symbol, err); }
+  }
+
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
 
-// ── تنفيذ أوامر الشراء/البيع اليدوية (من مربعي "شراء" و"بيع" فوق) ──────────────
-// - بدون سعر محدد (ضغطة مباشرة) => تنفيذ فوري بسعر السوق (Market)
-// - بسعر محدد (بعد تعديل الرقم) => أمر محدد السعر (Limit) ينتظر حتى يتحقق
-// - عند شراء بسعر محدد مع sellPrice: يُحفظ سعر البيع مع الأمر المعلّق، وفور ما يتحقق الشراء
-//   (checkPendingOrders) يضع البوت أمر بيع واحد تلقائيًا بنفس السعر المكتوب في مربع البيع وقت الحفظ.
-async function placeManualOrder(ws, side, priceRaw, sellPriceRaw) {
-  const symbol = botState.manualSymbol;
-  if (!symbol) { ws.send(JSON.stringify({ type: 'error', message: 'اختر عملة أولًا من مربعات أقوى 3 عملات فوق' })); return; }
-
-  const hasKeys = botState.exchange === 'binance' ? (BINANCE_API_KEY && BINANCE_API_SECRET) : (MEXC_API_KEY && MEXC_API_SECRET);
-  if (!hasKeys) { ws.send(JSON.stringify({ type: 'error', message: `لا يوجد مفتاح API معرّف لمنصة ${botState.exchange === 'binance' ? 'Binance' : 'MEXC'}` })); return; }
-
-  let price = null;
-  if (priceRaw !== null && priceRaw !== undefined && priceRaw !== '') {
-    price = parseFloat(priceRaw);
-    if (!Number.isFinite(price) || price <= 0) { ws.send(JSON.stringify({ type: 'error', message: 'سعر غير صحيح' })); return; }
-  }
-  let sellPrice = null;
-  if (sellPriceRaw !== null && sellPriceRaw !== undefined && sellPriceRaw !== '') {
-    const sp = parseFloat(sellPriceRaw);
-    if (Number.isFinite(sp) && sp > 0) sellPrice = sp;
-  }
-
-  if (botState.exchange === 'binance') {
-    const validSet = await getBinanceValidSymbols();
-    if (validSet && !validSet.has(symbol)) { ws.send(JSON.stringify({ type: 'error', message: `${symbol} غير متاحة حاليًا للتداول الفوري على Binance` })); return; }
-  }
-
-  try {
-    if (side === 'BUY') {
-      if (botState.positions[symbol] || botState.pendingOrders[symbol]) { ws.send(JSON.stringify({ type: 'error', message: 'فيه صفقة أو أمر شراء معلّق على هذي العملة أصلًا' })); return; }
-      const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
-      if (openCount >= botState.maxConcurrentPositions) { ws.send(JSON.stringify({ type: 'error', message: `وصلت للحد الأقصى للصفقات المتزامنة (${botState.maxConcurrentPositions})` })); return; }
-
-      if (price != null) {
-        const buyPrice = roundPrice(price);
-        const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
-        if (!qty || qty <= 0) { ws.send(JSON.stringify({ type: 'error', message: 'حجم الصفقة صغير جدًا لهذا السعر' })); return; }
-        const data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
-        if (!data.orderId) { ws.send(JSON.stringify({ type: 'error', message: 'فشل وضع أمر الشراء' })); return; }
-        botState.pendingOrders[symbol] = {
-          orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange,
-          sellPrice: sellPrice != null ? roundPrice(sellPrice) : null,
-        };
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange, reason: `أمر شراء يدوي (Limit) عند ${buyPrice}` });
-      } else {
-        const data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
-        const executedQty = parseFloat(data.executedQty || 0);
-        const quoteAmount = parseFloat(data.cummulativeQuoteQty || botState.tradeSizeUsdt);
-        const fillPrice = executedQty > 0 ? quoteAmount / executedQty : null;
-        if (!executedQty || !fillPrice) { ws.send(JSON.stringify({ type: 'error', message: 'لم يتم تنفيذ أمر الشراء' })); return; }
-        botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
-        botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty, quoteAmount, exchange: botState.exchange, reason: 'شراء يدوي فوري (Market)' });
-        await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
-      }
-    } else {
-      const pos = botState.positions[symbol];
-      if (!pos) { ws.send(JSON.stringify({ type: 'error', message: 'لا توجد صفقة مفتوحة على هذي العملة لبيعها' })); return; }
-
-      if (price != null) {
-        if (botState.pendingSellOrders[symbol]) {
-          for (const o of botState.pendingSellOrders[symbol]) { try { await cancelOrder(o.exchange, symbol, o.orderId); } catch {} }
-          delete botState.pendingSellOrders[symbol];
-        }
-        const sellPrice = roundPrice(price);
-        const qty = roundQty(pos.qty, sellPrice);
-        const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qty);
-        if (!data.orderId) { ws.send(JSON.stringify({ type: 'error', message: 'فشل وضع أمر البيع' })); return; }
-        botState.pendingSellOrders[symbol] = [{ orderId: data.orderId, side: 'SELL', price: sellPrice, qty, placedAt: Date.now(), exchange: botState.exchange, point: 'بيع يدوي' }];
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty, exchange: botState.exchange, reason: `أمر بيع يدوي (Limit) عند ${sellPrice}` });
-      } else {
-        await executeBotSell(symbol, null, 'بيع يدوي فوري (Market)');
-      }
-    }
-    botState.tradeLog = botState.tradeLog.slice(0, 50);
-    broadcastBotStatus();
-  } catch (err) {
-    logBotError(symbol, err);
-    broadcastBotStatus();
-    throw err;
-  }
-}
-
-// يضع أمر بيع واحد كامل الكمية بسعر محدد بالضبط — يُستخدم لما يوفّر المستخدم سعر بيع صريح
-// من مربع البيع (بدل التقسيم لعدة مستويات TP اللي تسويها placeBotTakeProfitSells)
-async function placeSingleSell(symbol, position, sellPrice) {
-  const qty = roundQty(position.qty, sellPrice);
-  if (!qty || qty <= 0) return;
-  botState.pendingSellOrders[symbol] = [];
-  try {
-    const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qty);
-    if (data.orderId) {
-      botState.pendingSellOrders[symbol].push({ orderId: data.orderId, side: 'SELL', price: sellPrice, qty, placedAt: Date.now(), exchange: botState.exchange, point: 'بيع تلقائي (من مربع البيع)' });
-      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty, exchange: botState.exchange, reason: `وضع البوت أمر بيع تلقائي عند ${sellPrice} (السعر المحفوظ بمربع البيع)` });
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
-    }
-  } catch (err) { logBotError(symbol, err); }
-}
-
-async function checkPendingOrders(symbol) {
-  const buyOrder = botState.pendingOrders[symbol];
-  if (buyOrder) {
-    let data;
-    try { data = await queryOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch { return; }
-    const status = data.status;
-    if (status === 'FILLED') {
-      const executedQty = parseFloat(data.executedQty || buyOrder.qty);
-      const quoteAmount = parseFloat(data.cummulativeQuoteQty || executedQty * buyOrder.price);
-      const fillPrice = executedQty ? quoteAmount / executedQty : buyOrder.price;
-      botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
-      delete botState.pendingOrders[symbol];
-      botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty, quoteAmount, exchange: buyOrder.exchange, reason: `نفذ أمر الشراء عند ${fillPrice.toFixed(6)}` });
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
-      if (buyOrder.sellPrice) {
-        await placeSingleSell(symbol, botState.positions[symbol], buyOrder.sellPrice);
-      } else {
-        await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
-      }
-    } else if (status === 'CANCELED' || status === 'EXPIRED' || status === 'REJECTED') {
-      delete botState.pendingOrders[symbol];
-    }
-    // ملاحظة: أوامر الشراء اليدوية المحددة السعر تبقى معلّقة بدون إلغاء تلقائي بالوقت —
-    // المستخدم هو اللي يحدد سعره ويقرر الإلغاء يدويًا (زر "إلغاء الأمر المعلّق") لو تغيّر رأيه.
-  }
-  const sellOrders = botState.pendingSellOrders[symbol];
-  if (sellOrders && sellOrders.length) {
-    for (const order of [...sellOrders]) {
-      let data;
-      try { data = await queryOrder(order.exchange, symbol, order.orderId); } catch { continue; }
-      if (data.status === 'FILLED') {
-        const executedQty = parseFloat(data.executedQty || order.qty);
-        const quoteAmount = parseFloat(data.cummulativeQuoteQty || executedQty * order.price);
-        const fillPrice = executedQty ? quoteAmount / executedQty : order.price;
-        const pos = botState.positions[symbol];
-        const pnl = pos ? quoteAmount - executedQty * pos.entryPrice : null;
-        const pnlPct = pos && pos.entryPrice ? ((fillPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
-        botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
-        botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: fillPrice, qty: executedQty, quoteAmount, exchange: order.exchange, reason: `نفذ بيع ${order.point} عند ${fillPrice.toFixed(6)}`, pnl, pnlPct });
-        botState.tradeLog = botState.tradeLog.slice(0, 50);
-        // أمر البيع اليدوي (من مربع "بيع") يبيع الكمية كاملة، على عكس أوامر جني الربح المجزّأة (TP) —
-        // لما ينفذ نقفل الصفقة بالكامل من الحالة عشان يقدر المستخدم يشتري نفس العملة من جديد لو حب
-        if (order.point === 'بيع يدوي' && botState.positions[symbol]) delete botState.positions[symbol];
-      } else if (['CANCELED', 'EXPIRED', 'REJECTED'].includes(data.status)) {
-        botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
-      }
-    }
-    if (botState.pendingSellOrders[symbol].length === 0) delete botState.pendingSellOrders[symbol];
-  }
-}
-
-// البوت أصبح يدويًا بالكامل — دورته الدورية الوحيدة الآن هي متابعة تنفيذ الأوامر المعلّقة
-// (شراء Limit بانتظار وصول السعر، أو بيع TP/يدوي بانتظار التنفيذ) وتحديث السجل والحالة.
+// 🔄 دورة المراقبة الدورية — نفس حلقة while True في سكربت Python: تفحص الأوامر المفتوحة كل 30 ثانية،
+// ولو نقص عددها عن المتوقع (GRID_SIZE × 2) فهذا يعني تنفيذ صفقة، فتُعاد موازنة الشبكة على السعر الجديد.
 async function runBotCycle() {
   if (!botState.enabled) return;
-  const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
-  for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
+  const symbol = botState.manualSymbol || 'BTCUSDT';
+  try {
+    const openOrders = await getOpenOrders(symbol);
+    const expectedTotal = botState.maxConcurrentPositions * 2;
+    if (openOrders.length < expectedTotal) {
+      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: '🔔 اكتشاف تنفيذ صفقة في السوق! جاري تحديث وموازنة الشبكة...' });
+      await cancelAllOpenOrders(symbol);
+      const newPrice = await getCurrentPrice(symbol);
+      await placeGridOrders(symbol, newPrice);
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
+    }
+  } catch (err) {
+    logBotError(symbol, err);
+  }
   broadcastBotStatus();
 }
 
@@ -1928,6 +1736,6 @@ function broadcastBotStatus() {
   }
 }
 
-setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية
+setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية — فحص الشبكة وإعادة الموازنة عند الحاجة
 
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));
