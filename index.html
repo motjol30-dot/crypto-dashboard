@@ -610,9 +610,8 @@
       // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
   let currentInterval = '5m';
-  let buyLivePrice = null;      // آخر سعر حي فعلي من الشموع
-  let buyPriceOffsetPct = 0;    // نسبة التعديل اليدوي من الزائد/الناقص (0 = يتبع السعر الحي مباشرة)
-  let buyAdjusting = false;     // صار true أول ما يضغط المستخدم +/- ويتوقف عن تتبع السعر الحي تلقائيًا
+  let buyLivePrice = null;      // آخر سعر حي فعلي من الشموع (يتحدث دايمًا بغض النظر عن التثبيت)
+  let buyFrozenPrice = null;    // null = يتبع السعر الحي؛ رقم = مثبَّت (بعد +/- أو حفظ) ولا يتغير لحاله
   let lastSellZonePrice = null;
   let ws = null;
   let btcWs = null;
@@ -1487,11 +1486,8 @@
     const overallMap = { 'صعود': ['pos', 'إيجابي'], 'هبوط': ['neg', 'سلبي'], 'تذبذب': ['neutral', 'محايد'] };
     const [oc, ol] = overallMap[d.trend] || ['neutral', '—'];
     setPill('p-overall', oc, ol);
-    // مربع الشراء صار يعرض السعر الحي القابل للتعديل (يُحدَّث من handleUpdate) — مو من القرار هنا.
-    if (d.sellZone && d.sellZone.price != null) {
-      document.getElementById('sell-zone-range').textContent = d.sellZone.price;
-      lastSellZonePrice = parseFloat(d.sellZone.price);
-    }
+    // مربعا الشراء والبيع صارا يُحسبان من السعر الحي محليًا (buyLivePrice/buyFrozenPrice × نسبة
+    // جني الربح) — مو من هذا القرار القادم من السيرفر، فلا نلمسهم هنا.
     const list = document.getElementById('notes-list');
     list.innerHTML = '';
     (d.notes || []).forEach(n => {
@@ -1708,7 +1704,11 @@
     statusText.className = msg.enabled ? 'on' : 'off';
     document.getElementById('bot-exchange-select').value = msg.exchange;
     document.getElementById('bot-trade-size-input').value = msg.tradeSizeUsdt;
-    if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
+    if (msg.takeProfitPercent != null) {
+      document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
+      takeProfitPct = parseFloat(msg.takeProfitPercent) || takeProfitPct;
+      renderSellZoneBox();
+    }
     if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
 
     document.getElementById('bot-manual-symbol-value').textContent = msg.manualSymbol
@@ -1757,7 +1757,11 @@
   });
   document.getElementById('bot-save-tp-btn').addEventListener('click', () => {
     const v = parseFloat(document.getElementById('bot-take-profit-input').value);
-    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
+    if (v > 0) {
+      takeProfitPct = v;
+      renderSellZoneBox();
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
+    }
   });
   document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
     const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
@@ -1773,8 +1777,9 @@
   });
 
   // ═══════════════════ مربع الشراء (سعر حي قابل للتعديل بالزائد/الناقص + حفظ = أمر شراء) ═══════════════════
-  // ومربع البيع (يبقى تلقائي حسب نسبة جني الربح، ويُنفَّذ بضغطة واحدة على المربع نفسه)
+  // ومربع البيع (يُحسب من سعر الشراء المعروض × نسبة جني الربح، ويُنفَّذ بضغطة واحدة على المربع نفسه)
   const BUY_STEP_PCT = 0.001; // كل ضغطة زائد/ناقص تحرك السعر 0.1%
+  let takeProfitPct = parseFloat(document.getElementById('bot-take-profit-input').value) || 1;
 
   function fmtManualPrice(p) {
     if (p == null || !Number.isFinite(p)) return '—';
@@ -1782,41 +1787,51 @@
   }
 
   function currentBuyDisplayPrice() {
-    if (buyLivePrice == null) return null;
-    return buyAdjusting ? buyLivePrice * (1 + buyPriceOffsetPct) : buyLivePrice;
+    return buyFrozenPrice != null ? buyFrozenPrice : buyLivePrice;
   }
 
   function renderBuyZoneBox() {
     document.getElementById('buy-zone-range').textContent = fmtManualPrice(currentBuyDisplayPrice());
+    renderSellZoneBox();
+  }
+
+  function renderSellZoneBox() {
+    const buyPrice = currentBuyDisplayPrice();
+    if (buyPrice == null) { document.getElementById('sell-zone-range').textContent = '—'; lastSellZonePrice = null; return; }
+    lastSellZonePrice = buyPrice * (1 + takeProfitPct / 100);
+    document.getElementById('sell-zone-range').textContent = fmtManualPrice(lastSellZonePrice);
   }
 
   function resetBuyAdjustment() {
-    buyAdjusting = false;
-    buyPriceOffsetPct = 0;
+    buyFrozenPrice = null; // يرجع يتبع السعر الحي (يصير عند اختيار عملة جديدة فقط)
     renderBuyZoneBox();
   }
 
   document.getElementById('buy-price-minus').addEventListener('click', () => {
-    if (buyLivePrice == null) return;
-    buyAdjusting = true;
-    buyPriceOffsetPct -= BUY_STEP_PCT;
+    const base = currentBuyDisplayPrice();
+    if (base == null) return;
+    buyFrozenPrice = base * (1 - BUY_STEP_PCT);
     renderBuyZoneBox();
   });
   document.getElementById('buy-price-plus').addEventListener('click', () => {
-    if (buyLivePrice == null) return;
-    buyAdjusting = true;
-    buyPriceOffsetPct += BUY_STEP_PCT;
+    const base = currentBuyDisplayPrice();
+    if (base == null) return;
+    buyFrozenPrice = base * (1 + BUY_STEP_PCT);
     renderBuyZoneBox();
   });
   document.getElementById('buy-zone-save').addEventListener('click', () => {
     if (!lastBotStatus || !lastBotStatus.manualSymbol) { alert('اختر عملة أولًا من مربعات أقوى 3 عملات فوق'); return; }
     const price = currentBuyDisplayPrice();
     if (price == null || !Number.isFinite(price) || price <= 0) { alert('لا يوجد سعر حي جاهز بعد — انتظر أول تحديث للعملة'); return; }
+    const sellPrice = price * (1 + takeProfitPct / 100);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      // أمر شراء Limit دائمًا بالسعر المعروض (المعدَّل أو الحي)، وليس شراء مفتوح (Market)
-      ws.send(JSON.stringify({ type: 'bot_manual_order', side: 'BUY', price }));
+      // أمر شراء Limit بالسعر المعروض، مع إرسال سعر البيع (من مربع البيع) ليضعه البوت تلقائيًا
+      // فور تنفيذ الشراء — بدون انتظار تدخل يدوي ثاني.
+      ws.send(JSON.stringify({ type: 'bot_manual_order', side: 'BUY', price, sellPrice }));
     }
-    resetBuyAdjustment(); // يرجع يتبع السعر الحي تلقائيًا بعد الحفظ
+    // يثبت على السعر الذي حفظنا عليه بالضبط ولا يرجع يتبع السعر الحي إلا لما نختار عملة جديدة أو نعدّل بـ +/-
+    buyFrozenPrice = price;
+    renderBuyZoneBox();
   });
 
   document.getElementById('sell-zone-box').addEventListener('click', () => {

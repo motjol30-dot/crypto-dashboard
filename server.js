@@ -319,7 +319,7 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'فعّل البوت أولًا من المفتاح فوق' }));
       } else {
         const side = msg.side === 'SELL' ? 'SELL' : 'BUY';
-        placeManualOrder(ws, side, msg.price).catch((err) => {
+        placeManualOrder(ws, side, msg.price, msg.sellPrice).catch((err) => {
           const detail = err.response?.data?.msg || err.message;
           ws.send(JSON.stringify({ type: 'error', message: 'فشل تنفيذ الأمر: ' + detail }));
         });
@@ -1756,7 +1756,9 @@ async function placeBotTakeProfitSells(symbol, position) {
 // ── تنفيذ أوامر الشراء/البيع اليدوية (من مربعي "شراء" و"بيع" فوق) ──────────────
 // - بدون سعر محدد (ضغطة مباشرة) => تنفيذ فوري بسعر السوق (Market)
 // - بسعر محدد (بعد تعديل الرقم) => أمر محدد السعر (Limit) ينتظر حتى يتحقق
-async function placeManualOrder(ws, side, priceRaw) {
+// - عند شراء بسعر محدد مع sellPrice: يُحفظ سعر البيع مع الأمر المعلّق، وفور ما يتحقق الشراء
+//   (checkPendingOrders) يضع البوت أمر بيع واحد تلقائيًا بنفس السعر المكتوب في مربع البيع وقت الحفظ.
+async function placeManualOrder(ws, side, priceRaw, sellPriceRaw) {
   const symbol = botState.manualSymbol;
   if (!symbol) { ws.send(JSON.stringify({ type: 'error', message: 'اختر عملة أولًا من مربعات أقوى 3 عملات فوق' })); return; }
 
@@ -1767,6 +1769,11 @@ async function placeManualOrder(ws, side, priceRaw) {
   if (priceRaw !== null && priceRaw !== undefined && priceRaw !== '') {
     price = parseFloat(priceRaw);
     if (!Number.isFinite(price) || price <= 0) { ws.send(JSON.stringify({ type: 'error', message: 'سعر غير صحيح' })); return; }
+  }
+  let sellPrice = null;
+  if (sellPriceRaw !== null && sellPriceRaw !== undefined && sellPriceRaw !== '') {
+    const sp = parseFloat(sellPriceRaw);
+    if (Number.isFinite(sp) && sp > 0) sellPrice = sp;
   }
 
   if (botState.exchange === 'binance') {
@@ -1786,7 +1793,10 @@ async function placeManualOrder(ws, side, priceRaw) {
         if (!qty || qty <= 0) { ws.send(JSON.stringify({ type: 'error', message: 'حجم الصفقة صغير جدًا لهذا السعر' })); return; }
         const data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
         if (!data.orderId) { ws.send(JSON.stringify({ type: 'error', message: 'فشل وضع أمر الشراء' })); return; }
-        botState.pendingOrders[symbol] = { orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange };
+        botState.pendingOrders[symbol] = {
+          orderId: data.orderId, side: 'BUY', price: buyPrice, qty, placedAt: Date.now(), exchange: botState.exchange,
+          sellPrice: sellPrice != null ? roundPrice(sellPrice) : null,
+        };
         botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: botState.exchange, reason: `أمر شراء يدوي (Limit) عند ${buyPrice}` });
       } else {
         const data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
@@ -1826,6 +1836,22 @@ async function placeManualOrder(ws, side, priceRaw) {
   }
 }
 
+// يضع أمر بيع واحد كامل الكمية بسعر محدد بالضبط — يُستخدم لما يوفّر المستخدم سعر بيع صريح
+// من مربع البيع (بدل التقسيم لعدة مستويات TP اللي تسويها placeBotTakeProfitSells)
+async function placeSingleSell(symbol, position, sellPrice) {
+  const qty = roundQty(position.qty, sellPrice);
+  if (!qty || qty <= 0) return;
+  botState.pendingSellOrders[symbol] = [];
+  try {
+    const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qty);
+    if (data.orderId) {
+      botState.pendingSellOrders[symbol].push({ orderId: data.orderId, side: 'SELL', price: sellPrice, qty, placedAt: Date.now(), exchange: botState.exchange, point: 'بيع تلقائي (من مربع البيع)' });
+      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty, exchange: botState.exchange, reason: `وضع البوت أمر بيع تلقائي عند ${sellPrice} (السعر المحفوظ بمربع البيع)` });
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
+    }
+  } catch (err) { logBotError(symbol, err); }
+}
+
 async function checkPendingOrders(symbol) {
   const buyOrder = botState.pendingOrders[symbol];
   if (buyOrder) {
@@ -1840,7 +1866,11 @@ async function checkPendingOrders(symbol) {
       delete botState.pendingOrders[symbol];
       botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty, quoteAmount, exchange: buyOrder.exchange, reason: `نفذ أمر الشراء عند ${fillPrice.toFixed(6)}` });
       botState.tradeLog = botState.tradeLog.slice(0, 50);
-      await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
+      if (buyOrder.sellPrice) {
+        await placeSingleSell(symbol, botState.positions[symbol], buyOrder.sellPrice);
+      } else {
+        await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
+      }
     } else if (status === 'CANCELED' || status === 'EXPIRED' || status === 'REJECTED') {
       delete botState.pendingOrders[symbol];
     }
