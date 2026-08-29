@@ -51,11 +51,13 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
-// ملاحظة: كنا سابقًا نقسم حوض الـ~211 عملة على 3 مجموعات ثابتة (round-robin) وكل مربع من مربعات
-// "أقوى 3 عملات" يترشّح من ثلثه الخاص فقط — هذا كان يسبب مربعات فاضية بشكل متكرر (لو ثلث معين ما
-// فيه عملة نظيفة البيانات هذي الدورة) والعملات ما تتغير غالبًا (نفس الترشيح المحدود بثلث واحد).
-// الآن نفحص الحوض كامل ونطلع أفضل 3 عملات فعليًا من كامل السوق — هذا يحل مشكلة الفراغ (يكفي وجود
-// 3 عملات صالحة بالحوض كامل، شبه مستحيل تصفر) ويخلي الترشيح فعلاً "أقوى 3" مو "أفضل واحدة من كل ثلث".
+// رجّعنا التصميم البسيط الأصلي بطلب المستخدم بعد ما جربنا فحص الحوض كامل + سحب/صفحات وما استقر —
+// المربعات الثلاثة الآن تعرض فقط أفضل عملة من كل ثلث ثابت من الحوض (بدون سحب لباقي العملات)،
+// أولوية للموثوقية على الميزات الإضافية.
+const EXPLOSION_GROUPS = [[], [], []];
+SCAN_POOL.forEach((sym, i) => EXPLOSION_GROUPS[i % 3].push(sym));
+const SYMBOL_GROUP_INDEX = {};
+EXPLOSION_GROUPS.forEach((group, gi) => group.forEach(sym => { SYMBOL_GROUP_INDEX[sym] = gi; }));
 
 const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
 const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
@@ -148,7 +150,7 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 // كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
-app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
+app.get('/api/explosion-groups', (_req, res) => res.json({ groups: EXPLOSION_GROUPS }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
@@ -248,7 +250,7 @@ wss.on('connection', (ws, req) => {
   if (AUTH_ENABLED && !isKnown && activeSessions.size >= MAX_USERS) { ws.close(4002, 'SERVER_FULL'); return; }
   if (sid) activeSessions.set(sid, Date.now());
 
-  if (explosionRanking.length) {
+  if (explosionRanking.some(Boolean)) {
     ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking }));
   }
   ws.send(botStatusPayload());
@@ -331,9 +333,33 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح — لازم ينتهي بـ USDT' }));
       }
     }
-    else if (msg.type === 'bot_manual_order' || msg.type === 'bot_manual_close' || msg.type === 'bot_cancel_pending') {
-      // البوت الآن بوت شبكة تلقائي بالكامل — لا يوجد شراء/بيع يدوي، الشبكة تُدار وتُعاد موازنتها تلقائيًا
-      ws.send(JSON.stringify({ type: 'error', message: 'البوت أصبح بوت شبكة تلقائي بالكامل — لا حاجة لأوامر يدوية. شغّل/أوقف الشبكة من الزر فقط.' }));
+    else if (msg.type === 'manual_buy_now') {
+      // زر "شراء الآن" — شراء Market فوري على الرمز المعروض حاليًا بالواجهة
+      if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance' }));
+        return;
+      }
+      const raw = (msg.symbol || '').toString().trim().toUpperCase();
+      if (!/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح' }));
+        return;
+      }
+      executeManualBuy(raw).then(() => {
+        broadcastBotStatus();
+      }).catch((err) => {
+        const detail = err.response?.data?.msg || err.message;
+        ws.send(JSON.stringify({ type: 'error', message: 'فشل الشراء: ' + detail }));
+      });
+    }
+    else if (msg.type === 'manual_bot_toggle') {
+      manualBotState.enabled = !!msg.enabled;
+      botState.tradeLog.unshift({ time: Date.now(), symbol: '', type: 'error', message: manualBotState.enabled ? '🟢 تفعيل بوت البيع التلقائي (للشراء اليدوي)' : '⏹️ إيقاف بوت البيع التلقائي (للشراء اليدوي)' });
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
+      broadcastBotStatus();
+    }
+    else if (msg.type === 'bot_manual_close' || msg.type === 'bot_cancel_pending') {
+      // خاصة ببوت الشبكة فقط — الشبكة تُدار وتُعاد موازنتها تلقائيًا، لا حاجة لإغلاق يدوي
+      ws.send(JSON.stringify({ type: 'error', message: 'بوت الشبكة تلقائي بالكامل — لا حاجة لأوامر يدوية عليه.' }));
     }
   });
 
@@ -345,9 +371,6 @@ const SCAN_INTERVAL = '15m';
 const SCAN_SYMBOLS = SYMBOLS;
 
 let explosionRanking = [];
-
-// حد أدنى لمتوسط السيولة (بالدولار) على فريم 15 دقيقة عشان نستبعد العملات شبه الميتة من الترشيح
-const MIN_AVG_QUOTE_VOLUME_15M = 15000;
 
 function computeExplosionScore(candles) {
   if (!candles || candles.length < 80) return null;
@@ -432,11 +455,7 @@ function computeExplosionScore(candles) {
   score -= rsiPenalty;
 
   const price = closes[n-1];
-
-  // 🚫 فلتر سيولة حقيقي: نرفض أي عملة متوسط تداولها بآخر 50 شمعة (15د) أقل من حد أدنى بالدولار —
-  // هذا يمنع ترشيح عملات "ميتة" حجمها ضعيف جدًا وممكن تواجه انزلاق سعر (slippage) كبير عند التنفيذ.
   const avgQuoteVol50 = avgVol50 * price;
-  if (!Number.isFinite(avgQuoteVol50) || avgQuoteVol50 < MIN_AVG_QUOTE_VOLUME_15M) return null;
 
   const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
 
@@ -453,61 +472,60 @@ function computeExplosionScore(candles) {
   };
 }
 
-// يفحص كامل حوض الـ~211 عملة (SCAN_POOL) ويطلع فعليًا أقوى 3 عملات من كامل السوق (مو أفضل واحدة
+// يفحص كامل حوض الـ~211 عملة (SCAN_POOL) ويطلع فعليًا أقوى العملات من كامل السوق (مو أفضل واحدة
 // من كل ثلث كما كان سابقًا) — هذا يحل مشكلتين كانتا موجودتين: (1) مربع فاضي بدون عملة لو ثلث معين
 // ما فيه ترشيح صالح هذي الدورة، و(2) نفس العملات ما تتغير لأن كل مربع محصور بثلث ثابت من البداية.
 // بنفس أسلوب الفحص الخفيف (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) حتى ما نثقل
 // السيرفر بفتح 211 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
 //
-// مرحلة إضافية: بعد الترتيب الأولي على 15 دقيقة، نجيب تأكيد الساعة (1h) فقط لأفضل 15 مرشّح (مو
-// كل الحوض — توفير للشبكة)، ونعدّل النقاط: تأكيد مع الاتجاه = مكافأة، تعارض معه = عقوبة، ثم نعيد
-// الترتيب ونطلع أفضل 3 نهائيًا. هذا يمنع ترشيح عملة إشارتها الفنية جيدة على المدى القصير لكنها
-// تسبح عكس اتجاه السوق الأعم على الساعة.
-const HTF_CONFIRM_POOL_SIZE = 15;
-const HTF_AGREE_BONUS = 10;
-const HTF_CONFLICT_PENALTY = 18;
-
+// رجعنا للتصميم البسيط: كل مربع من الثلاثة يترشّح من ثلثه الثابت فقط (بدون فحص حوض كامل ولا سحب/صفحات) —
+// بطلب المستخدم بعد ما الميزات الإضافية (فحص حوض كامل + سحب لباقي العملات) ما استقرت. الدالة كاملة
+// محاطة بـ try/catch عشان أي خطأ غير متوقع أبدًا ما يمنعها من الأقل تبث آخر نتيجة صالحة عندها.
 async function runExplosionScan() {
-  const results = [];
-  for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
-    const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
-    await Promise.all(batch.map(async (symbol) => {
-      if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
-      const candles = getCandlesForScan(symbol);
-      const res = computeExplosionScore(candles);
-      if (res) results.push({ symbol, ...res });
-    }));
-  }
-  results.sort((a, b) => b.score - a.score);
+  try {
+    const results = [];
+    for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
+      const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
+      await Promise.all(batch.map(async (symbol) => {
+        try {
+          if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
+          const candles = getCandlesForScan(symbol);
+          const res = computeExplosionScore(candles);
+          if (res) results.push({ symbol, ...res });
+        } catch (err) {
+          console.error(`[explosion-scan] تخطي ${symbol} بسبب خطأ:`, err.message);
+        }
+      }));
+    }
+    console.log(`[explosion-scan] دورة فحص انتهت: ${results.length} عملة صالحة من أصل ${SCAN_POOL.length}`);
 
-  // تأكيد الساعة لأفضل المرشحين فقط
-  const contenders = results.slice(0, HTF_CONFIRM_POOL_SIZE);
-  await Promise.all(contenders.map(c => refreshHtfCache(c.symbol)));
-  for (const c of contenders) {
-    const htfTrend = getHtfTrend(c.symbol);
-    c.htfTrend = htfTrend;
-    if (htfTrend === 'unknown' || htfTrend === 'neutral' || c.direction === 'neutral') continue;
-    if (htfTrend === c.direction) c.score = Math.min(100, c.score + HTF_AGREE_BONUS);
-    else c.score = Math.max(0, c.score - HTF_CONFLICT_PENALTY);
+    const byGroup = [[], [], []];
+    for (const r of results) {
+      const gi = SYMBOL_GROUP_INDEX[r.symbol];
+      if (gi != null) byGroup[gi].push(r);
+    }
+    // لو مجموعة ما طلعت لها أي عملة صالحة بهذي الدورة، نبقي آخر ترشيح معروف لها بدل ما يفضى المربع
+    explosionRanking = byGroup.map((list, gi) => {
+      list.sort((a, b) => b.score - a.score);
+      return list[0] || explosionRanking[gi] || null;
+    });
+    broadcastExplosionScan();
+  } catch (err) {
+    console.error('[explosion-scan] خطأ عام غير متوقع بالدورة كاملة:', err.message);
   }
-  contenders.sort((a, b) => b.score - a.score);
-  const rest = results.slice(HTF_CONFIRM_POOL_SIZE);
-  const finalPool = [...contenders, ...rest];
-  finalPool.sort((a, b) => b.score - a.score); // ترتيب نهائي شامل بعد دمج تعديلات تأكيد الساعة
-
-  // نحتفظ بالقائمة الكاملة (كل عملة اجتازت فلتر السيولة وفيها بيانات كافية) مرتبة من الأقوى للأضعف،
-  // عشان الواجهة تقدر تستعرضها بالسحب ثلاثة ثلاثة بدل ما تقتصر على أفضل 3 بس.
-  explosionRanking = finalPool.length ? finalPool : explosionRanking;
-  broadcastExplosionScan();
 }
 
 function broadcastExplosionScan() {
-  if (!explosionRanking.length) return;
+  if (!explosionRanking.some(Boolean)) return;
   const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
   }
 }
+
+// أول فحص لأقوى العملات على كامل الحوض — يبدأ فورًا عند إقلاع السيرفر بدون انتظار فتح بث الـ40
+// عملة الأساسية (كانا متسلسلين قبل، يعني المربعات تضل فاضية أطول من اللازم بعد كل إعادة تشغيل)
+runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفحص الأول:', err.message));
 
 (async () => {
   // نحمّل بث مباشر دائم فقط لقائمة الـ40 الأساسية (تُستخدم للرسم البياني الرئيسي واختيار العملة يدويًا)
@@ -517,11 +535,9 @@ function broadcastExplosionScan() {
     const batch = symbols.slice(i, i + batchSize);
     await Promise.all(batch.map(symbol => ensureStream(symbol, SCAN_INTERVAL).catch(err => console.error(err))));
   }
-  // أول فحص لأقوى 3 عملات على كامل حوض الـ~240 عملة (REST خفيف مؤقت الذاكرة — لا يفتح بث دائم)
-  runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفحص الأول:', err.message));
 })();
 
-// فحص أقوى 3 عملات على كامل الحوض كل 4 دقائق (حسب طلب المستخدم)
+// فحص أقوى العملات على كامل الحوض كل 4 دقائق (حسب طلب المستخدم)
 setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 4 * 60 * 1000);
 
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
@@ -618,43 +634,6 @@ function getCandlesForScan(symbol) {
   const live = candleStore[`${symbol}_15m`];
   if (live && live.length >= 60) return live;
   return scanCandleCache[symbol] || null;
-}
-
-/* ============================================================================
- * تأكيد الفريم الأعلى (1 ساعة) — نجيب شموع الساعة فقط لأفضل المرشحين (مو كل الحوض) عشان نتأكد
- * إن إشارة الانضغاط على 15 دقيقة ما تكون عكس اتجاه السوق الأعم على الساعة. كاش منفصل بعمر أطول
- * (20 دقيقة) لأن شموع الساعة تتغيّر ببطء أكثر من 15 دقيقة.
- * ============================================================================ */
-const htfCandleCache = {};      // symbol -> شموع الساعة (~60 شمعة)
-const htfCacheUpdatedAt = {};   // symbol -> وقت آخر تحديث
-const HTF_CACHE_TTL_MS = 20 * 60 * 1000;
-
-async function refreshHtfCache(symbol) {
-  const now = Date.now();
-  if (htfCacheUpdatedAt[symbol] && now - htfCacheUpdatedAt[symbol] < HTF_CACHE_TTL_MS) return;
-  try {
-    const candles = await fetchHistorical(symbol, '1h', 60);
-    if (candles && candles.length >= 55) {
-      htfCandleCache[symbol] = candles;
-      htfCacheUpdatedAt[symbol] = now;
-    }
-  } catch (err) { /* نتجاهل — لو ما توفر تأكيد الساعة، الترشيح يكمل بدونه بدل ما يتعطل */ }
-}
-
-// اتجاه الساعة: نقارن EMA20 مقابل EMA50 وموقع السعر منهم — تأكيد بسيط وموثوق بدون تعقيد زائد
-function getHtfTrend(symbol) {
-  const candles = htfCandleCache[symbol];
-  if (!candles || candles.length < 55) return 'unknown';
-  const closes = candles.map(c => c.close);
-  const ema20Arr = EMA.calculate({ values: closes, period: 20 });
-  const ema50Arr = EMA.calculate({ values: closes, period: 50 });
-  if (!ema20Arr.length || !ema50Arr.length) return 'unknown';
-  const ema20 = ema20Arr[ema20Arr.length - 1];
-  const ema50 = ema50Arr[ema50Arr.length - 1];
-  const price = closes[closes.length - 1];
-  if (ema20 > ema50 && price > ema20) return 'up';
-  if (ema20 < ema50 && price < ema20) return 'down';
-  return 'neutral';
 }
 
 // تحقق حقيقي وحيّ من رموز Binance الفعلية (بعض العملات بالقائمة تتغيّر تسميتها أو تُشطب من Binance
@@ -1783,6 +1762,7 @@ function botStatusPayload() {
     maxConcurrentPositions: botState.maxConcurrentPositions, manualSymbol: botState.manualSymbol,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20),
+    manualBot: { enabled: manualBotState.enabled, trades: manualBotState.trades.slice(0, 30) },
   });
 }
 function broadcastBotStatus() {
@@ -1793,5 +1773,88 @@ function broadcastBotStatus() {
 }
 
 setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية — فحص الشبكة وإعادة الموازنة عند الحاجة
+
+// ── بوت الشراء اليدوي + بوت البيع التلقائي (طبقة ثانية مستقلة عن بوت الشبكة) ──────────────────
+// زر "شراء الآن" ينفّذ Market فوري على الرمز المعروض. بمجرد تسجيل الصفقة، بوت البيع (مستقل، دورة
+// كل 10 ثوانٍ لأنه لازم يكون سريع) يضع لها أمر بيع Limit تلقائي = سعر الشراء × (1 + نسبة البيع%)،
+// ثم يتابعها لحد ما تُنفذ. يشترك مع بوت الشبكة بنفس القيم (مبلغ الصفقة USDT، نسبة البيع، وأقصى
+// عدد صفقات مفتوحة بنفس الوقت) بدل ما نكرر إعدادات منفصلة له.
+let manualBotState = {
+  enabled: false,
+  trades: [], // { id, symbol, qty, buyPrice, buyOrderId, sellOrderId, sellPrice, status: 'open'|'pending_sell'|'sold', time }
+};
+
+async function placeMarketOrder(symbol, side, quantity) {
+  const params = { symbol, side, type: 'MARKET', quantity, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function queryOrderStatus(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+
+// 🟢 تنفيذ شراء فوري (Market) — يُستدعى عند ضغط المستخدم على زر "شراء الآن"
+async function executeManualBuy(symbol) {
+  const openCount = manualBotState.trades.filter(t => t.status !== 'sold').length;
+  if (openCount >= botState.maxConcurrentPositions) {
+    throw new Error(`وصلت لأقصى عدد صفقات مسموح (${botState.maxConcurrentPositions}) — أغلق صفقة أو ارفع العدد أولًا`);
+  }
+  const price = await getCurrentPrice(symbol);
+  const qty = roundQty(botState.tradeSizeUsdt / price, price);
+  if (!qty || qty <= 0) throw new Error('الكمية المحسوبة صفر — تأكد من مبلغ الصفقة');
+  const data = await placeMarketOrder(symbol, 'BUY', qty);
+  // متوسط سعر التنفيذ الفعلي من fills لو متوفرة، وإلا السعر اللحظي اللي جبناه قبل الإرسال
+  let fillPrice = price;
+  if (data.fills && data.fills.length) {
+    const totalQty = data.fills.reduce((s, f) => s + parseFloat(f.qty), 0);
+    const totalCost = data.fills.reduce((s, f) => s + parseFloat(f.qty) * parseFloat(f.price), 0);
+    if (totalQty > 0) fillPrice = totalCost / totalQty;
+  }
+  const trade = {
+    id: `${symbol}_${Date.now()}`, symbol, qty, buyPrice: roundPrice(fillPrice),
+    buyOrderId: data.orderId, sellOrderId: null, sellPrice: null, status: 'open', time: Date.now(),
+  };
+  manualBotState.trades.unshift(trade);
+  manualBotState.trades = manualBotState.trades.slice(0, 100);
+  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: trade.buyPrice, qty, exchange: 'binance', reason: `🟢 شراء يدوي فوري عند ${trade.buyPrice}` });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  return trade;
+}
+
+// 🔄 دورة بوت البيع التلقائي — كل 10 ثوانٍ (أسرع من دورة الشبكة، حسب طلب المستخدم بالسرعة):
+// 1) أي صفقة "open" بدون أمر بيع بعد → نضع لها أمر بيع Limit فورًا حسب نسبة البيع الحالية.
+// 2) أي صفقة "pending_sell" → نتحقق هل أمر البيع نُفذ، ولو نعم نعلّمها "sold".
+async function runManualSellCycle() {
+  if (!manualBotState.enabled || !manualBotState.trades.length) return;
+  const pct = botState.takeProfitPercent / 100;
+  for (const trade of manualBotState.trades) {
+    if (trade.status === 'sold') continue;
+    try {
+      if (trade.status === 'open') {
+        const sellPrice = roundPrice(trade.buyPrice * (1 + pct));
+        const data = await placeLimitOrder(trade.symbol, 'SELL', sellPrice, trade.qty);
+        if (data.orderId) {
+          trade.sellOrderId = data.orderId;
+          trade.sellPrice = sellPrice;
+          trade.status = 'pending_sell';
+          botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'order', side: 'SELL', price: sellPrice, qty: trade.qty, exchange: 'binance', reason: `📤 أمر بيع تلقائي (${botState.takeProfitPercent}%) عند ${sellPrice}` });
+        }
+      } else if (trade.status === 'pending_sell' && trade.sellOrderId) {
+        const status = await queryOrderStatus(trade.symbol, trade.sellOrderId);
+        if (status.status === 'FILLED') {
+          trade.status = 'sold';
+          botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'error', message: `✅ تم تنفيذ أمر البيع عند ${trade.sellPrice} — الصفقة اكتملت` });
+        }
+      }
+    } catch (err) { logBotError(trade.symbol, err); }
+  }
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  // نحتفظ بسجل الصفقات المباعة آخر 6 ساعات بس، بعدها تُحذف من القائمة (تبقى بسجل الأحداث النصي)
+  manualBotState.trades = manualBotState.trades.filter(t => t.status !== 'sold' || (Date.now() - t.time) < 6 * 60 * 60 * 1000);
+  broadcastBotStatus();
+}
+setInterval(runManualSellCycle, 10 * 1000);
 
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));

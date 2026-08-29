@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>لوحة تحليل العملات الرقمية</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
@@ -38,8 +38,10 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
-    position: relative;
-    z-index: 30;
+    position: sticky;
+    top: 0;
+    z-index: 70;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.35);
   }
   #btc-ticker {
     display: flex; align-items: center; gap: 6px;
@@ -104,13 +106,35 @@
   #conn-dot.connected { background: var(--green); }
   #conn-dot.connecting { background: var(--yellow); }
   #chart-header {
-    padding: 6px 12px; display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #chart-change { font-size: 0.8rem; font-weight: 700; }
-  #chart-container { position: relative; height: 46vh; min-height: 260px; }
+  #manual-buy-btn {
+    background: var(--green); border: none; color: #04140a; font-weight: 900;
+    border-radius: 6px; padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
+  }
+  #manual-buy-btn:active { transform: scale(0.96); }
+  #manual-buy-btn.disabled { opacity: 0.5; pointer-events: none; }
+  #chart-tools-row {
+    padding: 6px 12px; display: flex; gap: 8px; position: relative;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .chart-tool-btn {
+    background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.4); color: var(--text);
+    border-radius: 7px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; white-space: nowrap;
+  }
+  .chart-tool-btn.active { background: rgba(88,166,255,0.3); }
+  #chart-indicators-cfg {
+    display: none; position: absolute; right: 8px; top: 100%; z-index: 80; margin-top: 4px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    font-size: 0.72rem; min-width: 180px; box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+  }
+  #chart-indicators-cfg.open { display: block; }
+  #chart-indicators-cfg label { display: flex; align-items: center; gap: 6px; padding: 5px 0; cursor: pointer; }
+  #chart-container { position: relative; height: 46vh; min-height: 260px; transition: height 0.25s; }
+  #chart-container.expanded { height: 82vh; }
   #uci-header {
     padding: 6px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
     background: var(--surface); border-bottom: 1px solid var(--border); border-top: 1px solid var(--border);
@@ -169,16 +193,16 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--muted); font-size: 0.85rem; }
-  #status-row, #status-row-lower {
-    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
+  #status-row {
+    display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 6px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .pill {
-    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 8px; text-align: center;
+    flex: 1; min-width: 58px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 3px; text-align: center;
   }
-  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
-  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
+  .pill .pill-label { font-size: 0.56rem; color: var(--muted); font-weight: 700; }
+  .pill .pill-value { font-size: 0.74rem; font-weight: 800; margin-top: 2px; }
   .pill-value.up, .pill-value.pos   { color: var(--green); }
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
@@ -193,7 +217,7 @@
   .cfg-name { flex: 1; color: var(--text); text-align: right; }
   .cfg-weight {
     width: 52px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
+    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 16px;
   }
   .cfg-pct-sign { color: var(--muted); }
   .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
@@ -218,6 +242,24 @@
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
+  #bot-select {
+    width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text); border-radius: 7px; padding: 7px 8px; font-size: 16px; font-weight: 700;
+    margin-bottom: 8px; cursor: pointer;
+  }
+  #bot-both-toggle-wrap {
+    display: flex; align-items: center; gap: 6px; font-size: 0.66rem; font-weight: 700;
+    color: var(--muted); cursor: pointer; margin-bottom: 10px;
+  }
+  #grid-bot-section, #manual-bot-section { margin-bottom: 8px; }
+  #grid-bot-section.hidden, #manual-bot-section.hidden { display: none; }
+  #manual-bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 6px; }
+  #manual-bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
+  #manual-bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
+  #manual-bot-status-text.on { color: var(--green); }
+  #manual-bot-status-text.off { color: var(--muted); }
+  #manual-bot-hint { font-size: 0.62rem; color: var(--muted); line-height: 1.6; margin-bottom: 6px; }
+  #manual-trades-list { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
   #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
@@ -225,7 +267,7 @@
   #bot-status-text.off { color: var(--muted); }
   #bot-controls-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
   .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
-  .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
+  .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 16px; }
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
   #bot-manual-symbol-line { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
   #bot-manual-symbol-line b { color: var(--accent); }
@@ -237,7 +279,6 @@
   .bot-log-row.sell-row { color: var(--red); }
   .bot-log-row.error-row { color: var(--yellow); }
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; touch-action: pan-y; user-select: none; }
-  #explosion-swipe-hint { font-size: 0.6rem; color: var(--muted); text-align: center; padding: 4px 10px 0; }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
     background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
@@ -253,11 +294,17 @@
   .explosion-box.selected-manual { outline: 2px solid var(--accent); outline-offset: -1px; }
   .explosion-search {
     width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); border-radius: 6px; padding: 3px 5px; font-size: 0.62rem;
+    color: var(--text); border-radius: 6px; padding: 3px 5px; font-size: 16px;
     text-align: center; outline: none; margin-bottom: 3px;
   }
   .explosion-search:focus { border-color: var(--accent); }
-  #indicators-list { padding: 4px 10px 10px; }
+  #indicators-list { padding: 4px 10px 10px; display: none; }
+  #indicators-list.open { display: block; }
+  #indicators-detail-toggle {
+    width: 100%; background: var(--surface); border: none; border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); color: var(--accent);
+    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  }
   .group-header {
     font-size: 0.8rem; font-weight: 800; color: var(--accent);
     margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
@@ -319,6 +366,10 @@
       <span class="macro-price" id="macro-dxy-price">—</span>
       <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
     </div>
+    <div class="macro-box" id="macro-clock">
+      <span class="macro-label">🕐 الوقت</span>
+      <span class="macro-price" id="macro-clock-value">—</span>
+    </div>
   </div>
   <div id="conn-dot"></div>
 </header>
@@ -346,7 +397,18 @@
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
 </div>
-<div id="explosion-swipe-hint">👉 اسحب يمين/يسار على المربعات فوق لعرض العملات التالية (كل العملات مرتبة من الأقوى للأضعف)</div>
+
+<div id="tf-bar-wrap">
+  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
+  <div id="tf-bar">
+    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
+    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
+    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
+    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
+    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
+    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
+  </div>
+</div>
 
 <div id="final-row-wrap">
   <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
@@ -367,7 +429,17 @@
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
-  <span id="chart-change"></span>
+  <span id="uci-label-badge">—</span>
+  <button type="button" id="manual-buy-btn">شراء</button>
+</div>
+<div id="chart-tools-row">
+  <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
+  <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
+  <div id="chart-indicators-cfg">
+    <label><input type="checkbox" id="ind-toggle-ma20"> متوسط متحرك MA20</label>
+    <label><input type="checkbox" id="ind-toggle-ma50"> متوسط متحرك MA50</label>
+    <label><input type="checkbox" id="ind-toggle-bb"> بولنجر باند (Bollinger Bands)</label>
+  </div>
 </div>
 <div id="chart-container">
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
@@ -391,7 +463,6 @@
   </div>
   <div id="uci-gauge-scale"><span>0</span><span>20</span><span>50</span><span>80</span><span>100</span></div>
   <div id="uci-gauge-footer">
-    <span id="uci-label-badge">—</span>
     <span id="uci-sub-values">UCI: — · Signal: —</span>
   </div>
 </div>
@@ -417,65 +488,6 @@
     <div class="pill-label">المسافة</div>
     <div class="pill-value neutral" id="p-early">—</div>
   </div>
-</div>
-
-<div id="decision-cfg" class="cfg-dropdown"></div>
-<div id="fourbox-cfg" class="cfg-dropdown"></div>
-<div id="secondary-cfg" class="cfg-dropdown"></div>
-<div id="allind-cfg" class="cfg-dropdown"></div>
-<div id="early-cfg" class="cfg-dropdown"></div>
-
-<div id="tf-bar-wrap">
-  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
-  <div id="tf-bar">
-    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
-    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
-    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
-    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
-    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
-    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
-  </div>
-</div>
-
-<div id="bot-panel">
-  <div id="bot-panel-header">
-    <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
-    <label id="bot-toggle-wrap">
-      <input type="checkbox" id="bot-enable-checkbox">
-      <span id="bot-status-text">متوقف</span>
-    </label>
-  </div>
-  <div id="bot-manual-symbol-line">🎯 عملة الشبكة الحالية: <b id="bot-manual-symbol-value">BTCUSDT</b> (اختر عملة أخرى بالضغط على إحدى مربعات أقوى 3 عملات فوق — يلزم إيقاف البوت أولًا)</div>
-  <div id="bot-controls-row">
-    <div class="bot-control">
-      <span>مبلغ كل مستوى (USDT)</span>
-      <input type="number" id="bot-trade-size-input" min="1" step="1" value="50">
-      <button id="bot-save-size-btn">حفظ</button>
-    </div>
-    <div class="bot-control">
-      <span>المسافة بين المستويات (%)</span>
-      <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
-      <button id="bot-save-tp-btn">حفظ</button>
-    </div>
-    <div class="bot-control">
-      <span>عدد المستويات (كل جهة)</span>
-      <input type="number" id="bot-max-positions-input" min="1" step="1" value="5">
-      <button id="bot-save-maxpos-btn">حفظ</button>
-    </div>
-  </div>
-  <div id="bot-error-line" style="display:none;"></div>
-  <div id="bot-pending-wrap">
-    <div class="bot-subheader">أوامر الشبكة المفتوحة حاليًا</div>
-    <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
-  </div>
-  <div id="bot-log-wrap">
-    <div class="bot-subheader">آخر الأحداث</div>
-    <div id="bot-trade-log">لا يوجد سجل بعد</div>
-  </div>
-</div>
-
-<div style="padding:8px 10px 0; font-size:0.68rem; color:var(--muted); font-weight:800;">📋 بقية المربعات التفصيلية</div>
-<div id="status-row-lower">
   <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
   <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
   <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
@@ -487,8 +499,82 @@
   <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
 </div>
 
+<div id="decision-cfg" class="cfg-dropdown"></div>
+<div id="fourbox-cfg" class="cfg-dropdown"></div>
+<div id="secondary-cfg" class="cfg-dropdown"></div>
+<div id="allind-cfg" class="cfg-dropdown"></div>
+<div id="early-cfg" class="cfg-dropdown"></div>
+
+<div id="bot-panel">
+  <select id="bot-select">
+    <option value="grid" selected>🔲 بوت الشبكة (Grid Bot) — Binance</option>
+    <option value="manual">🖱️ بوت الشراء اليدوي + بيع تلقائي</option>
+    <option value="__add_new__">➕ إضافة بوت جديد...</option>
+  </select>
+  <label id="bot-both-toggle-wrap">
+    <input type="checkbox" id="bot-show-both-checkbox">
+    <span>استخدم البوتين معًا (يشتغلون كل واحد لحاله بنفس الوقت)</span>
+  </label>
+
+  <div id="grid-bot-section">
+    <div id="bot-panel-header">
+      <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
+      <label id="bot-toggle-wrap">
+        <input type="checkbox" id="bot-enable-checkbox">
+        <span id="bot-status-text">متوقف</span>
+      </label>
+    </div>
+    <div id="bot-manual-symbol-line">🎯 عملة الشبكة الحالية: <b id="bot-manual-symbol-value">BTCUSDT</b> (اختر عملة أخرى بالضغط على إحدى مربعات أقوى 3 عملات فوق — يلزم إيقاف البوت أولًا)</div>
+    <div id="bot-pending-wrap">
+      <div class="bot-subheader">أوامر الشبكة المفتوحة حاليًا</div>
+      <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
+    </div>
+  </div>
+
+  <div id="manual-bot-section">
+    <div id="manual-bot-panel-header">
+      <span>🖱️ بوت البيع التلقائي (للشراء اليدوي)</span>
+      <label id="manual-bot-toggle-wrap">
+        <input type="checkbox" id="manual-bot-enable-checkbox">
+        <span id="manual-bot-status-text">متوقف</span>
+      </label>
+    </div>
+    <div id="manual-bot-hint">اضغط زر "🟢 شراء" فوق شاشة الشموع لشراء فوري بالسعر الحالي. لازم تفعّل هذا المفتاح عشان بوت البيع يراقب صفقاتك ويبيعها تلقائيًا حسب النسبة تحت.</div>
+    <div id="manual-trades-wrap">
+      <div class="bot-subheader">صفقات الشراء اليدوي</div>
+      <div id="manual-trades-list">لا توجد صفقات حاليًا</div>
+    </div>
+  </div>
+
+  <div class="bot-subheader" style="margin-top:8px;">⚙️ إعدادات مشتركة (تُستخدم من البوتين الاثنين)</div>
+  <div id="bot-controls-row">
+    <div class="bot-control">
+      <span>مبلغ كل صفقة (USDT)</span>
+      <input type="number" id="bot-trade-size-input" min="1" step="1" value="50">
+      <button id="bot-save-size-btn">حفظ</button>
+    </div>
+    <div class="bot-control">
+      <span>النسبة % (مسافة الشبكة / نسبة بيع اليدوي)</span>
+      <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
+      <button id="bot-save-tp-btn">حفظ</button>
+    </div>
+    <div class="bot-control">
+      <span>أقصى عدد صفقات (مستويات الشبكة / صفقات اليدوي)</span>
+      <input type="number" id="bot-max-positions-input" min="1" step="1" value="5">
+      <button id="bot-save-maxpos-btn">حفظ</button>
+    </div>
+  </div>
+  <div id="bot-error-line" style="display:none;"></div>
+  <div id="bot-log-wrap">
+    <div class="bot-subheader">آخر الأحداث</div>
+    <div id="bot-trade-log">لا يوجد سجل بعد</div>
+  </div>
+</div>
+
+
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
+<button id="indicators-detail-toggle">📊 عرض كل تفاصيل المؤشرات ▾</button>
 <div id="indicators-list">
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
@@ -559,10 +645,14 @@
   let goldWs = null;
   let chart = null;
   let candleSeries = null;
+  let ma20Series = null;
+  let ma50Series = null;
+  let bbUpperSeries = null;
+  let bbMiddleSeries = null;
+  let bbLowerSeries = null;
+  let lastFullCandles = []; // آخر شموع كاملة للرمز/الفريم الحالي — تُستخدم لحساب مؤشرات الشارت (MA/Bollinger)
   let lastPrice = null;
   let lastBotStatus = null;
-  let explosionFullList = []; // كل العملات المرشّحة مرتبة من الأقوى للأضعف (تُملأ من الخادم)
-  let explosionPage = 0;      // صفحة العرض الحالية (كل صفحة = 3 عملات)
   let lastMtfSnapshot = null;
   let currentSeriesSymbol = null;
   let currentSeriesInterval = null;
@@ -603,6 +693,102 @@
       chart.resize(r.width, r.height);
     }).observe(container);
   }
+
+  // ═══════════════════ مؤشرات فوق الشموع (MA20 / MA50 / Bollinger Bands) — تُحسب محليًا بالمتصفح ═══════════════════
+  function computeSMA(values, period) {
+    const out = [];
+    for (let i = period - 1; i < values.length; i++) {
+      let sum = 0;
+      for (let j = i - period + 1; j <= i; j++) sum += values[j];
+      out.push(sum / period);
+    }
+    return out;
+  }
+  function computeBollinger(values, period, stdDevMult) {
+    const out = [];
+    for (let i = period - 1; i < values.length; i++) {
+      const window = values.slice(i - period + 1, i + 1);
+      const mean = window.reduce((a,b) => a+b, 0) / period;
+      const variance = window.reduce((a,b) => a + (b-mean)*(b-mean), 0) / period;
+      const sd = Math.sqrt(variance);
+      out.push({ middle: mean, upper: mean + sd*stdDevMult, lower: mean - sd*stdDevMult });
+    }
+    return out;
+  }
+
+  function renderChartIndicators() {
+    if (!chart || !lastFullCandles.length) return;
+    const showMa20 = document.getElementById('ind-toggle-ma20').checked;
+    const showMa50 = document.getElementById('ind-toggle-ma50').checked;
+    const showBb = document.getElementById('ind-toggle-bb').checked;
+    const closes = lastFullCandles.map(c => c.close);
+    const times = lastFullCandles.map(c => c.time);
+
+    if (showMa20) {
+      if (!ma20Series) ma20Series = chart.addLineSeries({ color: '#e3b341', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
+      const ma = computeSMA(closes, 20);
+      ma20Series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
+    } else if (ma20Series) { chart.removeSeries(ma20Series); ma20Series = null; }
+
+    if (showMa50) {
+      if (!ma50Series) ma50Series = chart.addLineSeries({ color: '#58a6ff', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
+      const ma = computeSMA(closes, 50);
+      ma50Series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
+    } else if (ma50Series) { chart.removeSeries(ma50Series); ma50Series = null; }
+
+    if (showBb) {
+      if (!bbUpperSeries) {
+        bbUpperSeries = chart.addLineSeries({ color: 'rgba(88,166,255,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
+        bbMiddleSeries = chart.addLineSeries({ color: 'rgba(125,133,144,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
+        bbLowerSeries = chart.addLineSeries({ color: 'rgba(88,166,255,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
+      }
+      const bb = computeBollinger(closes, 20, 2);
+      const offset = times.length - bb.length;
+      bbUpperSeries.setData(bb.map((v, i) => ({ time: times[offset + i], value: v.upper })));
+      bbMiddleSeries.setData(bb.map((v, i) => ({ time: times[offset + i], value: v.middle })));
+      bbLowerSeries.setData(bb.map((v, i) => ({ time: times[offset + i], value: v.lower })));
+    } else if (bbUpperSeries) {
+      chart.removeSeries(bbUpperSeries); chart.removeSeries(bbMiddleSeries); chart.removeSeries(bbLowerSeries);
+      bbUpperSeries = null; bbMiddleSeries = null; bbLowerSeries = null;
+    }
+  }
+
+  ['ind-toggle-ma20', 'ind-toggle-ma50', 'ind-toggle-bb'].forEach(id => {
+    document.getElementById(id).addEventListener('change', renderChartIndicators);
+  });
+  document.getElementById('chart-indicators-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('chart-indicators-cfg').classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    const cfg = document.getElementById('chart-indicators-cfg');
+    if (cfg.classList.contains('open') && !cfg.contains(e.target) && e.target.id !== 'chart-indicators-btn') cfg.classList.remove('open');
+  });
+
+  // ═══════════════════ زر تكبير شاشة الشموع (بدل التكبير بإصبعين) ═══════════════════
+  document.getElementById('chart-expand-btn').addEventListener('click', function () {
+    const container = document.getElementById('chart-container');
+    const expanded = container.classList.toggle('expanded');
+    this.textContent = expanded ? '⛶ تصغير' : '⛶ تكبير';
+    this.classList.toggle('active', expanded);
+    // ResizeObserver الموجود أصلًا بيتكفل بإعادة رسم الشارت بالحجم الجديد تلقائيًا
+  });
+
+  // ═══════════════════ زر "شراء" الفوري (بوت الشراء اليدوي) ═══════════════════
+  document.getElementById('manual-buy-btn').addEventListener('click', function () {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    this.classList.add('disabled');
+    ws.send(JSON.stringify({ type: 'manual_buy_now', symbol: currentSymbol }));
+    setTimeout(() => this.classList.remove('disabled'), 1500); // منع ضغط مزدوج سريع بالغلط فقط
+  });
+
+  // ═══════════════════ الساعة الحية أعلى الصفحة ═══════════════════
+  function updateLiveClock() {
+    const el = document.getElementById('macro-clock-value');
+    if (el) el.textContent = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+  updateLiveClock();
+  setInterval(updateLiveClock, 1000);
 
   // ═══════════════════ لوحة المؤشر المركب الشامل (UCI) — مستقلة تمامًا عن القرار النهائي ═══════════════════
   // نفس البيانات القادمة من السيرفر (msg.uci: composite/signal) بدون أي تغيير في الحساب — فقط طريقة العرض تحولت من شارت خطي إلى مقياس (Gauge) دقيق بالنسبة المئوية مع تصنيف نصي.
@@ -795,6 +981,9 @@
       }
     }
 
+    lastFullCandles = msg.candles;
+    renderChartIndicators();
+
     const latest = msg.candles[msg.candles.length - 1];
     if (latest) {
       const priceEl = document.getElementById('chart-price');
@@ -802,10 +991,6 @@
       if (lastPrice !== null) {
         const up = latest.close >= lastPrice;
         priceEl.style.color = up ? 'var(--green)' : 'var(--red)';
-        const pct = (((latest.close - lastPrice) / lastPrice) * 100).toFixed(2);
-        const chEl = document.getElementById('chart-change');
-        chEl.textContent = `${up ? '+' : ''}${pct}%`;
-        chEl.style.color = up ? 'var(--green)' : 'var(--red)';
       }
       lastPrice = latest.close;
       const symbolLivePriceEl = document.getElementById('symbol-live-price');
@@ -829,24 +1014,16 @@
   }
 
   function handleExplosionScan(msg) {
-    explosionFullList = msg.ranking || [];
-    const maxPage = Math.max(0, Math.ceil(explosionFullList.length / 3) - 1);
-    if (explosionPage > maxPage) explosionPage = maxPage;
-    renderExplosionPage();
-  }
-
-  function renderExplosionPage() {
-    const start = explosionPage * 3;
-    const slice = explosionFullList.slice(start, start + 3);
-    renderExplosionBox('explosion-box-1', slice[0] || null, start + 1);
-    renderExplosionBox('explosion-box-2', slice[1] || null, start + 2);
-    renderExplosionBox('explosion-box-3', slice[2] || null, start + 3);
+    const ranking = msg.ranking || [];
+    renderExplosionBox('explosion-box-1', ranking[0] || null, 1);
+    renderExplosionBox('explosion-box-2', ranking[1] || null, 2);
+    renderExplosionBox('explosion-box-3', ranking[2] || null, 3);
   }
 
   function renderExplosionBox(elId, item, rankNum) {
     const box = document.getElementById(elId);
     const rankEl = box.querySelector('.explosion-rank');
-    const medal = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : '🔸';
+    const medal = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : '🥉';
     if (rankEl) rankEl.textContent = `${medal} #${rankNum}`;
     if (!item) {
       box.classList.add('empty');
@@ -870,37 +1047,6 @@
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_manual_symbol', symbol: item.symbol }));
     };
   }
-
-  // ═══════════════════ سحب يمين/يسار على صف "أقوى العملات" للتنقل بين كل الـ211 عملة، 3 بكل مرة ═══════════════════
-  (function setupExplosionSwipe() {
-    const row = document.getElementById('explosion-row');
-    if (!row) return;
-    let startX = null, startY = null, isSwiping = false;
-
-    row.addEventListener('pointerdown', (e) => {
-      startX = e.clientX; startY = e.clientY; isSwiping = false;
-    });
-    row.addEventListener('pointermove', (e) => {
-      if (startX == null) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (!isSwiping && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) isSwiping = true;
-    });
-    row.addEventListener('pointerup', (e) => {
-      if (startX == null) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (isSwiping && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
-        const maxPage = Math.max(0, Math.ceil(explosionFullList.length / 3) - 1);
-        explosionPage = Math.max(0, Math.min(maxPage, explosionPage + (dx > 0 ? 1 : -1)));
-        renderExplosionPage();
-      }
-      startX = null; startY = null;
-    });
-    // نمنع نقر المربع من التنفيذ لو كانت هذي بالأصل عملية سحب صفحة، مو ضغطة عادية
-    row.addEventListener('click', (e) => {
-      if (isSwiping) { e.stopPropagation(); e.preventDefault(); }
-      isSwiping = false;
-    }, true);
-  })();
 
   // ═══════════════════ المؤشرات الديناميكية الجديدة ═══════════════════
   function ensureIndicatorItem(key, name) {
@@ -1438,6 +1584,41 @@
   });
 
   function toggleCfgDropdown(id) { document.getElementById(id).classList.toggle('open'); }
+
+  // طبقة المؤشرات التفصيلية مخفية افتراضيًا (تستمر تحسب وتتحدث بالخلفية عاديًا)، وتظهر فقط عند الضغط
+  document.getElementById('indicators-detail-toggle').addEventListener('click', function () {
+    const list = document.getElementById('indicators-list');
+    const open = list.classList.toggle('open');
+    this.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
+  });
+
+  // اختيار البوت — يبدّل أي قسم يظهر (شبكة/يدوي)، إلا لو مفعّل "استخدم البوتين معًا"
+  function applyBotSectionVisibility() {
+    const both = document.getElementById('bot-show-both-checkbox').checked;
+    const sel = document.getElementById('bot-select').value;
+    const gridSection = document.getElementById('grid-bot-section');
+    const manualSection = document.getElementById('manual-bot-section');
+    if (both) {
+      gridSection.classList.remove('hidden');
+      manualSection.classList.remove('hidden');
+    } else {
+      gridSection.classList.toggle('hidden', sel !== 'grid');
+      manualSection.classList.toggle('hidden', sel !== 'manual');
+    }
+  }
+  document.getElementById('bot-select').addEventListener('change', function () {
+    if (this.value === '__add_new__') {
+      alert('حاليًا يوجد بوت الشبكة وبوت الشراء اليدوي فقط. قولي أي نوع بوت ثالث تبي أضيفه وأجهزه لك.');
+      this.value = 'grid';
+    }
+    applyBotSectionVisibility();
+  });
+  document.getElementById('bot-show-both-checkbox').addEventListener('change', applyBotSectionVisibility);
+  applyBotSectionVisibility();
+
+  document.getElementById('manual-bot-enable-checkbox').addEventListener('change', (e) => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'manual_bot_toggle', enabled: e.target.checked }));
+  });
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
@@ -1702,6 +1883,17 @@
           return `<div class="bot-log-row ${cls}"><span>${t.side} ${t.symbol}</span><span>${t.price.toFixed(4)}</span></div>`;
         }).join('')
       : 'لا يوجد سجل بعد';
+
+    const mb = msg.manualBot || { enabled: false, trades: [] };
+    const mbCheckbox = document.getElementById('manual-bot-enable-checkbox');
+    const mbStatusText = document.getElementById('manual-bot-status-text');
+    mbCheckbox.checked = mb.enabled;
+    mbStatusText.textContent = mb.enabled ? 'يعمل الآن ⚡' : 'متوقف';
+    mbStatusText.className = mb.enabled ? 'on' : 'off';
+    const statusLabel = { open: '🟢 مشترى — بانتظار وضع أمر البيع', pending_sell: '🟡 أمر بيع معلّق', sold: '✅ تم البيع' };
+    document.getElementById('manual-trades-list').innerHTML = mb.trades.length
+      ? mb.trades.map(t => `<div class="bot-pos-row"><span>${t.symbol} — ${statusLabel[t.status] || t.status}</span><span>شراء ${t.buyPrice}${t.sellPrice ? ' ← بيع ' + t.sellPrice : ''}</span></div>`).join('')
+      : 'لا توجد صفقات حاليًا';
   }
 
   let botErrorTimer = null;
