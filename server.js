@@ -51,11 +51,13 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
-// ملاحظة: كنا سابقًا نقسم حوض الـ~211 عملة على 3 مجموعات ثابتة (round-robin) وكل مربع من مربعات
-// "أقوى 3 عملات" يترشّح من ثلثه الخاص فقط — هذا كان يسبب مربعات فاضية بشكل متكرر (لو ثلث معين ما
-// فيه عملة نظيفة البيانات هذي الدورة) والعملات ما تتغير غالبًا (نفس الترشيح المحدود بثلث واحد).
-// الآن نفحص الحوض كامل ونطلع أفضل 3 عملات فعليًا من كامل السوق — هذا يحل مشكلة الفراغ (يكفي وجود
-// 3 عملات صالحة بالحوض كامل، شبه مستحيل تصفر) ويخلي الترشيح فعلاً "أقوى 3" مو "أفضل واحدة من كل ثلث".
+// رجّعنا التصميم البسيط الأصلي بطلب المستخدم بعد ما جربنا فحص الحوض كامل + سحب/صفحات وما استقر —
+// المربعات الثلاثة الآن تعرض فقط أفضل عملة من كل ثلث ثابت من الحوض (بدون سحب لباقي العملات)،
+// أولوية للموثوقية على الميزات الإضافية.
+const EXPLOSION_GROUPS = [[], [], []];
+SCAN_POOL.forEach((sym, i) => EXPLOSION_GROUPS[i % 3].push(sym));
+const SYMBOL_GROUP_INDEX = {};
+EXPLOSION_GROUPS.forEach((group, gi) => group.forEach(sym => { SYMBOL_GROUP_INDEX[sym] = gi; }));
 
 const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
 const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
@@ -148,11 +150,7 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 // كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
-app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
-// نجيب القائمة الكاملة عبر HTTP عادي بدل الاعتماد فقط على بث WebSocket — بعض استضافات الويب هوستنج
-// تفرض حد أقصى لحجم رسالة الـ WebSocket الواحدة (frame size)، وقد يقصّ القائمة الكبيرة (~200 عملة)
-// بصمت عند حد معيّن دايمًا نفس الرقم تقريبًا. طلب HTTP عادي ما يواجه هذا القيد عادة.
-app.get('/api/explosion-ranking', (_req, res) => res.json({ ranking: explosionRanking }));
+app.get('/api/explosion-groups', (_req, res) => res.json({ groups: EXPLOSION_GROUPS }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
@@ -252,7 +250,7 @@ wss.on('connection', (ws, req) => {
   if (AUTH_ENABLED && !isKnown && activeSessions.size >= MAX_USERS) { ws.close(4002, 'SERVER_FULL'); return; }
   if (sid) activeSessions.set(sid, Date.now());
 
-  if (explosionRanking.length) {
+  if (explosionRanking.some(Boolean)) {
     ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking }));
   }
   ws.send(botStatusPayload());
@@ -374,9 +372,6 @@ const SCAN_SYMBOLS = SYMBOLS;
 
 let explosionRanking = [];
 
-// حد أدنى لمتوسط السيولة (بالدولار) على فريم 15 دقيقة عشان نستبعد العملات شبه الميتة من الترشيح
-const MIN_AVG_QUOTE_VOLUME_15M = 15000;
-
 function computeExplosionScore(candles) {
   if (!candles || candles.length < 80) return null;
   const closes = candles.map(c => c.close);
@@ -460,11 +455,7 @@ function computeExplosionScore(candles) {
   score -= rsiPenalty;
 
   const price = closes[n-1];
-
-  // 🚫 فلتر سيولة حقيقي: نرفض أي عملة متوسط تداولها بآخر 50 شمعة (15د) أقل من حد أدنى بالدولار —
-  // هذا يمنع ترشيح عملات "ميتة" حجمها ضعيف جدًا وممكن تواجه انزلاق سعر (slippage) كبير عند التنفيذ.
   const avgQuoteVol50 = avgVol50 * price;
-  if (!Number.isFinite(avgQuoteVol50) || avgQuoteVol50 < MIN_AVG_QUOTE_VOLUME_15M) return null;
 
   const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
 
@@ -487,10 +478,9 @@ function computeExplosionScore(candles) {
 // بنفس أسلوب الفحص الخفيف (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) حتى ما نثقل
 // السيرفر بفتح 211 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
 //
-// ملاحظة: أزلنا مرحلة "تأكيد الساعة" اللي كانت موجودة — كانت تضيف تعقيد وخطوة شبكة إضافية بدون
-// داعي واضح، وبعد ما صار الفحص يتوقف كليًا (صفر عملات)، رجّعنا المنطق لأبسط شكل موثوق: فحص، تسجيل
-// نقاط، ترتيب، بث. الدالة كاملة الآن محاطة بـ try/catch عشان أي خطأ غير متوقع بأي مكان فيها أبدًا
-// ما يمنعها من الأقل تبث آخر نتيجة صالحة عندها، بدل ما تتوقف بصمت وتخلي المربعات فاضية للأبد.
+// رجعنا للتصميم البسيط: كل مربع من الثلاثة يترشّح من ثلثه الثابت فقط (بدون فحص حوض كامل ولا سحب/صفحات) —
+// بطلب المستخدم بعد ما الميزات الإضافية (فحص حوض كامل + سحب لباقي العملات) ما استقرت. الدالة كاملة
+// محاطة بـ try/catch عشان أي خطأ غير متوقع أبدًا ما يمنعها من الأقل تبث آخر نتيجة صالحة عندها.
 async function runExplosionScan() {
   try {
     const results = [];
@@ -507,12 +497,18 @@ async function runExplosionScan() {
         }
       }));
     }
-    results.sort((a, b) => b.score - a.score);
     console.log(`[explosion-scan] دورة فحص انتهت: ${results.length} عملة صالحة من أصل ${SCAN_POOL.length}`);
 
-    // نحتفظ بالقائمة الكاملة (كل عملة اجتازت فلتر السيولة وفيها بيانات كافية) مرتبة من الأقوى للأضعف،
-    // عشان الواجهة تقدر تستعرضها بالسحب ثلاثة ثلاثة بدل ما تقتصر على أفضل 3 بس.
-    explosionRanking = results.length ? results : explosionRanking;
+    const byGroup = [[], [], []];
+    for (const r of results) {
+      const gi = SYMBOL_GROUP_INDEX[r.symbol];
+      if (gi != null) byGroup[gi].push(r);
+    }
+    // لو مجموعة ما طلعت لها أي عملة صالحة بهذي الدورة، نبقي آخر ترشيح معروف لها بدل ما يفضى المربع
+    explosionRanking = byGroup.map((list, gi) => {
+      list.sort((a, b) => b.score - a.score);
+      return list[0] || explosionRanking[gi] || null;
+    });
     broadcastExplosionScan();
   } catch (err) {
     console.error('[explosion-scan] خطأ عام غير متوقع بالدورة كاملة:', err.message);
@@ -520,7 +516,7 @@ async function runExplosionScan() {
 }
 
 function broadcastExplosionScan() {
-  if (!explosionRanking.length) return;
+  if (!explosionRanking.some(Boolean)) return;
   const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
