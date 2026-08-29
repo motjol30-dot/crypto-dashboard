@@ -188,7 +188,7 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--muted); font-size: 0.85rem; }
-  #status-row, #status-row-lower {
+  #status-row {
     display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 6px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
@@ -237,6 +237,11 @@
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
+  #bot-select {
+    width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text); border-radius: 7px; padding: 7px 8px; font-size: 16px; font-weight: 700;
+    margin-bottom: 8px; cursor: pointer;
+  }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
   #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
@@ -276,7 +281,13 @@
     text-align: center; outline: none; margin-bottom: 3px;
   }
   .explosion-search:focus { border-color: var(--accent); }
-  #indicators-list { padding: 4px 10px 10px; }
+  #indicators-list { padding: 4px 10px 10px; display: none; }
+  #indicators-list.open { display: block; }
+  #indicators-detail-toggle {
+    width: 100%; background: var(--surface); border: none; border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); color: var(--accent);
+    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  }
   .group-header {
     font-size: 0.8rem; font-weight: 800; color: var(--accent);
     margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
@@ -461,6 +472,15 @@
     <div class="pill-label">المسافة</div>
     <div class="pill-value neutral" id="p-early">—</div>
   </div>
+  <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
+  <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
+  <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
+  <div class="pill"><div class="pill-label">التحليل</div><div class="pill-value neutral" id="p-overall">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الزخم</div><div class="pill-value neutral" id="p-momentum">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الحجم</div><div class="pill-value neutral" id="p-volume">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الارتداد</div><div class="pill-value neutral" id="p-reversal">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الثبات</div><div class="pill-value neutral" id="p-stability">—</div></div>
+  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
 </div>
 
 <div id="decision-cfg" class="cfg-dropdown"></div>
@@ -470,6 +490,10 @@
 <div id="early-cfg" class="cfg-dropdown"></div>
 
 <div id="bot-panel">
+  <select id="bot-select">
+    <option value="grid" selected>🔲 بوت الشبكة (Grid Bot) — Binance</option>
+    <option value="__add_new__">➕ إضافة بوت جديد...</option>
+  </select>
   <div id="bot-panel-header">
     <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
     <label id="bot-toggle-wrap">
@@ -506,21 +530,10 @@
   </div>
 </div>
 
-<div style="padding:8px 10px 0; font-size:0.68rem; color:var(--muted); font-weight:800;">📋 بقية المربعات التفصيلية</div>
-<div id="status-row-lower">
-  <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
-  <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
-  <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
-  <div class="pill"><div class="pill-label">التحليل</div><div class="pill-value neutral" id="p-overall">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الزخم</div><div class="pill-value neutral" id="p-momentum">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الحجم</div><div class="pill-value neutral" id="p-volume">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الارتداد</div><div class="pill-value neutral" id="p-reversal">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الثبات</div><div class="pill-value neutral" id="p-stability">—</div></div>
-  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
-</div>
 
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
+<button id="indicators-detail-toggle">📊 عرض كل تفاصيل المؤشرات ▾</button>
 <div id="indicators-list">
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
@@ -1567,6 +1580,21 @@
   });
 
   function toggleCfgDropdown(id) { document.getElementById(id).classList.toggle('open'); }
+
+  // طبقة المؤشرات التفصيلية مخفية افتراضيًا (تستمر تحسب وتتحدث بالخلفية عاديًا)، وتظهر فقط عند الضغط
+  document.getElementById('indicators-detail-toggle').addEventListener('click', function () {
+    const list = document.getElementById('indicators-list');
+    const open = list.classList.toggle('open');
+    this.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
+  });
+
+  // اختيار البوت — حاليًا بوت الشبكة فقط، والخيار الثاني مكان جاهز لإضافة بوت جديد مستقبلًا
+  document.getElementById('bot-select').addEventListener('change', function () {
+    if (this.value === '__add_new__') {
+      alert('حاليًا يوجد بوت الشبكة فقط. قولي أي نوع بوت ثاني تبي أضيفه وأجهزه لك.');
+      this.value = 'grid';
+    }
+  });
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));

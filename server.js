@@ -472,10 +472,17 @@ async function runExplosionScan() {
   for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
     const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
     await Promise.all(batch.map(async (symbol) => {
-      if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
-      const candles = getCandlesForScan(symbol);
-      const res = computeExplosionScore(candles);
-      if (res) results.push({ symbol, ...res });
+      try {
+        if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
+        const candles = getCandlesForScan(symbol);
+        const res = computeExplosionScore(candles);
+        if (res) results.push({ symbol, ...res });
+      } catch (err) {
+        // لو عملة واحدة سببت خطأ غير متوقع (بيانات تالفة، فشل شبكة، إلخ) نتجاهلها بس ونكمل الباقي —
+        // بدون هذا الحماية، خطأ بعملة وحدة كان يوقف الدورة كاملة من هذي النقطة (هذا سبب توقف السحب
+        // عند نفس الرقم كل مرة — أول عملة تفشل بترتيب الفحص تمنع فحص كل الي بعدها بهذي الدورة).
+        console.error(`[explosion-scan] تخطي ${symbol} بسبب خطأ:`, err.message);
+      }
     }));
   }
   results.sort((a, b) => b.score - a.score);
