@@ -249,7 +249,7 @@ wss.on('connection', (ws, req) => {
   if (sid) activeSessions.set(sid, Date.now());
 
   if (explosionRanking.length) {
-    ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking.slice(0, 3) }));
+    ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking }));
   }
   ws.send(botStatusPayload());
 
@@ -493,16 +493,16 @@ async function runExplosionScan() {
   contenders.sort((a, b) => b.score - a.score);
   const rest = results.slice(HTF_CONFIRM_POOL_SIZE);
   const finalPool = [...contenders, ...rest];
+  finalPool.sort((a, b) => b.score - a.score); // ترتيب نهائي شامل بعد دمج تعديلات تأكيد الساعة
 
-  const top3 = finalPool.slice(0, 3);
-  // نحتفظ بآخر ترشيح معروف لأي مركز ما لقينا له بديل هذي الدورة (نادر جدًا الآن — يكفي 3 عملات
-  // صالحة بكامل الحوض) بدل ما يفضى المربع تمامًا لمجرد تعثر شبكي عابر.
-  explosionRanking = [0, 1, 2].map((i) => top3[i] || explosionRanking[i] || null);
+  // نحتفظ بالقائمة الكاملة (كل عملة اجتازت فلتر السيولة وفيها بيانات كافية) مرتبة من الأقوى للأضعف،
+  // عشان الواجهة تقدر تستعرضها بالسحب ثلاثة ثلاثة بدل ما تقتصر على أفضل 3 بس.
+  explosionRanking = finalPool.length ? finalPool : explosionRanking;
   broadcastExplosionScan();
 }
 
 function broadcastExplosionScan() {
-  if (!explosionRanking.some(Boolean)) return;
+  if (!explosionRanking.length) return;
   const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload);

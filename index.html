@@ -236,7 +236,8 @@
   .bot-log-row.buy-row { color: var(--green); }
   .bot-log-row.sell-row { color: var(--red); }
   .bot-log-row.error-row { color: var(--yellow); }
-  #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; }
+  #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; touch-action: pan-y; user-select: none; }
+  #explosion-swipe-hint { font-size: 0.6rem; color: var(--muted); text-align: center; padding: 4px 10px 0; }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
     background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
@@ -324,27 +325,44 @@
 
 <div id="explosion-row">
   <div class="explosion-box" id="explosion-box-1">
-    <div class="explosion-rank">🥇 مجموعة 1</div>
+    <div class="explosion-rank">🥇 #1</div>
     <input type="text" class="explosion-search" id="explosion-search-1" list="explosion-group-1" placeholder="🔍 بحث…" autocomplete="off">
     <datalist id="explosion-group-1"></datalist>
     <div class="explosion-symbol">—</div>
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
   <div class="explosion-box" id="explosion-box-2">
-    <div class="explosion-rank">🥈 مجموعة 2</div>
+    <div class="explosion-rank">🥈 #2</div>
     <input type="text" class="explosion-search" id="explosion-search-2" list="explosion-group-2" placeholder="🔍 بحث…" autocomplete="off">
     <datalist id="explosion-group-2"></datalist>
     <div class="explosion-symbol">—</div>
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
   <div class="explosion-box" id="explosion-box-3">
-    <div class="explosion-rank">🥉 مجموعة 3</div>
+    <div class="explosion-rank">🥉 #3</div>
     <input type="text" class="explosion-search" id="explosion-search-3" list="explosion-group-3" placeholder="🔍 بحث…" autocomplete="off">
     <datalist id="explosion-group-3"></datalist>
     <div class="explosion-symbol">—</div>
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
 </div>
+<div id="explosion-swipe-hint">👉 اسحب يمين/يسار على المربعات فوق لعرض العملات التالية (كل العملات مرتبة من الأقوى للأضعف)</div>
+
+<div id="final-row-wrap">
+  <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
+    <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
+  </div>
+  <div id="final-verdict-row" style="cursor:pointer;">
+    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 5 مربعات)</div>
+    <div class="final-value neutral" id="p-final">—</div>
+  </div>
+  <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
+    <span class="early-arrow down" id="early-down-arrow" style="opacity:0.3;">▼</span>
+  </div>
+</div>
+<div id="final-cfg" class="cfg-dropdown"></div>
+<div id="earlyup-cfg" class="cfg-dropdown"></div>
+<div id="earlydown-cfg" class="cfg-dropdown"></div>
 
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
@@ -418,22 +436,6 @@
     <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
   </div>
 </div>
-
-<div id="final-row-wrap">
-  <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
-    <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
-  </div>
-  <div id="final-verdict-row" style="cursor:pointer;">
-    <div class="final-label" id="final-label">🎯 القرار النهائي (يجمع 5 مربعات)</div>
-    <div class="final-value neutral" id="p-final">—</div>
-  </div>
-  <div class="early-box" id="early-down-wrap" title="طبقة النزول المبكر">
-    <span class="early-arrow down" id="early-down-arrow" style="opacity:0.3;">▼</span>
-  </div>
-</div>
-<div id="final-cfg" class="cfg-dropdown"></div>
-<div id="earlyup-cfg" class="cfg-dropdown"></div>
-<div id="earlydown-cfg" class="cfg-dropdown"></div>
 
 <div id="bot-panel">
   <div id="bot-panel-header">
@@ -559,6 +561,8 @@
   let candleSeries = null;
   let lastPrice = null;
   let lastBotStatus = null;
+  let explosionFullList = []; // كل العملات المرشّحة مرتبة من الأقوى للأضعف (تُملأ من الخادم)
+  let explosionPage = 0;      // صفحة العرض الحالية (كل صفحة = 3 عملات)
   let lastMtfSnapshot = null;
   let currentSeriesSymbol = null;
   let currentSeriesInterval = null;
@@ -825,14 +829,25 @@
   }
 
   function handleExplosionScan(msg) {
-    const ranking = msg.ranking || [];
-    renderExplosionBox('explosion-box-1', ranking[0] || null);
-    renderExplosionBox('explosion-box-2', ranking[1] || null);
-    renderExplosionBox('explosion-box-3', ranking[2] || null);
+    explosionFullList = msg.ranking || [];
+    const maxPage = Math.max(0, Math.ceil(explosionFullList.length / 3) - 1);
+    if (explosionPage > maxPage) explosionPage = maxPage;
+    renderExplosionPage();
   }
 
-  function renderExplosionBox(elId, item) {
+  function renderExplosionPage() {
+    const start = explosionPage * 3;
+    const slice = explosionFullList.slice(start, start + 3);
+    renderExplosionBox('explosion-box-1', slice[0] || null, start + 1);
+    renderExplosionBox('explosion-box-2', slice[1] || null, start + 2);
+    renderExplosionBox('explosion-box-3', slice[2] || null, start + 3);
+  }
+
+  function renderExplosionBox(elId, item, rankNum) {
     const box = document.getElementById(elId);
+    const rankEl = box.querySelector('.explosion-rank');
+    const medal = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : '🔸';
+    if (rankEl) rankEl.textContent = `${medal} #${rankNum}`;
     if (!item) {
       box.classList.add('empty');
       box.classList.remove('dir-up', 'dir-down');
@@ -855,6 +870,37 @@
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_manual_symbol', symbol: item.symbol }));
     };
   }
+
+  // ═══════════════════ سحب يمين/يسار على صف "أقوى العملات" للتنقل بين كل الـ211 عملة، 3 بكل مرة ═══════════════════
+  (function setupExplosionSwipe() {
+    const row = document.getElementById('explosion-row');
+    if (!row) return;
+    let startX = null, startY = null, isSwiping = false;
+
+    row.addEventListener('pointerdown', (e) => {
+      startX = e.clientX; startY = e.clientY; isSwiping = false;
+    });
+    row.addEventListener('pointermove', (e) => {
+      if (startX == null) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!isSwiping && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) isSwiping = true;
+    });
+    row.addEventListener('pointerup', (e) => {
+      if (startX == null) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (isSwiping && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+        const maxPage = Math.max(0, Math.ceil(explosionFullList.length / 3) - 1);
+        explosionPage = Math.max(0, Math.min(maxPage, explosionPage + (dx > 0 ? 1 : -1)));
+        renderExplosionPage();
+      }
+      startX = null; startY = null;
+    });
+    // نمنع نقر المربع من التنفيذ لو كانت هذي بالأصل عملية سحب صفحة، مو ضغطة عادية
+    row.addEventListener('click', (e) => {
+      if (isSwiping) { e.stopPropagation(); e.preventDefault(); }
+      isSwiping = false;
+    }, true);
+  })();
 
   // ═══════════════════ المؤشرات الديناميكية الجديدة ═══════════════════
   function ensureIndicatorItem(key, name) {
