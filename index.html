@@ -170,15 +170,15 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--muted); font-size: 0.85rem; }
   #status-row, #status-row-lower {
-    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
+    display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 6px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .pill {
-    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 6px 8px; text-align: center;
+    flex: 1; min-width: 58px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 3px; text-align: center;
   }
-  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
-  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
+  .pill .pill-label { font-size: 0.56rem; color: var(--muted); font-weight: 700; }
+  .pill .pill-value { font-size: 0.74rem; font-weight: 800; margin-top: 2px; }
   .pill-value.up, .pill-value.pos   { color: var(--green); }
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
@@ -348,6 +348,18 @@
 </div>
 <div id="explosion-swipe-hint">👉 اسحب يمين/يسار على المربعات فوق لعرض العملات التالية (كل العملات مرتبة من الأقوى للأضعف)</div>
 
+<div id="tf-bar-wrap">
+  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
+  <div id="tf-bar">
+    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
+    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
+    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
+    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
+    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
+    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
+  </div>
+</div>
+
 <div id="final-row-wrap">
   <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
     <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
@@ -367,6 +379,7 @@
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
+  <span id="uci-label-badge">—</span>
   <span id="chart-change"></span>
 </div>
 <div id="chart-container">
@@ -391,7 +404,6 @@
   </div>
   <div id="uci-gauge-scale"><span>0</span><span>20</span><span>50</span><span>80</span><span>100</span></div>
   <div id="uci-gauge-footer">
-    <span id="uci-label-badge">—</span>
     <span id="uci-sub-values">UCI: — · Signal: —</span>
   </div>
 </div>
@@ -424,18 +436,6 @@
 <div id="secondary-cfg" class="cfg-dropdown"></div>
 <div id="allind-cfg" class="cfg-dropdown"></div>
 <div id="early-cfg" class="cfg-dropdown"></div>
-
-<div id="tf-bar-wrap">
-  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
-  <div id="tf-bar">
-    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
-    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
-    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
-    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
-    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
-    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
-  </div>
-</div>
 
 <div id="bot-panel">
   <div id="bot-panel-header">
