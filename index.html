@@ -111,12 +111,7 @@
   }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #manual-buy-btn {
-    background: var(--green); border: none; color: #04140a; font-weight: 900;
-    border-radius: 6px; padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
-  }
-  #manual-buy-btn:active { transform: scale(0.96); }
-  #manual-buy-btn.disabled { opacity: 0.5; pointer-events: none; }
+  #chart-change { font-size: 0.8rem; font-weight: 700; }
   #chart-tools-row {
     padding: 6px 12px; display: flex; gap: 8px; position: relative;
     background: var(--surface); border-bottom: 1px solid var(--border);
@@ -247,19 +242,6 @@
     color: var(--text); border-radius: 7px; padding: 7px 8px; font-size: 16px; font-weight: 700;
     margin-bottom: 8px; cursor: pointer;
   }
-  #bot-both-toggle-wrap {
-    display: flex; align-items: center; gap: 6px; font-size: 0.66rem; font-weight: 700;
-    color: var(--muted); cursor: pointer; margin-bottom: 10px;
-  }
-  #grid-bot-section, #manual-bot-section { margin-bottom: 8px; }
-  #grid-bot-section.hidden, #manual-bot-section.hidden { display: none; }
-  #manual-bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 6px; }
-  #manual-bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
-  #manual-bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
-  #manual-bot-status-text.on { color: var(--green); }
-  #manual-bot-status-text.off { color: var(--muted); }
-  #manual-bot-hint { font-size: 0.62rem; color: var(--muted); line-height: 1.6; margin-bottom: 6px; }
-  #manual-trades-list { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
   #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
@@ -279,6 +261,7 @@
   .bot-log-row.sell-row { color: var(--red); }
   .bot-log-row.error-row { color: var(--yellow); }
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; touch-action: pan-y; user-select: none; }
+  #explosion-swipe-hint { font-size: 0.6rem; color: var(--muted); text-align: center; padding: 4px 10px 0; }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
     background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
@@ -397,6 +380,7 @@
     <div class="explosion-meta">بانتظار أول فحص…</div>
   </div>
 </div>
+<div id="explosion-swipe-hint">👉 اسحب يمين/يسار على المربعات فوق لعرض العملات التالية (كل العملات مرتبة من الأقوى للأضعف)</div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -430,7 +414,7 @@
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
   <span id="uci-label-badge">—</span>
-  <button type="button" id="manual-buy-btn">شراء</button>
+  <span id="chart-change"></span>
 </div>
 <div id="chart-tools-row">
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
@@ -508,63 +492,38 @@
 <div id="bot-panel">
   <select id="bot-select">
     <option value="grid" selected>🔲 بوت الشبكة (Grid Bot) — Binance</option>
-    <option value="manual">🖱️ بوت الشراء اليدوي + بيع تلقائي</option>
     <option value="__add_new__">➕ إضافة بوت جديد...</option>
   </select>
-  <label id="bot-both-toggle-wrap">
-    <input type="checkbox" id="bot-show-both-checkbox">
-    <span>استخدم البوتين معًا (يشتغلون كل واحد لحاله بنفس الوقت)</span>
-  </label>
-
-  <div id="grid-bot-section">
-    <div id="bot-panel-header">
-      <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
-      <label id="bot-toggle-wrap">
-        <input type="checkbox" id="bot-enable-checkbox">
-        <span id="bot-status-text">متوقف</span>
-      </label>
-    </div>
-    <div id="bot-manual-symbol-line">🎯 عملة الشبكة الحالية: <b id="bot-manual-symbol-value">BTCUSDT</b> (اختر عملة أخرى بالضغط على إحدى مربعات أقوى 3 عملات فوق — يلزم إيقاف البوت أولًا)</div>
-    <div id="bot-pending-wrap">
-      <div class="bot-subheader">أوامر الشبكة المفتوحة حاليًا</div>
-      <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
-    </div>
+  <div id="bot-panel-header">
+    <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
+    <label id="bot-toggle-wrap">
+      <input type="checkbox" id="bot-enable-checkbox">
+      <span id="bot-status-text">متوقف</span>
+    </label>
   </div>
-
-  <div id="manual-bot-section">
-    <div id="manual-bot-panel-header">
-      <span>🖱️ بوت البيع التلقائي (للشراء اليدوي)</span>
-      <label id="manual-bot-toggle-wrap">
-        <input type="checkbox" id="manual-bot-enable-checkbox">
-        <span id="manual-bot-status-text">متوقف</span>
-      </label>
-    </div>
-    <div id="manual-bot-hint">اضغط زر "🟢 شراء" فوق شاشة الشموع لشراء فوري بالسعر الحالي. لازم تفعّل هذا المفتاح عشان بوت البيع يراقب صفقاتك ويبيعها تلقائيًا حسب النسبة تحت.</div>
-    <div id="manual-trades-wrap">
-      <div class="bot-subheader">صفقات الشراء اليدوي</div>
-      <div id="manual-trades-list">لا توجد صفقات حاليًا</div>
-    </div>
-  </div>
-
-  <div class="bot-subheader" style="margin-top:8px;">⚙️ إعدادات مشتركة (تُستخدم من البوتين الاثنين)</div>
+  <div id="bot-manual-symbol-line">🎯 عملة الشبكة الحالية: <b id="bot-manual-symbol-value">BTCUSDT</b> (اختر عملة أخرى بالضغط على إحدى مربعات أقوى 3 عملات فوق — يلزم إيقاف البوت أولًا)</div>
   <div id="bot-controls-row">
     <div class="bot-control">
-      <span>مبلغ كل صفقة (USDT)</span>
+      <span>مبلغ كل مستوى (USDT)</span>
       <input type="number" id="bot-trade-size-input" min="1" step="1" value="50">
       <button id="bot-save-size-btn">حفظ</button>
     </div>
     <div class="bot-control">
-      <span>النسبة % (مسافة الشبكة / نسبة بيع اليدوي)</span>
+      <span>المسافة بين المستويات (%)</span>
       <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
       <button id="bot-save-tp-btn">حفظ</button>
     </div>
     <div class="bot-control">
-      <span>أقصى عدد صفقات (مستويات الشبكة / صفقات اليدوي)</span>
+      <span>عدد المستويات (كل جهة)</span>
       <input type="number" id="bot-max-positions-input" min="1" step="1" value="5">
       <button id="bot-save-maxpos-btn">حفظ</button>
     </div>
   </div>
   <div id="bot-error-line" style="display:none;"></div>
+  <div id="bot-pending-wrap">
+    <div class="bot-subheader">أوامر الشبكة المفتوحة حاليًا</div>
+    <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
+  </div>
   <div id="bot-log-wrap">
     <div class="bot-subheader">آخر الأحداث</div>
     <div id="bot-trade-log">لا يوجد سجل بعد</div>
@@ -653,6 +612,8 @@
   let lastFullCandles = []; // آخر شموع كاملة للرمز/الفريم الحالي — تُستخدم لحساب مؤشرات الشارت (MA/Bollinger)
   let lastPrice = null;
   let lastBotStatus = null;
+  let explosionFullList = []; // كل العملات المرشّحة مرتبة من الأقوى للأضعف (تُملأ من الخادم)
+  let explosionPage = 0;      // صفحة العرض الحالية (كل صفحة = 3 عملات)
   let lastMtfSnapshot = null;
   let currentSeriesSymbol = null;
   let currentSeriesInterval = null;
@@ -772,14 +733,6 @@
     this.textContent = expanded ? '⛶ تصغير' : '⛶ تكبير';
     this.classList.toggle('active', expanded);
     // ResizeObserver الموجود أصلًا بيتكفل بإعادة رسم الشارت بالحجم الجديد تلقائيًا
-  });
-
-  // ═══════════════════ زر "شراء" الفوري (بوت الشراء اليدوي) ═══════════════════
-  document.getElementById('manual-buy-btn').addEventListener('click', function () {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    this.classList.add('disabled');
-    ws.send(JSON.stringify({ type: 'manual_buy_now', symbol: currentSymbol }));
-    setTimeout(() => this.classList.remove('disabled'), 1500); // منع ضغط مزدوج سريع بالغلط فقط
   });
 
   // ═══════════════════ الساعة الحية أعلى الصفحة ═══════════════════
@@ -991,6 +944,10 @@
       if (lastPrice !== null) {
         const up = latest.close >= lastPrice;
         priceEl.style.color = up ? 'var(--green)' : 'var(--red)';
+        const pct = (((latest.close - lastPrice) / lastPrice) * 100).toFixed(2);
+        const chEl = document.getElementById('chart-change');
+        chEl.textContent = `${up ? '+' : ''}${pct}%`;
+        chEl.style.color = up ? 'var(--green)' : 'var(--red)';
       }
       lastPrice = latest.close;
       const symbolLivePriceEl = document.getElementById('symbol-live-price');
@@ -1014,16 +971,24 @@
   }
 
   function handleExplosionScan(msg) {
-    const ranking = msg.ranking || [];
-    renderExplosionBox('explosion-box-1', ranking[0] || null, 1);
-    renderExplosionBox('explosion-box-2', ranking[1] || null, 2);
-    renderExplosionBox('explosion-box-3', ranking[2] || null, 3);
+    explosionFullList = msg.ranking || [];
+    const maxPage = Math.max(0, Math.ceil(explosionFullList.length / 3) - 1);
+    if (explosionPage > maxPage) explosionPage = maxPage;
+    renderExplosionPage();
+  }
+
+  function renderExplosionPage() {
+    const start = explosionPage * 3;
+    const slice = explosionFullList.slice(start, start + 3);
+    renderExplosionBox('explosion-box-1', slice[0] || null, start + 1);
+    renderExplosionBox('explosion-box-2', slice[1] || null, start + 2);
+    renderExplosionBox('explosion-box-3', slice[2] || null, start + 3);
   }
 
   function renderExplosionBox(elId, item, rankNum) {
     const box = document.getElementById(elId);
     const rankEl = box.querySelector('.explosion-rank');
-    const medal = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : '🥉';
+    const medal = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : '🔸';
     if (rankEl) rankEl.textContent = `${medal} #${rankNum}`;
     if (!item) {
       box.classList.add('empty');
@@ -1047,6 +1012,37 @@
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_manual_symbol', symbol: item.symbol }));
     };
   }
+
+  // ═══════════════════ سحب يمين/يسار على صف "أقوى العملات" للتنقل بين كل الـ211 عملة، 3 بكل مرة ═══════════════════
+  (function setupExplosionSwipe() {
+    const row = document.getElementById('explosion-row');
+    if (!row) return;
+    let startX = null, startY = null, isSwiping = false;
+
+    row.addEventListener('pointerdown', (e) => {
+      startX = e.clientX; startY = e.clientY; isSwiping = false;
+    });
+    row.addEventListener('pointermove', (e) => {
+      if (startX == null) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!isSwiping && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) isSwiping = true;
+    });
+    row.addEventListener('pointerup', (e) => {
+      if (startX == null) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (isSwiping && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+        const maxPage = Math.max(0, Math.ceil(explosionFullList.length / 3) - 1);
+        explosionPage = Math.max(0, Math.min(maxPage, explosionPage + (dx > 0 ? 1 : -1)));
+        renderExplosionPage();
+      }
+      startX = null; startY = null;
+    });
+    // نمنع نقر المربع من التنفيذ لو كانت هذي بالأصل عملية سحب صفحة، مو ضغطة عادية
+    row.addEventListener('click', (e) => {
+      if (isSwiping) { e.stopPropagation(); e.preventDefault(); }
+      isSwiping = false;
+    }, true);
+  })();
 
   // ═══════════════════ المؤشرات الديناميكية الجديدة ═══════════════════
   function ensureIndicatorItem(key, name) {
@@ -1592,32 +1588,12 @@
     this.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
   });
 
-  // اختيار البوت — يبدّل أي قسم يظهر (شبكة/يدوي)، إلا لو مفعّل "استخدم البوتين معًا"
-  function applyBotSectionVisibility() {
-    const both = document.getElementById('bot-show-both-checkbox').checked;
-    const sel = document.getElementById('bot-select').value;
-    const gridSection = document.getElementById('grid-bot-section');
-    const manualSection = document.getElementById('manual-bot-section');
-    if (both) {
-      gridSection.classList.remove('hidden');
-      manualSection.classList.remove('hidden');
-    } else {
-      gridSection.classList.toggle('hidden', sel !== 'grid');
-      manualSection.classList.toggle('hidden', sel !== 'manual');
-    }
-  }
+  // اختيار البوت — حاليًا بوت الشبكة فقط، والخيار الثاني مكان جاهز لإضافة بوت جديد مستقبلًا
   document.getElementById('bot-select').addEventListener('change', function () {
     if (this.value === '__add_new__') {
-      alert('حاليًا يوجد بوت الشبكة وبوت الشراء اليدوي فقط. قولي أي نوع بوت ثالث تبي أضيفه وأجهزه لك.');
+      alert('حاليًا يوجد بوت الشبكة فقط. قولي أي نوع بوت ثاني تبي أضيفه وأجهزه لك.');
       this.value = 'grid';
     }
-    applyBotSectionVisibility();
-  });
-  document.getElementById('bot-show-both-checkbox').addEventListener('change', applyBotSectionVisibility);
-  applyBotSectionVisibility();
-
-  document.getElementById('manual-bot-enable-checkbox').addEventListener('change', (e) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'manual_bot_toggle', enabled: e.target.checked }));
   });
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
@@ -1883,17 +1859,6 @@
           return `<div class="bot-log-row ${cls}"><span>${t.side} ${t.symbol}</span><span>${t.price.toFixed(4)}</span></div>`;
         }).join('')
       : 'لا يوجد سجل بعد';
-
-    const mb = msg.manualBot || { enabled: false, trades: [] };
-    const mbCheckbox = document.getElementById('manual-bot-enable-checkbox');
-    const mbStatusText = document.getElementById('manual-bot-status-text');
-    mbCheckbox.checked = mb.enabled;
-    mbStatusText.textContent = mb.enabled ? 'يعمل الآن ⚡' : 'متوقف';
-    mbStatusText.className = mb.enabled ? 'on' : 'off';
-    const statusLabel = { open: '🟢 مشترى — بانتظار وضع أمر البيع', pending_sell: '🟡 أمر بيع معلّق', sold: '✅ تم البيع' };
-    document.getElementById('manual-trades-list').innerHTML = mb.trades.length
-      ? mb.trades.map(t => `<div class="bot-pos-row"><span>${t.symbol} — ${statusLabel[t.status] || t.status}</span><span>شراء ${t.buyPrice}${t.sellPrice ? ' ← بيع ' + t.sellPrice : ''}</span></div>`).join('')
-      : 'لا توجد صفقات حاليًا';
   }
 
   let botErrorTimer = null;
