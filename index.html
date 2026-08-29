@@ -106,20 +106,23 @@
   #conn-dot.connected { background: var(--green); }
   #conn-dot.connecting { background: var(--yellow); }
   #chart-header {
-    padding: 6px 12px; display: flex; align-items: center; gap: 10px; position: relative;
+    padding: 6px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
   #chart-change { font-size: 0.8rem; font-weight: 700; }
-  #chart-header-spacer { flex: 1; }
+  #chart-tools-row {
+    padding: 6px 12px; display: flex; gap: 8px; position: relative;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
   .chart-tool-btn {
     background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.4); color: var(--text);
     border-radius: 7px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; white-space: nowrap;
   }
   .chart-tool-btn.active { background: rgba(88,166,255,0.3); }
   #chart-indicators-cfg {
-    display: none; position: absolute; left: 8px; top: 100%; z-index: 80; margin-top: 4px;
+    display: none; position: absolute; right: 8px; top: 100%; z-index: 80; margin-top: 4px;
     background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
     font-size: 0.72rem; min-width: 180px; box-shadow: 0 6px 16px rgba(0,0,0,0.4);
   }
@@ -401,7 +404,8 @@
   <span id="chart-price">—</span>
   <span id="uci-label-badge">—</span>
   <span id="chart-change"></span>
-  <div id="chart-header-spacer"></div>
+</div>
+<div id="chart-tools-row">
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
   <div id="chart-indicators-cfg">
