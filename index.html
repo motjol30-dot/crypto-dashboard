@@ -111,10 +111,9 @@
   }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #chart-change { font-size: 0.8rem; font-weight: 700; }
   #manual-buy-btn {
-    margin-left: auto; background: var(--green); border: none; color: #04140a; font-weight: 900;
-    border-radius: 7px; padding: 6px 14px; font-size: 0.8rem; cursor: pointer;
+    background: var(--green); border: none; color: #04140a; font-weight: 900;
+    border-radius: 6px; padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
   }
   #manual-buy-btn:active { transform: scale(0.96); }
   #manual-buy-btn.disabled { opacity: 0.5; pointer-events: none; }
@@ -433,8 +432,7 @@
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
   <span id="uci-label-badge">—</span>
-  <span id="chart-change"></span>
-  <button type="button" id="manual-buy-btn">🟢 شراء</button>
+  <button type="button" id="manual-buy-btn">شراء</button>
 </div>
 <div id="chart-tools-row">
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
@@ -997,10 +995,6 @@
       if (lastPrice !== null) {
         const up = latest.close >= lastPrice;
         priceEl.style.color = up ? 'var(--green)' : 'var(--red)';
-        const pct = (((latest.close - lastPrice) / lastPrice) * 100).toFixed(2);
-        const chEl = document.getElementById('chart-change');
-        chEl.textContent = `${up ? '+' : ''}${pct}%`;
-        chEl.style.color = up ? 'var(--green)' : 'var(--red)';
       }
       lastPrice = latest.close;
       const symbolLivePriceEl = document.getElementById('symbol-live-price');
@@ -2011,6 +2005,20 @@
     } catch (e) {}
   }
   loadExplosionGroups();
+
+  // نجيب قائمة "أقوى العملات" الكاملة عبر HTTP عادي (fetch) بدل الاعتماد فقط على رسالة WebSocket —
+  // بعض الاستضافات المشتركة تفرض حد أقصى لحجم رسالة الـ WebSocket الواحدة، وقد يقصّ قائمة كبيرة
+  // (~200 عملة) بصمت دايمًا عند نفس الحد تقريبًا (هذا سبب توقف السحب عند نفس الرقم كل مرة).
+  // طلب HTTP عادي ما يواجه هذا القيد، فهو المصدر الأساسي الموثوق للقائمة الكاملة.
+  async function loadExplosionRanking() {
+    try {
+      const r = await fetch('/api/explosion-ranking');
+      const d = await r.json();
+      handleExplosionScan({ ranking: d.ranking || [] });
+    } catch (e) {}
+  }
+  loadExplosionRanking();
+  setInterval(loadExplosionRanking, 60 * 1000); // كل دقيقة — خفيف وكافي (الفحص بالخادم كل 4 دقائق أصلًا)
 
   [1, 2, 3].forEach(i => {
     const input = document.getElementById(`explosion-search-${i}`);

@@ -149,6 +149,10 @@ app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 // كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
 app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
+// نجيب القائمة الكاملة عبر HTTP عادي بدل الاعتماد فقط على بث WebSocket — بعض استضافات الويب هوستنج
+// تفرض حد أقصى لحجم رسالة الـ WebSocket الواحدة (frame size)، وقد يقصّ القائمة الكبيرة (~200 عملة)
+// بصمت عند حد معيّن دايمًا نفس الرقم تقريبًا. طلب HTTP عادي ما يواجه هذا القيد عادة.
+app.get('/api/explosion-ranking', (_req, res) => res.json({ ranking: explosionRanking }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
