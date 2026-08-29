@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>لوحة تحليل العملات الرقمية</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
@@ -38,10 +38,8 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
-    position: sticky;
-    top: 0;
-    z-index: 70;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+    position: relative;
+    z-index: 30;
   }
   #btc-ticker {
     display: flex; align-items: center; gap: 6px;
@@ -106,30 +104,13 @@
   #conn-dot.connected { background: var(--green); }
   #conn-dot.connecting { background: var(--yellow); }
   #chart-header {
-    padding: 6px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 6px 12px; display: flex; align-items: baseline; gap: 10px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
   #chart-change { font-size: 0.8rem; font-weight: 700; }
-  #chart-tools-row {
-    padding: 6px 12px; display: flex; gap: 8px; position: relative;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-  }
-  .chart-tool-btn {
-    background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.4); color: var(--text);
-    border-radius: 7px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; white-space: nowrap;
-  }
-  .chart-tool-btn.active { background: rgba(88,166,255,0.3); }
-  #chart-indicators-cfg {
-    display: none; position: absolute; right: 8px; top: 100%; z-index: 80; margin-top: 4px;
-    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
-    font-size: 0.72rem; min-width: 180px; box-shadow: 0 6px 16px rgba(0,0,0,0.4);
-  }
-  #chart-indicators-cfg.open { display: block; }
-  #chart-indicators-cfg label { display: flex; align-items: center; gap: 6px; padding: 5px 0; cursor: pointer; }
-  #chart-container { position: relative; height: 46vh; min-height: 260px; transition: height 0.25s; }
-  #chart-container.expanded { height: 82vh; }
+  #chart-container { position: relative; height: 46vh; min-height: 260px; }
   #uci-header {
     padding: 6px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
     background: var(--surface); border-bottom: 1px solid var(--border); border-top: 1px solid var(--border);
@@ -188,16 +169,16 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { color: var(--muted); font-size: 0.85rem; }
-  #status-row {
-    display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 6px;
+  #status-row, #status-row-lower {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .pill {
-    flex: 1; min-width: 58px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 5px 3px; text-align: center;
+    flex: 1; min-width: 78px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 8px; text-align: center;
   }
-  .pill .pill-label { font-size: 0.56rem; color: var(--muted); font-weight: 700; }
-  .pill .pill-value { font-size: 0.74rem; font-weight: 800; margin-top: 2px; }
+  .pill .pill-label { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
+  .pill .pill-value { font-size: 0.82rem; font-weight: 800; margin-top: 2px; }
   .pill-value.up, .pill-value.pos   { color: var(--green); }
   .pill-value.down, .pill-value.neg { color: var(--red); }
   .pill-value.neutral { color: var(--yellow); }
@@ -212,7 +193,7 @@
   .cfg-name { flex: 1; color: var(--text); text-align: right; }
   .cfg-weight {
     width: 52px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 16px;
+    color: var(--text); border-radius: 6px; padding: 3px 5px; text-align: center; font-size: 0.72rem;
   }
   .cfg-pct-sign { color: var(--muted); }
   .cfg-live { color: var(--muted); font-size: 0.62rem; font-weight: 400; }
@@ -237,11 +218,6 @@
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
   #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
-  #bot-select {
-    width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text); border-radius: 7px; padding: 7px 8px; font-size: 16px; font-weight: 700;
-    margin-bottom: 8px; cursor: pointer;
-  }
   #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
   #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
   #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
@@ -249,7 +225,7 @@
   #bot-status-text.off { color: var(--muted); }
   #bot-controls-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
   .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
-  .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 16px; }
+  .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 0.72rem; }
   .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
   #bot-manual-symbol-line { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
   #bot-manual-symbol-line b { color: var(--accent); }
@@ -277,17 +253,11 @@
   .explosion-box.selected-manual { outline: 2px solid var(--accent); outline-offset: -1px; }
   .explosion-search {
     width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); border-radius: 6px; padding: 3px 5px; font-size: 16px;
+    color: var(--text); border-radius: 6px; padding: 3px 5px; font-size: 0.62rem;
     text-align: center; outline: none; margin-bottom: 3px;
   }
   .explosion-search:focus { border-color: var(--accent); }
-  #indicators-list { padding: 4px 10px 10px; display: none; }
-  #indicators-list.open { display: block; }
-  #indicators-detail-toggle {
-    width: 100%; background: var(--surface); border: none; border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border); color: var(--accent);
-    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
-  }
+  #indicators-list { padding: 4px 10px 10px; }
   .group-header {
     font-size: 0.8rem; font-weight: 800; color: var(--accent);
     margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
@@ -349,10 +319,6 @@
       <span class="macro-price" id="macro-dxy-price">—</span>
       <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
     </div>
-    <div class="macro-box" id="macro-clock">
-      <span class="macro-label">🕐 الوقت</span>
-      <span class="macro-price" id="macro-clock-value">—</span>
-    </div>
   </div>
   <div id="conn-dot"></div>
 </header>
@@ -382,18 +348,6 @@
 </div>
 <div id="explosion-swipe-hint">👉 اسحب يمين/يسار على المربعات فوق لعرض العملات التالية (كل العملات مرتبة من الأقوى للأضعف)</div>
 
-<div id="tf-bar-wrap">
-  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
-  <div id="tf-bar">
-    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
-    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
-    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
-    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
-    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
-    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
-  </div>
-</div>
-
 <div id="final-row-wrap">
   <div class="early-box" id="early-up-wrap" title="طبقة الارتفاع المبكر">
     <span class="early-arrow up" id="early-up-arrow" style="opacity:0.3;">▲</span>
@@ -413,17 +367,7 @@
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
-  <span id="uci-label-badge">—</span>
   <span id="chart-change"></span>
-</div>
-<div id="chart-tools-row">
-  <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
-  <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
-  <div id="chart-indicators-cfg">
-    <label><input type="checkbox" id="ind-toggle-ma20"> متوسط متحرك MA20</label>
-    <label><input type="checkbox" id="ind-toggle-ma50"> متوسط متحرك MA50</label>
-    <label><input type="checkbox" id="ind-toggle-bb"> بولنجر باند (Bollinger Bands)</label>
-  </div>
 </div>
 <div id="chart-container">
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
@@ -447,6 +391,7 @@
   </div>
   <div id="uci-gauge-scale"><span>0</span><span>20</span><span>50</span><span>80</span><span>100</span></div>
   <div id="uci-gauge-footer">
+    <span id="uci-label-badge">—</span>
     <span id="uci-sub-values">UCI: — · Signal: —</span>
   </div>
 </div>
@@ -472,15 +417,6 @@
     <div class="pill-label">المسافة</div>
     <div class="pill-value neutral" id="p-early">—</div>
   </div>
-  <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
-  <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
-  <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
-  <div class="pill"><div class="pill-label">التحليل</div><div class="pill-value neutral" id="p-overall">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الزخم</div><div class="pill-value neutral" id="p-momentum">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الحجم</div><div class="pill-value neutral" id="p-volume">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الارتداد</div><div class="pill-value neutral" id="p-reversal">—</div></div>
-  <div class="pill"><div class="pill-label">إجماع الثبات</div><div class="pill-value neutral" id="p-stability">—</div></div>
-  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
 </div>
 
 <div id="decision-cfg" class="cfg-dropdown"></div>
@@ -489,11 +425,19 @@
 <div id="allind-cfg" class="cfg-dropdown"></div>
 <div id="early-cfg" class="cfg-dropdown"></div>
 
+<div id="tf-bar-wrap">
+  <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
+  <div id="tf-bar">
+    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
+    <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
+    <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
+    <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
+    <div class="tf-box" data-interval="2h"><span class="tf-name">2س</span></div>
+    <div class="tf-box" data-interval="4h"><span class="tf-name">4س</span></div>
+  </div>
+</div>
+
 <div id="bot-panel">
-  <select id="bot-select">
-    <option value="grid" selected>🔲 بوت الشبكة (Grid Bot) — Binance</option>
-    <option value="__add_new__">➕ إضافة بوت جديد...</option>
-  </select>
   <div id="bot-panel-header">
     <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
     <label id="bot-toggle-wrap">
@@ -530,10 +474,21 @@
   </div>
 </div>
 
+<div style="padding:8px 10px 0; font-size:0.68rem; color:var(--muted); font-weight:800;">📋 بقية المربعات التفصيلية</div>
+<div id="status-row-lower">
+  <div class="pill"><div class="pill-label">الاتجاه</div><div class="pill-value neutral" id="p-trend">—</div></div>
+  <div class="pill"><div class="pill-label">التوصية</div><div class="pill-value neutral" id="p-action">—</div></div>
+  <div class="pill"><div class="pill-label">الثقة</div><div class="pill-value neutral" id="p-conf">—</div></div>
+  <div class="pill"><div class="pill-label">التحليل</div><div class="pill-value neutral" id="p-overall">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الزخم</div><div class="pill-value neutral" id="p-momentum">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الحجم</div><div class="pill-value neutral" id="p-volume">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الارتداد</div><div class="pill-value neutral" id="p-reversal">—</div></div>
+  <div class="pill"><div class="pill-label">إجماع الثبات</div><div class="pill-value neutral" id="p-stability">—</div></div>
+  <div class="pill" id="p-hourly-wrap" style="cursor:pointer;"><div class="pill-label">⏰ طبقة الساعة</div><div class="pill-value neutral" id="p-hourly">—</div></div>
+</div>
 
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
-<button id="indicators-detail-toggle">📊 عرض كل تفاصيل المؤشرات ▾</button>
 <div id="indicators-list">
   <div class="group-header">🔄 الارتداد (Reversal) <span style="font-size:0.6rem; color:var(--muted); font-weight:400;">— ثابت على فريم 15 دقيقة</span></div>
   <div class="group-summary" id="grp-reversal">—</div>
@@ -604,12 +559,6 @@
   let goldWs = null;
   let chart = null;
   let candleSeries = null;
-  let ma20Series = null;
-  let ma50Series = null;
-  let bbUpperSeries = null;
-  let bbMiddleSeries = null;
-  let bbLowerSeries = null;
-  let lastFullCandles = []; // آخر شموع كاملة للرمز/الفريم الحالي — تُستخدم لحساب مؤشرات الشارت (MA/Bollinger)
   let lastPrice = null;
   let lastBotStatus = null;
   let explosionFullList = []; // كل العملات المرشّحة مرتبة من الأقوى للأضعف (تُملأ من الخادم)
@@ -654,94 +603,6 @@
       chart.resize(r.width, r.height);
     }).observe(container);
   }
-
-  // ═══════════════════ مؤشرات فوق الشموع (MA20 / MA50 / Bollinger Bands) — تُحسب محليًا بالمتصفح ═══════════════════
-  function computeSMA(values, period) {
-    const out = [];
-    for (let i = period - 1; i < values.length; i++) {
-      let sum = 0;
-      for (let j = i - period + 1; j <= i; j++) sum += values[j];
-      out.push(sum / period);
-    }
-    return out;
-  }
-  function computeBollinger(values, period, stdDevMult) {
-    const out = [];
-    for (let i = period - 1; i < values.length; i++) {
-      const window = values.slice(i - period + 1, i + 1);
-      const mean = window.reduce((a,b) => a+b, 0) / period;
-      const variance = window.reduce((a,b) => a + (b-mean)*(b-mean), 0) / period;
-      const sd = Math.sqrt(variance);
-      out.push({ middle: mean, upper: mean + sd*stdDevMult, lower: mean - sd*stdDevMult });
-    }
-    return out;
-  }
-
-  function renderChartIndicators() {
-    if (!chart || !lastFullCandles.length) return;
-    const showMa20 = document.getElementById('ind-toggle-ma20').checked;
-    const showMa50 = document.getElementById('ind-toggle-ma50').checked;
-    const showBb = document.getElementById('ind-toggle-bb').checked;
-    const closes = lastFullCandles.map(c => c.close);
-    const times = lastFullCandles.map(c => c.time);
-
-    if (showMa20) {
-      if (!ma20Series) ma20Series = chart.addLineSeries({ color: '#e3b341', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-      const ma = computeSMA(closes, 20);
-      ma20Series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
-    } else if (ma20Series) { chart.removeSeries(ma20Series); ma20Series = null; }
-
-    if (showMa50) {
-      if (!ma50Series) ma50Series = chart.addLineSeries({ color: '#58a6ff', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-      const ma = computeSMA(closes, 50);
-      ma50Series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
-    } else if (ma50Series) { chart.removeSeries(ma50Series); ma50Series = null; }
-
-    if (showBb) {
-      if (!bbUpperSeries) {
-        bbUpperSeries = chart.addLineSeries({ color: 'rgba(88,166,255,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-        bbMiddleSeries = chart.addLineSeries({ color: 'rgba(125,133,144,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-        bbLowerSeries = chart.addLineSeries({ color: 'rgba(88,166,255,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-      }
-      const bb = computeBollinger(closes, 20, 2);
-      const offset = times.length - bb.length;
-      bbUpperSeries.setData(bb.map((v, i) => ({ time: times[offset + i], value: v.upper })));
-      bbMiddleSeries.setData(bb.map((v, i) => ({ time: times[offset + i], value: v.middle })));
-      bbLowerSeries.setData(bb.map((v, i) => ({ time: times[offset + i], value: v.lower })));
-    } else if (bbUpperSeries) {
-      chart.removeSeries(bbUpperSeries); chart.removeSeries(bbMiddleSeries); chart.removeSeries(bbLowerSeries);
-      bbUpperSeries = null; bbMiddleSeries = null; bbLowerSeries = null;
-    }
-  }
-
-  ['ind-toggle-ma20', 'ind-toggle-ma50', 'ind-toggle-bb'].forEach(id => {
-    document.getElementById(id).addEventListener('change', renderChartIndicators);
-  });
-  document.getElementById('chart-indicators-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    document.getElementById('chart-indicators-cfg').classList.toggle('open');
-  });
-  document.addEventListener('click', (e) => {
-    const cfg = document.getElementById('chart-indicators-cfg');
-    if (cfg.classList.contains('open') && !cfg.contains(e.target) && e.target.id !== 'chart-indicators-btn') cfg.classList.remove('open');
-  });
-
-  // ═══════════════════ زر تكبير شاشة الشموع (بدل التكبير بإصبعين) ═══════════════════
-  document.getElementById('chart-expand-btn').addEventListener('click', function () {
-    const container = document.getElementById('chart-container');
-    const expanded = container.classList.toggle('expanded');
-    this.textContent = expanded ? '⛶ تصغير' : '⛶ تكبير';
-    this.classList.toggle('active', expanded);
-    // ResizeObserver الموجود أصلًا بيتكفل بإعادة رسم الشارت بالحجم الجديد تلقائيًا
-  });
-
-  // ═══════════════════ الساعة الحية أعلى الصفحة ═══════════════════
-  function updateLiveClock() {
-    const el = document.getElementById('macro-clock-value');
-    if (el) el.textContent = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
-  updateLiveClock();
-  setInterval(updateLiveClock, 1000);
 
   // ═══════════════════ لوحة المؤشر المركب الشامل (UCI) — مستقلة تمامًا عن القرار النهائي ═══════════════════
   // نفس البيانات القادمة من السيرفر (msg.uci: composite/signal) بدون أي تغيير في الحساب — فقط طريقة العرض تحولت من شارت خطي إلى مقياس (Gauge) دقيق بالنسبة المئوية مع تصنيف نصي.
@@ -933,9 +794,6 @@
         }
       }
     }
-
-    lastFullCandles = msg.candles;
-    renderChartIndicators();
 
     const latest = msg.candles[msg.candles.length - 1];
     if (latest) {
@@ -1580,21 +1438,6 @@
   });
 
   function toggleCfgDropdown(id) { document.getElementById(id).classList.toggle('open'); }
-
-  // طبقة المؤشرات التفصيلية مخفية افتراضيًا (تستمر تحسب وتتحدث بالخلفية عاديًا)، وتظهر فقط عند الضغط
-  document.getElementById('indicators-detail-toggle').addEventListener('click', function () {
-    const list = document.getElementById('indicators-list');
-    const open = list.classList.toggle('open');
-    this.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
-  });
-
-  // اختيار البوت — حاليًا بوت الشبكة فقط، والخيار الثاني مكان جاهز لإضافة بوت جديد مستقبلًا
-  document.getElementById('bot-select').addEventListener('change', function () {
-    if (this.value === '__add_new__') {
-      alert('حاليًا يوجد بوت الشبكة فقط. قولي أي نوع بوت ثاني تبي أضيفه وأجهزه لك.');
-      this.value = 'grid';
-    }
-  });
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
