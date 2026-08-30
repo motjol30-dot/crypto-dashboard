@@ -111,18 +111,15 @@
   }
   #chart-symbol { font-size: 1rem; font-weight: 700; }
   #chart-price  { font-size: 1.15rem; font-weight: 800; font-family: 'Courier New', monospace; }
-  #manual-buy-btn {
-    background: var(--green); border: none; color: #04140a; font-weight: 900;
-    border-radius: 6px; padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
+  .trade-btn {
+    border: none; color: #04140a; font-weight: 900;
+    border-radius: 6px; padding: 5px 16px; font-size: 0.74rem; cursor: pointer;
+    width: 64px; text-align: center;
   }
-  #manual-buy-btn:active { transform: scale(0.96); }
-  #manual-buy-btn.disabled { opacity: 0.5; pointer-events: none; }
-  #manual-sell-btn {
-    background: var(--red); border: none; color: #1a0505; font-weight: 900;
-    border-radius: 6px; padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
-  }
-  #manual-sell-btn:active { transform: scale(0.96); }
-  #manual-sell-btn.disabled { opacity: 0.5; pointer-events: none; }
+  .trade-btn:active { transform: scale(0.96); }
+  .trade-btn.disabled { opacity: 0.5; pointer-events: none; }
+  #manual-buy-btn { background: var(--green); }
+  #manual-sell-btn { background: var(--red); color: #1a0505; }
   #chart-amount-wrap {
     display: flex; align-items: center; gap: 4px; font-size: 0.66rem; color: var(--muted);
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
@@ -133,7 +130,7 @@
     font-size: 16px; text-align: center; outline: none;
   }
   #chart-tools-row {
-    padding: 6px 12px; display: flex; gap: 8px; position: relative;
+    padding: 6px 12px; display: flex; gap: 8px; flex-wrap: wrap; position: relative;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .chart-tool-btn {
@@ -256,32 +253,6 @@
   .early-arrow { font-size: 1.8rem; line-height: 1; transition: opacity 0.3s, transform 0.3s; }
   .early-arrow.up { color: var(--green); }
   .early-arrow.down { color: var(--red); }
-  #bot-panel { margin: 8px 10px; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); }
-  #grid-bot-section, #manual-bot-section { margin-bottom: 8px; }
-  #manual-bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 6px; }
-  #manual-bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
-  #manual-bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
-  #manual-bot-status-text.on { color: var(--green); }
-  #manual-bot-status-text.off { color: var(--muted); }
-  #manual-trades-list { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
-  #bot-panel-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 8px; }
-  #bot-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; }
-  #bot-toggle-wrap input { width: 34px; height: 18px; cursor: pointer; }
-  #bot-status-text.on { color: var(--green); }
-  #bot-status-text.off { color: var(--muted); }
-  #bot-controls-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
-  .bot-control { display: flex; flex-direction: column; gap: 3px; font-size: 0.65rem; color: var(--muted); flex: 1; min-width: 110px; }
-  .bot-control select, .bot-control input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text); border-radius: 6px; padding: 5px 7px; font-size: 16px; }
-  .bot-control button { margin-top: 3px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: var(--text); border-radius: 6px; padding: 4px; font-size: 0.68rem; cursor: pointer; }
-  #bot-manual-symbol-line { font-size: 0.72rem; color: var(--text); background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); border-radius: 8px; padding: 6px 9px; margin-bottom: 8px; }
-  #bot-manual-symbol-line b { color: var(--accent); }
-  #bot-error-line { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,79,0.35); color: var(--red); font-size: 0.66rem; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
-  .bot-subheader { font-size: 0.66rem; font-weight: 800; color: var(--muted); margin: 6px 0 4px; }
-  #bot-pending-list, #bot-trade-log { font-size: 0.66rem; color: var(--text); line-height: 1.7; max-height: 140px; overflow-y: auto; }
-  .bot-pos-row, .bot-log-row { display: flex; justify-content: space-between; gap: 6px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.07); }
-  .bot-log-row.buy-row { color: var(--green); }
-  .bot-log-row.sell-row { color: var(--red); }
-  .bot-log-row.error-row { color: var(--yellow); }
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; touch-action: pan-y; user-select: none; }
   #explosion-swipe-hint { font-size: 0.6rem; color: var(--muted); text-align: center; padding: 4px 10px 0; }
   .explosion-box {
@@ -435,17 +406,17 @@
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
-  <span id="uci-label-badge">—</span>
-  <button type="button" id="manual-buy-btn">شراء</button>
-  <button type="button" id="manual-sell-btn">بيع</button>
 </div>
 <div id="chart-tools-row">
-  <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
-  <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
+  <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
+  <button type="button" class="trade-btn" id="manual-sell-btn">بيع</button>
   <div id="chart-amount-wrap">
     <span>USDT</span>
     <input type="number" id="chart-amount-input" min="1" step="1" value="50">
   </div>
+  <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
+  <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
+  <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
   <div id="chart-indicators-cfg">
     <label><input type="checkbox" id="ind-toggle-ma20"> متوسط متحرك MA20</label>
     <label><input type="checkbox" id="ind-toggle-ma50"> متوسط متحرك MA50</label>
@@ -474,6 +445,7 @@
   </div>
   <div id="uci-gauge-scale"><span>0</span><span>20</span><span>50</span><span>80</span><span>100</span></div>
   <div id="uci-gauge-footer">
+    <span id="uci-label-badge">—</span>
     <span id="uci-sub-values">UCI: — · Signal: —</span>
   </div>
 </div>
@@ -515,57 +487,6 @@
 <div id="secondary-cfg" class="cfg-dropdown"></div>
 <div id="allind-cfg" class="cfg-dropdown"></div>
 <div id="early-cfg" class="cfg-dropdown"></div>
-
-<div id="bot-panel">
-  <div id="grid-bot-section">
-    <div id="bot-panel-header">
-      <span>🤖 بوت الشبكة (Grid Bot) — Binance</span>
-      <label id="bot-toggle-wrap">
-        <input type="checkbox" id="bot-enable-checkbox">
-        <span id="bot-status-text">متوقف</span>
-      </label>
-    </div>
-    <div id="bot-manual-symbol-line">🎯 عملة الشبكة الحالية: <b id="bot-manual-symbol-value">BTCUSDT</b> (اختر عملة أخرى بالضغط على إحدى مربعات أقوى 3 عملات فوق — يلزم إيقاف البوت أولًا)</div>
-    <div id="bot-pending-wrap">
-      <div class="bot-subheader">أوامر الشبكة المفتوحة حاليًا</div>
-      <div id="bot-pending-list">لا توجد أوامر معلّقة حاليًا</div>
-    </div>
-  </div>
-
-  <div id="manual-bot-section">
-    <div id="manual-bot-panel-header">
-      <span>🖱️ بوت البيع التلقائي (للشراء اليدوي)</span>
-      <label id="manual-bot-toggle-wrap">
-        <input type="checkbox" id="manual-bot-enable-checkbox">
-        <span id="manual-bot-status-text">متوقف</span>
-      </label>
-    </div>
-    <div id="manual-trades-wrap">
-      <div class="bot-subheader">صفقات الشراء اليدوي</div>
-      <div id="manual-trades-list">لا توجد صفقات حاليًا</div>
-    </div>
-  </div>
-
-  <div class="bot-subheader" style="margin-top:8px;">⚙️ إعدادات مشتركة (تُستخدم من البوتين الاثنين)</div>
-  <div id="bot-controls-row">
-    <div class="bot-control">
-      <span>النسبة % (مسافة الشبكة / نسبة بيع اليدوي)</span>
-      <input type="number" id="bot-take-profit-input" min="0.1" step="0.1" value="1">
-      <button id="bot-save-tp-btn">حفظ</button>
-    </div>
-    <div class="bot-control">
-      <span>أقصى عدد صفقات (مستويات الشبكة / صفقات اليدوي)</span>
-      <input type="number" id="bot-max-positions-input" min="1" step="1" value="5">
-      <button id="bot-save-maxpos-btn">حفظ</button>
-    </div>
-  </div>
-  <div id="bot-error-line" style="display:none;"></div>
-  <div id="bot-log-wrap">
-    <div class="bot-subheader">آخر الأحداث</div>
-    <div id="bot-trade-log">لا يوجد سجل بعد</div>
-  </div>
-</div>
-
 
 <div id="hourly-detail" style="display:none; font-size:0.7rem; color:var(--muted); padding:6px 14px; line-height:1.7; text-align:center;"></div>
 
@@ -1636,9 +1557,6 @@
     this.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
   });
 
-  document.getElementById('manual-bot-enable-checkbox').addEventListener('change', (e) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'manual_bot_toggle', enabled: e.target.checked }));
-  });
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));
   document.getElementById('p-secondary-wrap').addEventListener('click', () => toggleCfgDropdown('secondary-cfg'));
@@ -1876,69 +1794,22 @@
     renderBoxConfigDropdown('earlydown', 'earlydown-cfg');
   }
 
-  // ═══════════════════ بوت الشبكة (Grid Bot) ═══════════════════
+  // ═══════════════════ حالة البوتين (مبسّطة — العنصر الوحيد المتبقي بالواجهة هو مبلغ الصفقة) ═══════════════════
   function handleBotStatus(msg) {
     lastBotStatus = msg;
-    const checkbox = document.getElementById('bot-enable-checkbox');
-    const statusText = document.getElementById('bot-status-text');
-    checkbox.checked = msg.enabled;
-    statusText.textContent = msg.enabled ? 'يعمل الآن ⚡' : 'متوقف';
-    statusText.className = msg.enabled ? 'on' : 'off';
     document.getElementById('chart-amount-input').value = msg.tradeSizeUsdt;
-    if (msg.takeProfitPercent != null) document.getElementById('bot-take-profit-input').value = msg.takeProfitPercent;
-    if (msg.maxConcurrentPositions != null) document.getElementById('bot-max-positions-input').value = msg.maxConcurrentPositions;
-
-    document.getElementById('bot-manual-symbol-value').textContent = msg.manualSymbol || 'BTCUSDT';
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
-
-    document.getElementById('bot-pending-list').innerHTML = Object.entries(msg.pendingOrders || {}).length
-      ? Object.entries(msg.pendingOrders).map(([key, o]) => `<div class="bot-pos-row"><span>${o.side === 'BUY' ? '🟢' : '🔴'} ${o.side} ${o.symbol || ''}</span><span>${o.qty.toFixed(5)} @ ${o.price}</span></div>`).join('')
-      : 'لا توجد أوامر معلّقة';
-    document.getElementById('bot-trade-log').innerHTML = (msg.tradeLog || []).length
-      ? msg.tradeLog.map(t => {
-          if (t.type === 'error') return `<div class="bot-log-row error-row"><span>⚠️ ${t.symbol}</span><span>${t.message}</span></div>`;
-          const cls = t.side === 'BUY' ? 'buy-row' : 'sell-row';
-          return `<div class="bot-log-row ${cls}"><span>${t.side} ${t.symbol}</span><span>${t.price.toFixed(4)}</span></div>`;
-        }).join('')
-      : 'لا يوجد سجل بعد';
-
-    const mb = msg.manualBot || { enabled: false, trades: [] };
-    const mbCheckbox = document.getElementById('manual-bot-enable-checkbox');
-    const mbStatusText = document.getElementById('manual-bot-status-text');
-    mbCheckbox.checked = mb.enabled;
-    mbStatusText.textContent = mb.enabled ? 'يعمل الآن ⚡' : 'متوقف';
-    mbStatusText.className = mb.enabled ? 'on' : 'off';
-    const statusLabel = { open: '🟢 مشترى — بانتظار وضع أمر البيع', pending_sell: '🟡 أمر بيع معلّق', sold: '✅ تم البيع' };
-    document.getElementById('manual-trades-list').innerHTML = mb.trades.length
-      ? mb.trades.map(t => `<div class="bot-pos-row"><span>${t.symbol} — ${statusLabel[t.status] || t.status}</span><span>شراء ${t.buyPrice}${t.sellPrice ? ' ← بيع ' + t.sellPrice : ''}</span></div>`).join('')
-      : 'لا توجد صفقات حاليًا';
   }
 
-  let botErrorTimer = null;
   function handleBotError(msg) {
-    const el = document.getElementById('bot-error-line');
-    el.textContent = '⚠️ ' + msg.message;
-    el.style.display = 'block';
-    if (botErrorTimer) clearTimeout(botErrorTimer);
-    botErrorTimer = setTimeout(() => el.style.display = 'none', 8000);
+    alert('⚠️ ' + msg.message);
   }
 
-  document.getElementById('bot-enable-checkbox').addEventListener('change', (e) => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_toggle', enabled: e.target.checked }));
-  });
-  document.getElementById('chart-amount-input').addEventListener('change', () => {
+  document.getElementById('chart-amount-save-btn').addEventListener('click', () => {
     const v = parseFloat(document.getElementById('chart-amount-input').value);
     if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: v }));
-  });
-  document.getElementById('bot-save-tp-btn').addEventListener('click', () => {
-    const v = parseFloat(document.getElementById('bot-take-profit-input').value);
-    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_take_profit', takeProfitPercent: v }));
-  });
-  document.getElementById('bot-save-maxpos-btn').addEventListener('click', () => {
-    const v = parseInt(document.getElementById('bot-max-positions-input').value, 10);
-    if (v >= 1 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_max_positions', maxConcurrentPositions: v }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
