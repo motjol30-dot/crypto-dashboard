@@ -51,14 +51,6 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
-// رجّعنا التصميم البسيط الأصلي بطلب المستخدم بعد ما جربنا فحص الحوض كامل + سحب/صفحات وما استقر —
-// المربعات الثلاثة الآن تعرض فقط أفضل عملة من كل ثلث ثابت من الحوض (بدون سحب لباقي العملات)،
-// أولوية للموثوقية على الميزات الإضافية.
-const EXPLOSION_GROUPS = [[], [], []];
-SCAN_POOL.forEach((sym, i) => EXPLOSION_GROUPS[i % 3].push(sym));
-const SYMBOL_GROUP_INDEX = {};
-EXPLOSION_GROUPS.forEach((group, gi) => group.forEach(sym => { SYMBOL_GROUP_INDEX[sym] = gi; }));
-
 const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
 const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
 const OKX_BAR = { '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
@@ -150,7 +142,7 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 // كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
-app.get('/api/explosion-groups', (_req, res) => res.json({ groups: EXPLOSION_GROUPS }));
+app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
@@ -250,7 +242,7 @@ wss.on('connection', (ws, req) => {
   if (AUTH_ENABLED && !isKnown && activeSessions.size >= MAX_USERS) { ws.close(4002, 'SERVER_FULL'); return; }
   if (sid) activeSessions.set(sid, Date.now());
 
-  if (explosionRanking.some(Boolean)) {
+  if (explosionRanking.length) {
     ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking }));
   }
   ws.send(botStatusPayload());
@@ -351,6 +343,25 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'فشل الشراء: ' + detail }));
       });
     }
+    else if (msg.type === 'manual_sell_now') {
+      // زر "بيع الآن" — يبيع فورًا (Market) أقرب صفقة شراء يدوي مفتوحة على هذا الرمز، ملغيًا أمر
+      // البيع المحدد المسبق (Limit) لو كان موجود، بدل ما ينتظر يوصل سعره
+      if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance' }));
+        return;
+      }
+      const raw = (msg.symbol || '').toString().trim().toUpperCase();
+      if (!/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح' }));
+        return;
+      }
+      executeManualSell(raw).then(() => {
+        broadcastBotStatus();
+      }).catch((err) => {
+        const detail = err.response?.data?.msg || err.message;
+        ws.send(JSON.stringify({ type: 'error', message: 'فشل البيع: ' + detail }));
+      });
+    }
     else if (msg.type === 'manual_bot_toggle') {
       manualBotState.enabled = !!msg.enabled;
       botState.tradeLog.unshift({ time: Date.now(), symbol: '', type: 'error', message: manualBotState.enabled ? '🟢 تفعيل بوت البيع التلقائي (للشراء اليدوي)' : '⏹️ إيقاف بوت البيع التلقائي (للشراء اليدوي)' });
@@ -371,6 +382,9 @@ const SCAN_INTERVAL = '15m';
 const SCAN_SYMBOLS = SYMBOLS;
 
 let explosionRanking = [];
+
+// حد أدنى لمتوسط السيولة (بالدولار) على فريم 15 دقيقة عشان نستبعد العملات شبه الميتة من الترشيح
+const MIN_AVG_QUOTE_VOLUME_15M = 15000;
 
 function computeExplosionScore(candles) {
   if (!candles || candles.length < 80) return null;
@@ -457,6 +471,10 @@ function computeExplosionScore(candles) {
   const price = closes[n-1];
   const avgQuoteVol50 = avgVol50 * price;
 
+  // 🚫 فلتر سيولة حقيقي: نرفض أي عملة متوسط تداولها بآخر 50 شمعة (15د) أقل من حد أدنى بالدولار —
+  // هذا يمنع ترشيح عملات "ميتة" حجمها ضعيف جدًا وممكن تواجه انزلاق سعر (slippage) كبير عند التنفيذ.
+  if (!Number.isFinite(avgQuoteVol50) || avgQuoteVol50 < MIN_AVG_QUOTE_VOLUME_15M) return null;
+
   const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
 
   return {
@@ -478,54 +496,55 @@ function computeExplosionScore(candles) {
 // بنفس أسلوب الفحص الخفيف (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) حتى ما نثقل
 // السيرفر بفتح 211 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
 //
-// رجعنا للتصميم البسيط: كل مربع من الثلاثة يترشّح من ثلثه الثابت فقط (بدون فحص حوض كامل ولا سحب/صفحات) —
-// بطلب المستخدم بعد ما الميزات الإضافية (فحص حوض كامل + سحب لباقي العملات) ما استقرت. الدالة كاملة
-// محاطة بـ try/catch عشان أي خطأ غير متوقع أبدًا ما يمنعها من الأقل تبث آخر نتيجة صالحة عندها.
-async function runExplosionScan() {
-  try {
-    const results = [];
-    for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
-      const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
-      await Promise.all(batch.map(async (symbol) => {
-        try {
-          if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
-          const candles = getCandlesForScan(symbol);
-          const res = computeExplosionScore(candles);
-          if (res) results.push({ symbol, ...res });
-        } catch (err) {
-          console.error(`[explosion-scan] تخطي ${symbol} بسبب خطأ:`, err.message);
-        }
-      }));
-    }
-    console.log(`[explosion-scan] دورة فحص انتهت: ${results.length} عملة صالحة من أصل ${SCAN_POOL.length}`);
+// مرحلة إضافية: بعد الترتيب الأولي على 15 دقيقة، نجيب تأكيد الساعة (1h) فقط لأفضل 15 مرشّح (مو
+// كل الحوض — توفير للشبكة)، ونعدّل النقاط: تأكيد مع الاتجاه = مكافأة، تعارض معه = عقوبة، ثم نعيد
+// الترتيب ونطلع أفضل 3 نهائيًا. هذا يمنع ترشيح عملة إشارتها الفنية جيدة على المدى القصير لكنها
+// تسبح عكس اتجاه السوق الأعم على الساعة.
+const HTF_CONFIRM_POOL_SIZE = 15;
+const HTF_AGREE_BONUS = 10;
+const HTF_CONFLICT_PENALTY = 18;
 
-    const byGroup = [[], [], []];
-    for (const r of results) {
-      const gi = SYMBOL_GROUP_INDEX[r.symbol];
-      if (gi != null) byGroup[gi].push(r);
-    }
-    // لو مجموعة ما طلعت لها أي عملة صالحة بهذي الدورة، نبقي آخر ترشيح معروف لها بدل ما يفضى المربع
-    explosionRanking = byGroup.map((list, gi) => {
-      list.sort((a, b) => b.score - a.score);
-      return list[0] || explosionRanking[gi] || null;
-    });
-    broadcastExplosionScan();
-  } catch (err) {
-    console.error('[explosion-scan] خطأ عام غير متوقع بالدورة كاملة:', err.message);
+async function runExplosionScan() {
+  const results = [];
+  for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
+    const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
+    await Promise.all(batch.map(async (symbol) => {
+      if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
+      const candles = getCandlesForScan(symbol);
+      const res = computeExplosionScore(candles);
+      if (res) results.push({ symbol, ...res });
+    }));
   }
+  results.sort((a, b) => b.score - a.score);
+
+  // تأكيد الساعة لأفضل المرشحين فقط
+  const contenders = results.slice(0, HTF_CONFIRM_POOL_SIZE);
+  await Promise.all(contenders.map(c => refreshHtfCache(c.symbol)));
+  for (const c of contenders) {
+    const htfTrend = getHtfTrend(c.symbol);
+    c.htfTrend = htfTrend;
+    if (htfTrend === 'unknown' || htfTrend === 'neutral' || c.direction === 'neutral') continue;
+    if (htfTrend === c.direction) c.score = Math.min(100, c.score + HTF_AGREE_BONUS);
+    else c.score = Math.max(0, c.score - HTF_CONFLICT_PENALTY);
+  }
+  contenders.sort((a, b) => b.score - a.score);
+  const rest = results.slice(HTF_CONFIRM_POOL_SIZE);
+  const finalPool = [...contenders, ...rest];
+  finalPool.sort((a, b) => b.score - a.score); // ترتيب نهائي شامل بعد دمج تعديلات تأكيد الساعة
+
+  // نحتفظ بالقائمة الكاملة (كل عملة اجتازت فلتر السيولة وفيها بيانات كافية) مرتبة من الأقوى للأضعف،
+  // عشان الواجهة تقدر تستعرضها بالسحب ثلاثة ثلاثة بدل ما تقتصر على أفضل 3 بس.
+  explosionRanking = finalPool.length ? finalPool : explosionRanking;
+  broadcastExplosionScan();
 }
 
 function broadcastExplosionScan() {
-  if (!explosionRanking.some(Boolean)) return;
+  if (!explosionRanking.length) return;
   const payload = JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
   }
 }
-
-// أول فحص لأقوى العملات على كامل الحوض — يبدأ فورًا عند إقلاع السيرفر بدون انتظار فتح بث الـ40
-// عملة الأساسية (كانا متسلسلين قبل، يعني المربعات تضل فاضية أطول من اللازم بعد كل إعادة تشغيل)
-runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفحص الأول:', err.message));
 
 (async () => {
   // نحمّل بث مباشر دائم فقط لقائمة الـ40 الأساسية (تُستخدم للرسم البياني الرئيسي واختيار العملة يدويًا)
@@ -535,9 +554,11 @@ runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفح�
     const batch = symbols.slice(i, i + batchSize);
     await Promise.all(batch.map(symbol => ensureStream(symbol, SCAN_INTERVAL).catch(err => console.error(err))));
   }
+  // أول فحص لأقوى 3 عملات على كامل حوض الـ~240 عملة (REST خفيف مؤقت الذاكرة — لا يفتح بث دائم)
+  runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفحص الأول:', err.message));
 })();
 
-// فحص أقوى العملات على كامل الحوض كل 4 دقائق (حسب طلب المستخدم)
+// فحص أقوى 3 عملات على كامل الحوض كل 4 دقائق (حسب طلب المستخدم)
 setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 4 * 60 * 1000);
 
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
@@ -634,6 +655,43 @@ function getCandlesForScan(symbol) {
   const live = candleStore[`${symbol}_15m`];
   if (live && live.length >= 60) return live;
   return scanCandleCache[symbol] || null;
+}
+
+/* ============================================================================
+ * تأكيد الفريم الأعلى (1 ساعة) — نجيب شموع الساعة فقط لأفضل المرشحين (مو كل الحوض) عشان نتأكد
+ * إن إشارة الانضغاط على 15 دقيقة ما تكون عكس اتجاه السوق الأعم على الساعة. كاش منفصل بعمر أطول
+ * (20 دقيقة) لأن شموع الساعة تتغيّر ببطء أكثر من 15 دقيقة.
+ * ============================================================================ */
+const htfCandleCache = {};      // symbol -> شموع الساعة (~60 شمعة)
+const htfCacheUpdatedAt = {};   // symbol -> وقت آخر تحديث
+const HTF_CACHE_TTL_MS = 20 * 60 * 1000;
+
+async function refreshHtfCache(symbol) {
+  const now = Date.now();
+  if (htfCacheUpdatedAt[symbol] && now - htfCacheUpdatedAt[symbol] < HTF_CACHE_TTL_MS) return;
+  try {
+    const candles = await fetchHistorical(symbol, '1h', 60);
+    if (candles && candles.length >= 55) {
+      htfCandleCache[symbol] = candles;
+      htfCacheUpdatedAt[symbol] = now;
+    }
+  } catch (err) { /* نتجاهل — لو ما توفر تأكيد الساعة، الترشيح يكمل بدونه بدل ما يتعطل */ }
+}
+
+// اتجاه الساعة: نقارن EMA20 مقابل EMA50 وموقع السعر منهم — تأكيد بسيط وموثوق بدون تعقيد زائد
+function getHtfTrend(symbol) {
+  const candles = htfCandleCache[symbol];
+  if (!candles || candles.length < 55) return 'unknown';
+  const closes = candles.map(c => c.close);
+  const ema20Arr = EMA.calculate({ values: closes, period: 20 });
+  const ema50Arr = EMA.calculate({ values: closes, period: 50 });
+  if (!ema20Arr.length || !ema50Arr.length) return 'unknown';
+  const ema20 = ema20Arr[ema20Arr.length - 1];
+  const ema50 = ema50Arr[ema50Arr.length - 1];
+  const price = closes[closes.length - 1];
+  if (ema20 > ema50 && price > ema20) return 'up';
+  if (ema20 < ema50 && price < ema20) return 'down';
+  return 'neutral';
 }
 
 // تحقق حقيقي وحيّ من رموز Binance الفعلية (بعض العملات بالقائمة تتغيّر تسميتها أو تُشطب من Binance
@@ -1819,6 +1877,28 @@ async function executeManualBuy(symbol) {
   manualBotState.trades.unshift(trade);
   manualBotState.trades = manualBotState.trades.slice(0, 100);
   botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: trade.buyPrice, qty, exchange: 'binance', reason: `🟢 شراء يدوي فوري عند ${trade.buyPrice}` });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  return trade;
+}
+
+// 🔴 تنفيذ بيع فوري (Market) — يُستدعى عند ضغط المستخدم على زر "بيع الآن". يبيع أقرب صفقة مفتوحة
+// (أحدث صفقة بحالة open أو pending_sell) على نفس الرمز، ويلغي أمر البيع المحدد المسبق لو كان موجود.
+async function executeManualSell(symbol) {
+  const trade = manualBotState.trades.find(t => t.symbol === symbol && t.status !== 'sold');
+  if (!trade) throw new Error(`لا توجد صفقة شراء مفتوحة على ${symbol} حاليًا`);
+  if (trade.status === 'pending_sell' && trade.sellOrderId) {
+    try { await cancelOrder(symbol, trade.sellOrderId); } catch (err) { /* ممكن يكون اتنفذ قبل ما نلغيه، نكمل عادي */ }
+  }
+  const data = await placeMarketOrder(symbol, 'SELL', trade.qty);
+  let fillPrice = trade.sellPrice || trade.buyPrice;
+  if (data.fills && data.fills.length) {
+    const totalQty = data.fills.reduce((s, f) => s + parseFloat(f.qty), 0);
+    const totalCost = data.fills.reduce((s, f) => s + parseFloat(f.qty) * parseFloat(f.price), 0);
+    if (totalQty > 0) fillPrice = totalCost / totalQty;
+  }
+  trade.status = 'sold';
+  trade.sellPrice = roundPrice(fillPrice);
+  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: trade.sellPrice, qty: trade.qty, exchange: 'binance', reason: `🔴 بيع يدوي فوري عند ${trade.sellPrice}` });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
   return trade;
 }
