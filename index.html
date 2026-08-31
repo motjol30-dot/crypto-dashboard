@@ -139,6 +139,12 @@
     border-radius: 7px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; white-space: nowrap;
   }
   .chart-tool-btn.active { background: rgba(88,166,255,0.3); }
+  #ultra-short-trend-badge {
+    border-radius: 7px; padding: 5px 10px; font-size: 0.72rem; font-weight: 800; cursor: pointer;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: var(--muted);
+  }
+  #ultra-short-trend-badge.up { background: var(--buy-bg); border-color: rgba(63,185,80,0.5); color: var(--green); }
+  #ultra-short-trend-badge.down { background: var(--sell-bg); border-color: rgba(248,81,73,0.5); color: var(--red); }
   #chart-indicators-cfg {
     display: none; position: absolute; right: 8px; top: 100%; z-index: 80; margin-top: 4px;
     background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
@@ -429,6 +435,7 @@
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
+  <span id="ultra-short-trend-badge" title="طبقة الفريمات فائقة القصر: 1ث/3ث/5ث/1د/3د/5د">—</span>
   <div id="chart-indicators-cfg">
     <label><input type="checkbox" id="ind-toggle-ma7"> متوسط متحرك MA(7)</label>
     <label><input type="checkbox" id="ind-toggle-ma25"> متوسط متحرك MA(25)</label>
@@ -1065,6 +1072,10 @@
       if (!info) { box.title = 'بيانات غير كافية'; return; }
       box.title = `${info.trend} — ثقة ${info.confidence}%`;
     });
+    const badge = document.getElementById('ultra-short-trend-badge');
+    if (msg.ultraShortTrend === 'up') { badge.textContent = '🔼 مرتفع'; badge.className = 'up'; }
+    else if (msg.ultraShortTrend === 'down') { badge.textContent = '🔽 هابط'; badge.className = 'down'; }
+    else { badge.textContent = '—'; badge.className = ''; }
     renderFrameBox();
   }
 
@@ -1680,11 +1691,15 @@
   function toggleCfgDropdown(id) { document.getElementById(id).classList.toggle('open'); }
 
   // طبقة المؤشرات التفصيلية مخفية افتراضيًا (تستمر تحسب وتتحدث بالخلفية عاديًا)، وتظهر فقط عند الضغط
-  document.getElementById('indicators-detail-toggle').addEventListener('click', function () {
+  function toggleIndicatorsDetailView() {
     const list = document.getElementById('indicators-list');
+    const toggleBtn = document.getElementById('indicators-detail-toggle');
     const open = list.classList.toggle('open');
-    this.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
-  });
+    toggleBtn.textContent = open ? '📊 إخفاء تفاصيل المؤشرات ▴' : '📊 عرض كل تفاصيل المؤشرات ▾';
+    if (open) list.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  document.getElementById('indicators-detail-toggle').addEventListener('click', toggleIndicatorsDetailView);
+  document.getElementById('ultra-short-trend-badge').addEventListener('click', toggleIndicatorsDetailView);
 
   document.getElementById('p-decision-wrap').addEventListener('click', () => toggleCfgDropdown('decision-cfg'));
   document.getElementById('p-fourbox-wrap').addEventListener('click', () => toggleCfgDropdown('fourbox-cfg'));

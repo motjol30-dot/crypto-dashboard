@@ -926,12 +926,65 @@ function computeMtfSnapshot(symbol) {
 }
 
 const lastMtfBroadcast = {};
+
+// ── طبقة الفريمات فائقة القصر (1ث/3ث/5ث/1د/3د/5د) — قرار ثنائي إجباري: مرتفع أو هابط، بدون محايد ──
+// Binance ما يدعم شموع 3 و5 ثواني أصلًا كفريم مباشر، فنبنيها احنا محليًا بتجميع شموع الثانية الواحدة
+// (كل 3 شموع = شمعة 3 ثواني، كل 5 = شمعة 5 ثواني) بعد ما صار عندنا بث حي لفريم 1s أصلًا.
+function aggregateCandles(candles, groupSize) {
+  const out = [];
+  for (let i = 0; i + groupSize <= candles.length; i += groupSize) {
+    const group = candles.slice(i, i + groupSize);
+    out.push({
+      time: group[0].time,
+      high: Math.max(...group.map(c => c.high)),
+      low: Math.min(...group.map(c => c.low)),
+      close: group[group.length - 1].close,
+    });
+  }
+  return out;
+}
+// اتجاه ثنائي إجباري لسلسلة إغلاقات: نقارن آخر سعر بمتوسط الفترة السابقة — ما فيه حالة "محايد"، أي
+// تعادل يُحسم لصالح الصعود (>=) عشان دايمًا نطلع بقرار واحد واضح.
+function seriesDirection(closes) {
+  if (!closes || closes.length < 6) return null;
+  const lookback = Math.min(10, closes.length - 1);
+  const ref = closes[closes.length - 1 - lookback];
+  const last = closes[closes.length - 1];
+  return last >= ref ? 'up' : 'down';
+}
+function computeUltraShortTrend(symbol) {
+  const c1s = candleStore[`${symbol}_1s`];
+  if (!c1s || c1s.length < 20) return null; // لسه ما وصل بث كافي لفريم الثانية
+
+  const c3s = aggregateCandles(c1s, 3);
+  const c5s = aggregateCandles(c1s, 5);
+  const c1m = candleStore[`${symbol}_1m`];
+  const c3m = candleStore[`${symbol}_3m`];
+  const c5m = candleStore[`${symbol}_5m`];
+
+  const dirs = [
+    seriesDirection(c1s.map(c => c.close)),
+    seriesDirection(c3s.map(c => c.close)),
+    seriesDirection(c5s.map(c => c.close)),
+    c1m && c1m.length >= 6 ? seriesDirection(c1m.map(c => c.close)) : null,
+    c3m && c3m.length >= 6 ? seriesDirection(c3m.map(c => c.close)) : null,
+    c5m && c5m.length >= 6 ? seriesDirection(c5m.map(c => c.close)) : null,
+  ].filter(Boolean);
+  if (!dirs.length) return null;
+
+  const upCount = dirs.filter(d => d === 'up').length;
+  const downCount = dirs.length - upCount;
+  if (upCount === downCount) return dirs[0]; // تعادل: نرجّح أقصر فريم (1 ثانية) كفاصل
+  return upCount > downCount ? 'up' : 'down';
+}
+
 function broadcastMtfUpdate(symbol, force = false) {
   const now = Date.now();
   if (!force && lastMtfBroadcast[symbol] && now - lastMtfBroadcast[symbol] < 3000) return;
   lastMtfBroadcast[symbol] = now;
   const snapshot = computeMtfSnapshot(symbol);
-  const payload = JSON.stringify({ type: 'mtf_update', symbol, snapshot });
+  const ultraShortTrend = computeUltraShortTrend(symbol);
+  const payload = JSON.stringify({ type: 'mtf_update', symbol, snapshot, ultraShortTrend });
   for (const [client, sub] of clientSubs) {
     if (client.readyState === WebSocket.OPEN && sub.symbol === symbol) client.send(payload);
   }
