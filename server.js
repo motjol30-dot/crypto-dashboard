@@ -51,9 +51,9 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
-const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
-const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
-const OKX_BAR = { '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
+const INTERVALS = ['1s','1m','3m','5m','15m','30m','1h','2h','4h'];
+const MEXC_WS_INTERVAL = { '1m':'Min1', '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
+const OKX_BAR = { '1s':'1s', '1m':'1m', '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
 
 const candleStore = {};
 const streamWs = {};

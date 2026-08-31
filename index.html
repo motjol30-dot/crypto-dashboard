@@ -88,9 +88,10 @@
     display: flex; align-items: center; justify-content: space-between;
     font-size: 0.65rem; color: var(--muted); margin-bottom: 5px;
   }
-  #tf-bar { display: flex; gap: 4px; }
+  #tf-bar { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  #tf-bar::-webkit-scrollbar { display: none; }
   .tf-box {
-    flex: 1; text-align: center; padding: 7px 2px; border-radius: 7px;
+    flex: 0 0 auto; min-width: 44px; text-align: center; padding: 7px 6px; border-radius: 7px;
     font-size: 0.75rem; font-weight: 800; cursor: pointer;
     background: var(--surface); border: 1px solid var(--border); color: var(--muted);
     transition: background 0.2s, color 0.2s, border-color 0.2s;
@@ -385,6 +386,9 @@
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
   <div id="tf-bar">
+    <div class="tf-box" data-interval="1s"><span class="tf-name">1ث</span></div>
+    <div class="tf-box" data-interval="1m"><span class="tf-name">1د</span></div>
+    <div class="tf-box" data-interval="3m"><span class="tf-name">3د</span></div>
     <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
     <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
     <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
