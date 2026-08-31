@@ -338,6 +338,7 @@ wss.on('connection', (ws, req) => {
       }
       executeManualBuy(raw).then(() => {
         broadcastBotStatus();
+        ws.send(JSON.stringify({ type: 'trade_result', side: 'BUY', symbol: raw }));
       }).catch((err) => {
         const detail = err.response?.data?.msg || err.message;
         ws.send(JSON.stringify({ type: 'error', message: 'فشل الشراء: ' + detail }));
@@ -357,6 +358,7 @@ wss.on('connection', (ws, req) => {
       }
       executeManualSell(raw).then(() => {
         broadcastBotStatus();
+        ws.send(JSON.stringify({ type: 'trade_result', side: 'SELL', symbol: raw }));
       }).catch((err) => {
         const detail = err.response?.data?.msg || err.message;
         ws.send(JSON.stringify({ type: 'error', message: 'فشل البيع: ' + detail }));

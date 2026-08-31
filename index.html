@@ -146,6 +146,13 @@
   #chart-indicators-cfg.open { display: block; }
   #chart-indicators-cfg label { display: flex; align-items: center; gap: 6px; padding: 5px 0; cursor: pointer; }
   #chart-container { position: relative; height: 46vh; min-height: 260px; transition: height 0.25s; }
+  #rsi-chart-container, #obv-chart-container { height: 110px; border-top: 1px solid var(--border); }
+  #trade-status-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--muted);
+    display: inline-block; transition: background 0.3s, box-shadow 0.3s;
+  }
+  #trade-status-dot.buy { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  #trade-status-dot.sell { background: var(--red); box-shadow: 0 0 6px var(--red); }
   #chart-container.expanded { height: 82vh; }
   #uci-header {
     padding: 6px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
@@ -406,6 +413,7 @@
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
+  <span id="trade-status-dot" title="أخضر = آخر عملية شراء، أحمر = آخر عملية بيع"></span>
 </div>
 <div id="chart-tools-row">
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
@@ -418,14 +426,21 @@
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
   <div id="chart-indicators-cfg">
+    <label><input type="checkbox" id="ind-toggle-ma7"> متوسط متحرك MA(7)</label>
+    <label><input type="checkbox" id="ind-toggle-ma25"> متوسط متحرك MA(25)</label>
+    <label><input type="checkbox" id="ind-toggle-ma99"> متوسط متحرك MA(99)</label>
     <label><input type="checkbox" id="ind-toggle-ma20"> متوسط متحرك MA20</label>
     <label><input type="checkbox" id="ind-toggle-ma50"> متوسط متحرك MA50</label>
     <label><input type="checkbox" id="ind-toggle-bb"> بولنجر باند (Bollinger Bands)</label>
+    <label><input type="checkbox" id="ind-toggle-rsi6"> RSI(6)</label>
+    <label><input type="checkbox" id="ind-toggle-obv"> OBV</label>
   </div>
 </div>
 <div id="chart-container">
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
 </div>
+<div id="rsi-chart-container" style="display:none;"></div>
+<div id="obv-chart-container" style="display:none;"></div>
 
 <div id="uci-header">
   <span id="uci-title">📊 Universal Composite Indicator (UCI)</span>
@@ -563,9 +578,14 @@
   let candleSeries = null;
   let ma20Series = null;
   let ma50Series = null;
+  let ma7Series = null;
+  let ma25Series = null;
+  let ma99Series = null;
   let bbUpperSeries = null;
   let bbMiddleSeries = null;
   let bbLowerSeries = null;
+  let rsiChart = null, rsiSeries = null;
+  let obvChart = null, obvSeries = null;
   let lastFullCandles = []; // آخر شموع كاملة للرمز/الفريم الحالي — تُستخدم لحساب مؤشرات الشارت (MA/Bollinger)
   let lastPrice = null;
   let lastBotStatus = null;
@@ -612,7 +632,7 @@
     }).observe(container);
   }
 
-  // ═══════════════════ مؤشرات فوق الشموع (MA20 / MA50 / Bollinger Bands) — تُحسب محليًا بالمتصفح ═══════════════════
+  // ═══════════════════ مؤشرات فوق الشموع (متوسطات متحركة / بولنجر باند) وتحتها (RSI / OBV) — تُحسب محليًا بالمتصفح ═══════════════════
   function computeSMA(values, period) {
     const out = [];
     for (let i = period - 1; i < values.length; i++) {
@@ -633,27 +653,88 @@
     }
     return out;
   }
+  // RSI بطريقة وايلدر القياسية (نفس أسلوب Binance)
+  function computeRSI(closes, period) {
+    const out = [];
+    if (closes.length < period + 1) return out;
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= period; i++) {
+      const diff = closes[i] - closes[i-1];
+      if (diff >= 0) gains += diff; else losses -= diff;
+    }
+    let avgGain = gains / period, avgLoss = losses / period;
+    out.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain/avgLoss)));
+    for (let i = period + 1; i < closes.length; i++) {
+      const diff = closes[i] - closes[i-1];
+      const gain = diff > 0 ? diff : 0, loss = diff < 0 ? -diff : 0;
+      avgGain = (avgGain * (period-1) + gain) / period;
+      avgLoss = (avgLoss * (period-1) + loss) / period;
+      out.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain/avgLoss)));
+    }
+    return out; // يبدأ من الشمعة رقم `period` بالمصفوفة الأصلية
+  }
+  function computeOBV(candles) {
+    const out = [0];
+    for (let i = 1; i < candles.length; i++) {
+      const prev = out[out.length-1];
+      if (candles[i].close > candles[i-1].close) out.push(prev + candles[i].volume);
+      else if (candles[i].close < candles[i-1].close) out.push(prev - candles[i].volume);
+      else out.push(prev);
+    }
+    return out; // نفس طول مصفوفة الشموع
+  }
+
+  function ensureSubChart(kind) {
+    if (kind === 'rsi' && !rsiChart) {
+      const el = document.getElementById('rsi-chart-container');
+      rsiChart = LightweightCharts.createChart(el, {
+        width: el.clientWidth, height: 110,
+        layout: { background: { color: 'transparent' }, textColor: '#7d8590' },
+        grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
+        rightPriceScale: { visible: false },
+        leftPriceScale: { visible: true, borderVisible: false },
+        timeScale: { visible: false },
+      });
+      rsiSeries = rsiChart.addLineSeries({ color: '#e3b341', lineWidth: 1, priceScaleId: 'left' });
+      new ResizeObserver(() => { const r = el.getBoundingClientRect(); rsiChart.resize(r.width, r.height); }).observe(el);
+    }
+    if (kind === 'obv' && !obvChart) {
+      const el = document.getElementById('obv-chart-container');
+      obvChart = LightweightCharts.createChart(el, {
+        width: el.clientWidth, height: 110,
+        layout: { background: { color: 'transparent' }, textColor: '#7d8590' },
+        grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
+        rightPriceScale: { visible: false },
+        leftPriceScale: { visible: true, borderVisible: false },
+        timeScale: { visible: false },
+      });
+      obvSeries = obvChart.addLineSeries({ color: '#e3b341', lineWidth: 1, priceScaleId: 'left' });
+      new ResizeObserver(() => { const r = el.getBoundingClientRect(); obvChart.resize(r.width, r.height); }).observe(el);
+    }
+  }
+
+  function addOrUpdateMa(period, color, seriesGetter, seriesSetter, closes, times) {
+    const show = document.getElementById(`ind-toggle-ma${period}`).checked;
+    let series = seriesGetter();
+    if (show) {
+      if (!series) { series = chart.addLineSeries({ color, lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false }); seriesSetter(series); }
+      const ma = computeSMA(closes, period);
+      series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
+    } else if (series) { chart.removeSeries(series); seriesSetter(null); }
+  }
 
   function renderChartIndicators() {
     if (!chart || !lastFullCandles.length) return;
-    const showMa20 = document.getElementById('ind-toggle-ma20').checked;
-    const showMa50 = document.getElementById('ind-toggle-ma50').checked;
-    const showBb = document.getElementById('ind-toggle-bb').checked;
     const closes = lastFullCandles.map(c => c.close);
     const times = lastFullCandles.map(c => c.time);
 
-    if (showMa20) {
-      if (!ma20Series) ma20Series = chart.addLineSeries({ color: '#e3b341', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-      const ma = computeSMA(closes, 20);
-      ma20Series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
-    } else if (ma20Series) { chart.removeSeries(ma20Series); ma20Series = null; }
+    addOrUpdateMa(7,  '#ff9800', () => ma7Series,  v => ma7Series = v,  closes, times);
+    addOrUpdateMa(25, '#e040fb', () => ma25Series, v => ma25Series = v, closes, times);
+    addOrUpdateMa(99, '#7c4dff', () => ma99Series, v => ma99Series = v, closes, times);
+    addOrUpdateMa(20, '#e3b341', () => ma20Series, v => ma20Series = v, closes, times);
+    addOrUpdateMa(50, '#58a6ff', () => ma50Series, v => ma50Series = v, closes, times);
 
-    if (showMa50) {
-      if (!ma50Series) ma50Series = chart.addLineSeries({ color: '#58a6ff', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
-      const ma = computeSMA(closes, 50);
-      ma50Series.setData(ma.map((v, i) => ({ time: times[times.length - ma.length + i], value: v })));
-    } else if (ma50Series) { chart.removeSeries(ma50Series); ma50Series = null; }
-
+    const showBb = document.getElementById('ind-toggle-bb').checked;
     if (showBb) {
       if (!bbUpperSeries) {
         bbUpperSeries = chart.addLineSeries({ color: 'rgba(88,166,255,0.55)', lineWidth: 1, priceScaleId: 'left', crosshairMarkerVisible: false });
@@ -669,10 +750,43 @@
       chart.removeSeries(bbUpperSeries); chart.removeSeries(bbMiddleSeries); chart.removeSeries(bbLowerSeries);
       bbUpperSeries = null; bbMiddleSeries = null; bbLowerSeries = null;
     }
+
+    const showRsi = document.getElementById('ind-toggle-rsi6').checked;
+    document.getElementById('rsi-chart-container').style.display = showRsi ? 'block' : 'none';
+    if (showRsi) {
+      ensureSubChart('rsi');
+      const rsiVals = computeRSI(closes, 6);
+      const offset = times.length - rsiVals.length;
+      rsiSeries.setData(rsiVals.map((v, i) => ({ time: times[offset + i], value: v })));
+    }
+
+    const showObv = document.getElementById('ind-toggle-obv').checked;
+    document.getElementById('obv-chart-container').style.display = showObv ? 'block' : 'none';
+    if (showObv) {
+      ensureSubChart('obv');
+      const obvVals = computeOBV(lastFullCandles);
+      obvSeries.setData(obvVals.map((v, i) => ({ time: times[i], value: v })));
+    }
   }
 
-  ['ind-toggle-ma20', 'ind-toggle-ma50', 'ind-toggle-bb'].forEach(id => {
-    document.getElementById(id).addEventListener('change', renderChartIndicators);
+  // حفظ/استرجاع اختيارات المؤشرات تلقائيًا (تفضيلاتك تضل محفوظة حتى لو أعدت تحميل الصفحة)
+  const IND_TOGGLE_IDS = ['ind-toggle-ma7','ind-toggle-ma25','ind-toggle-ma99','ind-toggle-ma20','ind-toggle-ma50','ind-toggle-bb','ind-toggle-rsi6','ind-toggle-obv'];
+  function saveIndicatorPrefs() {
+    const state = {};
+    IND_TOGGLE_IDS.forEach(id => { const el = document.getElementById(id); if (el) state[id] = el.checked; });
+    try { localStorage.setItem('chartIndicatorPrefs', JSON.stringify(state)); } catch (e) {}
+  }
+  function loadIndicatorPrefs() {
+    try {
+      const raw = localStorage.getItem('chartIndicatorPrefs');
+      if (!raw) return;
+      const state = JSON.parse(raw);
+      IND_TOGGLE_IDS.forEach(id => { const el = document.getElementById(id); if (el && state[id] != null) el.checked = state[id]; });
+    } catch (e) {}
+  }
+  loadIndicatorPrefs();
+  IND_TOGGLE_IDS.forEach(id => {
+    document.getElementById(id).addEventListener('change', () => { renderChartIndicators(); saveIndicatorPrefs(); });
   });
   document.getElementById('chart-indicators-btn').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -682,6 +796,16 @@
     const cfg = document.getElementById('chart-indicators-cfg');
     if (cfg.classList.contains('open') && !cfg.contains(e.target) && e.target.id !== 'chart-indicators-btn') cfg.classList.remove('open');
   });
+
+  // ═══════════════════ نقطة حالة آخر عملية (خضراء = شراء، حمراء = بيع) بجانب السعر الحي ═══════════════════
+  let tradeStatusDotTimer = null;
+  function flashTradeStatusDot(side) {
+    const dot = document.getElementById('trade-status-dot');
+    dot.classList.remove('buy', 'sell');
+    dot.classList.add(side === 'BUY' ? 'buy' : 'sell');
+    if (tradeStatusDotTimer) clearTimeout(tradeStatusDotTimer);
+    tradeStatusDotTimer = setTimeout(() => dot.classList.remove('buy', 'sell'), 15000);
+  }
 
   // ═══════════════════ زر تكبير شاشة الشموع (بدل التكبير بإصبعين) ═══════════════════
   document.getElementById('chart-expand-btn').addEventListener('click', function () {
@@ -827,6 +951,7 @@
       else if (msg.type === 'mtf_update') handleMtfUpdate(msg);
       else if (msg.type === 'bot_status') handleBotStatus(msg);
       else if (msg.type === 'error') handleBotError(msg);
+      else if (msg.type === 'trade_result') flashTradeStatusDot(msg.side);
     };
     ws.onclose = (ev) => {
       setDot('disconnected');
