@@ -139,12 +139,12 @@
     border-radius: 7px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; white-space: nowrap;
   }
   .chart-tool-btn.active { background: rgba(88,166,255,0.3); }
-  #ultra-short-trend-badge {
+  #ultra-short-trend-badge, #ultrashort-copy-badge {
     border-radius: 7px; padding: 5px 10px; font-size: 0.72rem; font-weight: 800; cursor: pointer;
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: var(--muted);
   }
-  #ultra-short-trend-badge.up { background: var(--buy-bg); border-color: rgba(63,185,80,0.5); color: var(--green); }
-  #ultra-short-trend-badge.down { background: var(--sell-bg); border-color: rgba(248,81,73,0.5); color: var(--red); }
+  #ultra-short-trend-badge.up, #ultrashort-copy-badge.up { background: var(--buy-bg); border-color: rgba(63,185,80,0.5); color: var(--green); }
+  #ultra-short-trend-badge.down, #ultrashort-copy-badge.down { background: var(--sell-bg); border-color: rgba(248,81,73,0.5); color: var(--red); }
   #chart-indicators-cfg {
     display: none; position: absolute; right: 8px; top: 100%; z-index: 80; margin-top: 4px;
     background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
@@ -419,6 +419,7 @@
 <div id="final-cfg" class="cfg-dropdown"></div>
 <div id="earlyup-cfg" class="cfg-dropdown"></div>
 <div id="earlydown-cfg" class="cfg-dropdown"></div>
+<div id="ultrashort-cfg" class="cfg-dropdown"></div>
 
 <div id="chart-header">
   <span id="chart-symbol">BTCUSDT</span>
@@ -436,6 +437,7 @@
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
   <span id="ultra-short-trend-badge" title="طبقة الفريمات فائقة القصر: 1ث/3ث/5ث/1د/3د/5د">—</span>
+  <span id="ultrashort-copy-badge" title="نسخة من: UCI + مربع الارتداد + طبقة الساعة + فريم 1 دقيقة — اضغط للتعديل">—</span>
   <div id="chart-indicators-cfg">
     <label><input type="checkbox" id="ind-toggle-ma7"> متوسط متحرك MA(7)</label>
     <label><input type="checkbox" id="ind-toggle-ma25"> متوسط متحرك MA(25)</label>
@@ -1077,6 +1079,7 @@
     else if (msg.ultraShortTrend === 'down') { badge.textContent = '🔽 هابط'; badge.className = 'down'; }
     else { badge.textContent = '—'; badge.className = ''; }
     renderFrameBox();
+    renderUltraShortComposite();
   }
 
   function handleExplosionScan(msg) {
@@ -1563,6 +1566,12 @@
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: false, weight: 10 },
     ]},
+    ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + الارتداد + الساعة + فريم 1د)', indicators: [
+      { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 34 },
+      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 33 },
+      { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 33 },
+      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 1, noWeight: true },
+    ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
       { key: 'cvd', name: 'CVD', checked: true, weight: 3 },
@@ -1662,12 +1671,13 @@
       <div class="cfg-row">
         <input type="checkbox" class="cfg-check" data-box="${boxKey}" data-idx="${idx}" ${ind.checked ? 'checked' : ''}>
         <span class="cfg-name">${ind.name} <span class="cfg-live">(${liveValueLabel(boxKey, ind.key)})</span></span>
-        <input type="number" class="cfg-weight" data-box="${boxKey}" data-idx="${idx}" value="${ind.weight}" min="0" step="1">
-        <span class="cfg-pct-sign">%</span>
+        ${ind.noWeight
+          ? '<span class="cfg-live" style="min-width:70px; text-align:left;">يبقى بالقرار فقط</span>'
+          : `<input type="number" class="cfg-weight" data-box="${boxKey}" data-idx="${idx}" value="${ind.weight}" min="0" step="1"><span class="cfg-pct-sign">%</span>`}
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
 
-  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1709,6 +1719,7 @@
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
   document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
+  document.getElementById('ultrashort-copy-badge').addEventListener('click', () => toggleCfgDropdown('ultrashort-cfg'));
 
   // ═══════════════════ الحالة العامة ═══════════════════
   let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
@@ -1812,6 +1823,25 @@
     document.getElementById('p-final').textContent = finalLabel;
     document.getElementById('p-final').className = `final-value ${finalClass}`;
     renderBoxConfigDropdown('final', 'final-cfg');
+    renderUltraShortComposite();
+  }
+
+  // نسخة مستقلة تجمع UCI + مربع الارتداد + طبقة الساعة + فريم 1 دقيقة في كلمة واحدة فقط (مرتفع/هبوط
+  // — بدون محايد أبدًا). المصادر الأربعة نفسها ما تتغير ولا تتأثر — هذي مجرد قراءة إضافية منها.
+  // فريم 1 دقيقة وحده بدون نسبة قابلة للتعديل (checkbox بس)، بعكس الثلاثة الباقين.
+  function renderUltraShortComposite() {
+    const frameInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
+    const frameSign = frameInfo ? (frameInfo.action === 'buy zone' ? 1 : frameInfo.action === 'sell zone' ? -1 : 0) : 0;
+    const hourlySign = lastHourlyLayer ? (lastHourlyLayer.verdict === 'bull' ? 1 : lastHourlyLayer.verdict === 'bear' ? -1 : 0) : 0;
+    const leanMap = { uci: lastUciLean, fourbox: lastFourBoxLean, hourly: hourlySign, frame1m: frameSign };
+    lastLeanMaps.ultrashort = leanMap;
+    const lean = weightedLean('ultrashort', leanMap);
+    const dir = lean >= 0 ? 'up' : 'down'; // إجباري: مرتفع أو هبوط بس، بدون محايد
+    const word = dir === 'up' ? 'مرتفع' : 'هبوط';
+    const badge = document.getElementById('ultrashort-copy-badge');
+    badge.textContent = (dir === 'up' ? '🔼 ' : '🔽 ') + word;
+    badge.className = dir;
+    renderBoxConfigDropdown('ultrashort', 'ultrashort-cfg');
   }
 
   function renderFourBoxDecision() {
