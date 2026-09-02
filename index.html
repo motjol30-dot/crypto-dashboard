@@ -1566,11 +1566,11 @@
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: false, weight: 10 },
     ]},
-    ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + الارتداد + الساعة + فريم 1د)', indicators: [
-      { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 34 },
-      { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 33 },
-      { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 33 },
-      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 1, noWeight: true },
+    ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + إجماع الارتداد + الساعة + فريم 1د)', indicators: [
+      { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 30 },
+      { key: 'reversalConsensus', name: 'إجماع الارتداد', checked: true, weight: 30 },
+      { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 25 },
+      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 15 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -1724,6 +1724,7 @@
   // ═══════════════════ الحالة العامة ═══════════════════
   let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
   let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0;
+  let lastReversalConsensusLean = 0; // إجماع الارتداد — تُستخدم بالنسخة المدمجة (مرتفع/هبوط)
 
   function setPill(id, cls, text) { const el = document.getElementById(id); if (el) { el.className = `pill-value ${cls}`; el.textContent = text; } }
 
@@ -1789,6 +1790,7 @@
     setPill('p-volume', volumeMajority > 0 ? 'up' : volumeMajority < 0 ? 'down' : 'neutral', volumeMajority > 0 ? 'صعود' : volumeMajority < 0 ? 'هبوط' : 'محايد');
     setPill('p-reversal', reversalMajority > 0 ? 'up' : reversalMajority < 0 ? 'down' : 'neutral', reversalMajority > 0 ? 'ارتداد صاعد' : reversalMajority < 0 ? 'ارتداد هابط' : 'لا ارتداد');
     setPill('p-stability', stabilityMajority > 0 ? 'up' : stabilityMajority < 0 ? 'down' : 'neutral', stabilityMajority > 0 ? 'ثابت' : stabilityMajority < 0 ? 'هش' : 'محايد');
+    lastReversalConsensusLean = reversalMajority; // يُستخدم بالنسخة المدمجة (مرتفع/هبوط) بدل مربع الارتداد نفسه
 
     const btcMoved70 = Math.abs(btcLayerLastDiff) >= BTC_LAYER_STEP;
     const btcPct = Math.min(100, Math.round((Math.abs(btcLayerLastDiff) / BTC_LAYER_PCT_CAP) * 100));
@@ -1826,14 +1828,13 @@
     renderUltraShortComposite();
   }
 
-  // نسخة مستقلة تجمع UCI + مربع الارتداد + طبقة الساعة + فريم 1 دقيقة في كلمة واحدة فقط (مرتفع/هبوط
+  // نسخة مستقلة تجمع UCI + إجماع الارتداد + طبقة الساعة + فريم 1 دقيقة في كلمة واحدة فقط (مرتفع/هبوط
   // — بدون محايد أبدًا). المصادر الأربعة نفسها ما تتغير ولا تتأثر — هذي مجرد قراءة إضافية منها.
-  // فريم 1 دقيقة وحده بدون نسبة قابلة للتعديل (checkbox بس)، بعكس الثلاثة الباقين.
   function renderUltraShortComposite() {
     const frameInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
     const frameSign = frameInfo ? (frameInfo.action === 'buy zone' ? 1 : frameInfo.action === 'sell zone' ? -1 : 0) : 0;
     const hourlySign = lastHourlyLayer ? (lastHourlyLayer.verdict === 'bull' ? 1 : lastHourlyLayer.verdict === 'bear' ? -1 : 0) : 0;
-    const leanMap = { uci: lastUciLean, fourbox: lastFourBoxLean, hourly: hourlySign, frame1m: frameSign };
+    const leanMap = { uci: lastUciLean, reversalConsensus: lastReversalConsensusLean, hourly: hourlySign, frame1m: frameSign };
     lastLeanMaps.ultrashort = leanMap;
     const lean = weightedLean('ultrashort', leanMap);
     const dir = lean >= 0 ? 'up' : 'down'; // إجباري: مرتفع أو هبوط بس، بدون محايد

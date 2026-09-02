@@ -1912,10 +1912,8 @@ async function queryOrderStatus(symbol, orderId) {
 
 // 🟢 تنفيذ شراء فوري (Market) — يُستدعى عند ضغط المستخدم على زر "شراء الآن"
 async function executeManualBuy(symbol) {
-  const openCount = manualBotState.trades.filter(t => t.status !== 'sold').length;
-  if (openCount >= botState.maxConcurrentPositions) {
-    throw new Error(`وصلت لأقصى عدد صفقات مسموح (${botState.maxConcurrentPositions}) — أغلق صفقة أو ارفع العدد أولًا`);
-  }
+  // شلنا حد أقصى عدد الصفقات — كان يمنع الشراء مرة ثانية بدون سبب واضح للمستخدم، وأصلًا ما فيه
+  // مكان بالواجهة يتحكم فيه بعد حذف لوحة البوت، فأبقاؤه كان يعطّل الشراء بصمت بلا تفسير.
   const price = await getCurrentPrice(symbol);
   const qty = roundQty(botState.tradeSizeUsdt / price, price);
   if (!qty || qty <= 0) throw new Error('الكمية المحسوبة صفر — تأكد من مبلغ الصفقة');
