@@ -5,6 +5,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const { RSI, MACD, BollingerBands, EMA, CCI, ATR } = require('technicalindicators');
 
@@ -72,6 +73,55 @@ const activeSessions = new Map();
 // إعدادات API — البوت الآن يعمل على Binance فقط (بوت الشبكة الجديد)
 const BINANCE_API_KEY = process.env.BINANCE_API_KEY || '';
 const BINANCE_API_SECRET = process.env.BINANCE_API_SECRET || '';
+
+/* ============================================================================
+ * حسابات المستخدمين المتعددين — كل صديق يقدر يضيف مفتاح Binance API الخاص فيه (إيميل + رمز قصير +
+ * المفتاح)، فيتداول بحسابه هو، مو بمفتاحك. المفاتيح تُشفَّر قبل ما تُخزَّن على القرص (AES-256-GCM)
+ * بمفتاح تشفير محلي يتولّد أول مرة ويتحفظ بملف منفصل — حتى لو حد فتح ملف الحسابات ما يشوف المفاتيح
+ * كنص واضح. الرمز (PIN) إجباري: بدونه أي شخص يعرف إيميل صديقك يقدر ياخذ حسابه ويتحكم بمفتاحه —
+ * الرمز أقل حماية ضرورية هنا لأن الموضوع مفاتيح تداول حقيقية.
+ * ============================================================================ */
+const ENC_KEY_FILE = path.join(__dirname, 'enc.key');
+const ACCOUNTS_FILE = path.join(__dirname, 'accounts.json');
+
+function loadOrCreateEncKey() {
+  try {
+    const hex = fs.readFileSync(ENC_KEY_FILE, 'utf8').trim();
+    if (hex.length === 64) return Buffer.from(hex, 'hex');
+  } catch (err) { /* ما فيه ملف بعد — نولّد وحدة جديدة */ }
+  const key = crypto.randomBytes(32);
+  try { fs.writeFileSync(ENC_KEY_FILE, key.toString('hex'), { mode: 0o600 }); }
+  catch (err) { console.error('⚠️ تعذر حفظ ملف مفتاح التشفير — المفاتيح المحفوظة ستضيع عند إعادة التشغيل:', err.message); }
+  return key;
+}
+const ACCOUNTS_ENC_KEY = loadOrCreateEncKey();
+
+function encryptSecret(text) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ACCOUNTS_ENC_KEY, iv);
+  const enc = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), enc]).toString('base64');
+}
+function decryptSecret(b64) {
+  const buf = Buffer.from(b64, 'base64');
+  const iv = buf.subarray(0, 12), tag = buf.subarray(12, 28), enc = buf.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', ACCOUNTS_ENC_KEY, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+}
+function hashPin(pin, saltHex) { return crypto.scryptSync(pin, saltHex, 32).toString('hex'); }
+
+let accounts = {}; // email (lowercase) -> { saltHex, pinHash, apiKeyEnc, apiSecretEnc, createdAt }
+function loadAccounts() {
+  try { accounts = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8')); } catch (err) { accounts = {}; }
+}
+function saveAccounts() {
+  try { fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), { mode: 0o600 }); }
+  catch (err) { console.error('⚠️ فشل حفظ ملف الحسابات:', err.message); }
+}
+loadAccounts();
+
+const wsAccount = new Map(); // اتصال WebSocket -> إيميل الحساب المرتبط فيه (أو بدون ربط = مفتاحك الافتراضي)
 
 function sweepSessions() {
   const now = Date.now();
@@ -245,7 +295,7 @@ wss.on('connection', (ws, req) => {
   if (explosionRanking.length) {
     ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking }));
   }
-  ws.send(botStatusPayload());
+  ws.send(botStatusPayload(ws));
 
   ws.on('message', async (raw) => {
     let msg;
@@ -326,9 +376,12 @@ wss.on('connection', (ws, req) => {
       }
     }
     else if (msg.type === 'manual_buy_now') {
-      // زر "شراء الآن" — شراء Market فوري على الرمز المعروض حاليًا بالواجهة
-      if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance' }));
+      // زر "شراء الآن" — شراء Market فوري على الرمز المعروض حاليًا بالواجهة، بمفتاح الحساب المرتبط
+      // بهذا الاتصال لو موجود (كل صديق يتداول بمفتاحه هو)، وإلا بمفتاحك الافتراضي
+      const accountKey = getAccountKeyForWs(ws);
+      const creds = getCredsForAccountKey(accountKey);
+      if (!(creds.apiKey && creds.apiSecret)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'ما فيه مفتاح Binance API مربوط — أضف حسابك من الإعدادات تحت أولًا' }));
         return;
       }
       const raw = (msg.symbol || '').toString().trim().toUpperCase();
@@ -336,7 +389,7 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح' }));
         return;
       }
-      executeManualBuy(raw).then(() => {
+      executeManualBuy(raw, accountKey, creds).then(() => {
         broadcastBotStatus();
         ws.send(JSON.stringify({ type: 'trade_result', side: 'BUY', symbol: raw }));
       }).catch((err) => {
@@ -347,8 +400,10 @@ wss.on('connection', (ws, req) => {
     else if (msg.type === 'manual_sell_now') {
       // زر "بيع الآن" — يبيع فورًا (Market) أقرب صفقة شراء يدوي مفتوحة على هذا الرمز، ملغيًا أمر
       // البيع المحدد المسبق (Limit) لو كان موجود، بدل ما ينتظر يوصل سعره
-      if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance' }));
+      const accountKey = getAccountKeyForWs(ws);
+      const creds = getCredsForAccountKey(accountKey);
+      if (!(creds.apiKey && creds.apiSecret)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'ما فيه مفتاح Binance API مربوط — أضف حسابك من الإعدادات تحت أولًا' }));
         return;
       }
       const raw = (msg.symbol || '').toString().trim().toUpperCase();
@@ -356,7 +411,7 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح' }));
         return;
       }
-      executeManualSell(raw).then(() => {
+      executeManualSell(raw, accountKey, creds).then(() => {
         broadcastBotStatus();
         ws.send(JSON.stringify({ type: 'trade_result', side: 'SELL', symbol: raw }));
       }).catch((err) => {
@@ -374,10 +429,49 @@ wss.on('connection', (ws, req) => {
       // خاصة ببوت الشبكة فقط — الشبكة تُدار وتُعاد موازنتها تلقائيًا، لا حاجة لإغلاق يدوي
       ws.send(JSON.stringify({ type: 'error', message: 'بوت الشبكة تلقائي بالكامل — لا حاجة لأوامر يدوية عليه.' }));
     }
+    else if (msg.type === 'account_connect') {
+      const email = (msg.email || '').toString().trim().toLowerCase();
+      const pin = (msg.pin || '').toString();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'إيميل غير صحيح' })); return;
+      }
+      if (!pin || pin.length < 4) {
+        ws.send(JSON.stringify({ type: 'error', message: 'الرمز لازم يكون 4 خانات على الأقل — يحمي حسابك من أي شخص ثاني يعرف إيميلك بس' })); return;
+      }
+      const existing = accounts[email];
+      if (existing) {
+        if (hashPin(pin, existing.saltHex) !== existing.pinHash) {
+          ws.send(JSON.stringify({ type: 'error', message: 'الرمز غير صحيح لهذا الإيميل' })); return;
+        }
+        if (msg.apiKey && msg.apiSecret) {
+          existing.apiKeyEnc = encryptSecret(msg.apiKey.toString().trim());
+          existing.apiSecretEnc = encryptSecret(msg.apiSecret.toString().trim());
+          saveAccounts();
+        }
+      } else {
+        if (!msg.apiKey || !msg.apiSecret) {
+          ws.send(JSON.stringify({ type: 'error', message: 'إيميل جديد — لازم تدخل مفتاح Binance API والـ Secret أول مرة' })); return;
+        }
+        const saltHex = crypto.randomBytes(16).toString('hex');
+        accounts[email] = {
+          saltHex, pinHash: hashPin(pin, saltHex),
+          apiKeyEnc: encryptSecret(msg.apiKey.toString().trim()),
+          apiSecretEnc: encryptSecret(msg.apiSecret.toString().trim()),
+          createdAt: Date.now(),
+        };
+        saveAccounts();
+      }
+      wsAccount.set(ws, email);
+      ws.send(JSON.stringify({ type: 'account_status', email, linked: true }));
+    }
+    else if (msg.type === 'account_unlink') {
+      wsAccount.delete(ws);
+      ws.send(JSON.stringify({ type: 'account_status', email: null, linked: false }));
+    }
   });
 
-  ws.on('close', () => clientSubs.delete(ws));
-  ws.on('error', () => clientSubs.delete(ws));
+  ws.on('close', () => { clientSubs.delete(ws); wsAccount.delete(ws); });
+  ws.on('error', () => { clientSubs.delete(ws); wsAccount.delete(ws); });
 });
 
 const SCAN_INTERVAL = '15m';
@@ -1754,9 +1848,9 @@ let botState = {
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء فحص أقوى 3 عملات (REST خفيف) — يُستخدم في runExplosionScan فوق
 
 // ── توقيع وأدوات Binance ────────────────────────────────────────────────────
-function binanceSignedQuery(params) {
+function binanceSignedQuery(params, secret = BINANCE_API_SECRET) {
   const qs = new URLSearchParams(params).toString();
-  const sig = crypto.createHmac('sha256', BINANCE_API_SECRET).update(qs).digest('hex');
+  const sig = crypto.createHmac('sha256', secret).update(qs).digest('hex');
   return `${qs}&signature=${sig}`;
 }
 function roundQty(qty, price) {
@@ -1775,19 +1869,19 @@ function roundPrice(price) {
   return Number(price.toFixed(8));
 }
 
-async function placeLimitOrder(symbol, side, price, quantity) {
+async function placeLimitOrder(symbol, side, price, quantity, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
   const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, null, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
-async function cancelOrder(symbol, orderId) {
+async function cancelOrder(symbol, orderId, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
   const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
-async function getOpenOrders(symbol) {
+async function getOpenOrders(symbol, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
   const params = { symbol, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.get(`https://api.binance.com/api/v3/openOrders?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  const { data } = await axios.get(`https://api.binance.com/api/v3/openOrders?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function getCurrentPrice(symbol) {
@@ -1803,11 +1897,11 @@ function logBotError(symbol, err) {
 }
 
 // 🧹 إلغاء كافة الأوامر المفتوحة على الرمز — نفس cancel_all_orders() في سكربت Python
-async function cancelAllOpenOrders(symbol) {
+async function cancelAllOpenOrders(symbol, creds) {
   let orders;
-  try { orders = await getOpenOrders(symbol); } catch (err) { logBotError(symbol, err); return; }
+  try { orders = await getOpenOrders(symbol, creds); } catch (err) { logBotError(symbol, err); return; }
   for (const o of orders) {
-    try { await cancelOrder(symbol, o.orderId); } catch (err) { logBotError(symbol, err); }
+    try { await cancelOrder(symbol, o.orderId, creds); } catch (err) { logBotError(symbol, err); }
   }
 }
 
@@ -1868,20 +1962,22 @@ async function runBotCycle() {
   broadcastBotStatus();
 }
 
-function botStatusPayload() {
+function botStatusPayload(ws) {
+  const accountKey = getAccountKeyForWs(ws);
+  const trades = manualBotState.tradesByAccount[accountKey] || [];
   return JSON.stringify({
     type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
     tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
     maxConcurrentPositions: botState.maxConcurrentPositions, manualSymbol: botState.manualSymbol,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20),
-    manualBot: { enabled: manualBotState.enabled, trades: manualBotState.trades.slice(0, 30) },
+    manualBot: { enabled: manualBotState.enabled, trades: trades.slice(0, 30) },
+    linkedAccount: accountKey === '__default__' ? null : accountKey,
   });
 }
 function broadcastBotStatus() {
-  const payload = botStatusPayload();
   for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN) client.send(payload);
+    if (client.readyState === WebSocket.OPEN) client.send(botStatusPayload(client));
   }
 }
 
@@ -1894,30 +1990,39 @@ setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية — فحص الشبك
 // عدد صفقات مفتوحة بنفس الوقت) بدل ما نكرر إعدادات منفصلة له.
 // يشترك مع بوت الشبكة بنفس القيم (مبلغ الصفقة USDT، نسبة البيع، وأقصى عدد صفقات مفتوحة بنفس الوقت)
 // بدل ما نكرر إعدادات منفصلة له. مفعّل دائمًا — ما فيه مفتاح تشغيل/إيقاف بالواجهة (بطلب المستخدم).
+// الصفقات مقسّمة حسب الحساب (accountKey = إيميل الحساب المرتبط، أو '__default__' لمفتاحك الأساسي)
+// حتى كل صديق يشوف صفقاته هو بس، وتُنفَّذ بمفتاح Binance تبعه هو، مو مفتاحك.
 let manualBotState = {
   enabled: true,
-  trades: [], // { id, symbol, qty, buyPrice, buyOrderId, sellOrderId, sellPrice, status: 'open'|'pending_sell'|'sold', time }
+  tradesByAccount: {}, // accountKey -> [{ id, symbol, qty, buyPrice, buyOrderId, sellOrderId, sellPrice, status, time }]
 };
+function getAccountKeyForWs(ws) { return wsAccount.get(ws) || '__default__'; }
+function getCredsForAccountKey(accountKey) {
+  if (accountKey && accountKey !== '__default__' && accounts[accountKey]) {
+    try { return { apiKey: decryptSecret(accounts[accountKey].apiKeyEnc), apiSecret: decryptSecret(accounts[accountKey].apiSecretEnc) }; }
+    catch (err) { /* فشل فك التشفير (نادر) — نرجع للمفتاح الافتراضي بدل ما نكسر الطلب */ }
+  }
+  return { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET };
+}
 
-async function placeMarketOrder(symbol, side, quantity) {
+async function placeMarketOrder(symbol, side, quantity, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
   const params = { symbol, side, type: 'MARKET', quantity, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, null, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
-async function queryOrderStatus(symbol, orderId) {
+async function queryOrderStatus(symbol, orderId, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
   const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 
-// 🟢 تنفيذ شراء فوري (Market) — يُستدعى عند ضغط المستخدم على زر "شراء الآن"
-async function executeManualBuy(symbol) {
-  // شلنا حد أقصى عدد الصفقات — كان يمنع الشراء مرة ثانية بدون سبب واضح للمستخدم، وأصلًا ما فيه
-  // مكان بالواجهة يتحكم فيه بعد حذف لوحة البوت، فأبقاؤه كان يعطّل الشراء بصمت بلا تفسير.
+// 🟢 تنفيذ شراء فوري (Market) — يُستدعى عند ضغط المستخدم على زر "شراء الآن". accountKey يحدد صفقات
+// مين نسجّل فيها (كل صديق يشوف صفقاته هو بس)، وcreds هي مفتاح Binance الفعلي المستخدم بالتنفيذ.
+async function executeManualBuy(symbol, accountKey, creds) {
   const price = await getCurrentPrice(symbol);
   const qty = roundQty(botState.tradeSizeUsdt / price, price);
   if (!qty || qty <= 0) throw new Error('الكمية المحسوبة صفر — تأكد من مبلغ الصفقة');
-  const data = await placeMarketOrder(symbol, 'BUY', qty);
+  const data = await placeMarketOrder(symbol, 'BUY', qty, creds);
   // متوسط سعر التنفيذ الفعلي من fills لو متوفرة، وإلا السعر اللحظي اللي جبناه قبل الإرسال
   let fillPrice = price;
   if (data.fills && data.fills.length) {
@@ -1929,22 +2034,25 @@ async function executeManualBuy(symbol) {
     id: `${symbol}_${Date.now()}`, symbol, qty, buyPrice: roundPrice(fillPrice),
     buyOrderId: data.orderId, sellOrderId: null, sellPrice: null, status: 'open', time: Date.now(),
   };
-  manualBotState.trades.unshift(trade);
-  manualBotState.trades = manualBotState.trades.slice(0, 100);
+  const trades = manualBotState.tradesByAccount[accountKey] || (manualBotState.tradesByAccount[accountKey] = []);
+  trades.unshift(trade);
+  manualBotState.tradesByAccount[accountKey] = trades.slice(0, 100);
   botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: trade.buyPrice, qty, exchange: 'binance', reason: `🟢 شراء يدوي فوري عند ${trade.buyPrice}` });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
   return trade;
 }
 
 // 🔴 تنفيذ بيع فوري (Market) — يُستدعى عند ضغط المستخدم على زر "بيع الآن". يبيع أقرب صفقة مفتوحة
-// (أحدث صفقة بحالة open أو pending_sell) على نفس الرمز، ويلغي أمر البيع المحدد المسبق لو كان موجود.
-async function executeManualSell(symbol) {
-  const trade = manualBotState.trades.find(t => t.symbol === symbol && t.status !== 'sold');
+// (أحدث صفقة بحالة open أو pending_sell) على نفس الرمز من صفقات نفس الحساب، ويلغي أمر البيع المحدد
+// المسبق لو كان موجود.
+async function executeManualSell(symbol, accountKey, creds) {
+  const trades = manualBotState.tradesByAccount[accountKey] || [];
+  const trade = trades.find(t => t.symbol === symbol && t.status !== 'sold');
   if (!trade) throw new Error(`لا توجد صفقة شراء مفتوحة على ${symbol} حاليًا`);
   if (trade.status === 'pending_sell' && trade.sellOrderId) {
-    try { await cancelOrder(symbol, trade.sellOrderId); } catch (err) { /* ممكن يكون اتنفذ قبل ما نلغيه، نكمل عادي */ }
+    try { await cancelOrder(symbol, trade.sellOrderId, creds); } catch (err) { /* ممكن يكون اتنفذ قبل ما نلغيه، نكمل عادي */ }
   }
-  const data = await placeMarketOrder(symbol, 'SELL', trade.qty);
+  const data = await placeMarketOrder(symbol, 'SELL', trade.qty, creds);
   let fillPrice = trade.sellPrice || trade.buyPrice;
   if (data.fills && data.fills.length) {
     const totalQty = data.fills.reduce((s, f) => s + parseFloat(f.qty), 0);
@@ -1962,32 +2070,36 @@ async function executeManualSell(symbol) {
 // 1) أي صفقة "open" بدون أمر بيع بعد → نضع لها أمر بيع Limit فورًا حسب نسبة البيع الحالية.
 // 2) أي صفقة "pending_sell" → نتحقق هل أمر البيع نُفذ، ولو نعم نعلّمها "sold".
 async function runManualSellCycle() {
-  if (!manualBotState.enabled || !manualBotState.trades.length) return;
+  if (!manualBotState.enabled) return;
   const pct = botState.takeProfitPercent / 100;
-  for (const trade of manualBotState.trades) {
-    if (trade.status === 'sold') continue;
-    try {
-      if (trade.status === 'open') {
-        const sellPrice = roundPrice(trade.buyPrice * (1 + pct));
-        const data = await placeLimitOrder(trade.symbol, 'SELL', sellPrice, trade.qty);
-        if (data.orderId) {
-          trade.sellOrderId = data.orderId;
-          trade.sellPrice = sellPrice;
-          trade.status = 'pending_sell';
-          botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'order', side: 'SELL', price: sellPrice, qty: trade.qty, exchange: 'binance', reason: `📤 أمر بيع تلقائي (${botState.takeProfitPercent}%) عند ${sellPrice}` });
+  for (const [accountKey, trades] of Object.entries(manualBotState.tradesByAccount)) {
+    if (!trades.length) continue;
+    const creds = getCredsForAccountKey(accountKey);
+    for (const trade of trades) {
+      if (trade.status === 'sold') continue;
+      try {
+        if (trade.status === 'open') {
+          const sellPrice = roundPrice(trade.buyPrice * (1 + pct));
+          const data = await placeLimitOrder(trade.symbol, 'SELL', sellPrice, trade.qty, creds);
+          if (data.orderId) {
+            trade.sellOrderId = data.orderId;
+            trade.sellPrice = sellPrice;
+            trade.status = 'pending_sell';
+            botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'order', side: 'SELL', price: sellPrice, qty: trade.qty, exchange: 'binance', reason: `📤 أمر بيع تلقائي (${botState.takeProfitPercent}%) عند ${sellPrice}` });
+          }
+        } else if (trade.status === 'pending_sell' && trade.sellOrderId) {
+          const status = await queryOrderStatus(trade.symbol, trade.sellOrderId, creds);
+          if (status.status === 'FILLED') {
+            trade.status = 'sold';
+            botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'error', message: `✅ تم تنفيذ أمر البيع عند ${trade.sellPrice} — الصفقة اكتملت` });
+          }
         }
-      } else if (trade.status === 'pending_sell' && trade.sellOrderId) {
-        const status = await queryOrderStatus(trade.symbol, trade.sellOrderId);
-        if (status.status === 'FILLED') {
-          trade.status = 'sold';
-          botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'error', message: `✅ تم تنفيذ أمر البيع عند ${trade.sellPrice} — الصفقة اكتملت` });
-        }
-      }
-    } catch (err) { logBotError(trade.symbol, err); }
+      } catch (err) { logBotError(trade.symbol, err); }
+    }
+    // نحتفظ بسجل الصفقات المباعة آخر 6 ساعات بس، بعدها تُحذف من القائمة (تبقى بسجل الأحداث النصي)
+    manualBotState.tradesByAccount[accountKey] = trades.filter(t => t.status !== 'sold' || (Date.now() - t.time) < 6 * 60 * 60 * 1000);
   }
   botState.tradeLog = botState.tradeLog.slice(0, 50);
-  // نحتفظ بسجل الصفقات المباعة آخر 6 ساعات بس، بعدها تُحذف من القائمة (تبقى بسجل الأحداث النصي)
-  manualBotState.trades = manualBotState.trades.filter(t => t.status !== 'sold' || (Date.now() - t.time) < 6 * 60 * 60 * 1000);
   broadcastBotStatus();
 }
 setInterval(runManualSellCycle, 10 * 1000);

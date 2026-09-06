@@ -325,6 +325,28 @@
     border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
     padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
   }
+  #account-settings-toggle {
+    width: calc(100% - 20px); margin: 10px 10px 0; background: var(--surface);
+    border: 1px solid var(--border); color: var(--accent); border-radius: 8px;
+    padding: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  }
+  #account-settings-box {
+    display: none; margin: 0 10px 10px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; font-size: 0.76rem;
+  }
+  #account-settings-box.open { display: block; }
+  #account-settings-box label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; color: var(--muted); font-weight: 700; }
+  #account-settings-box input {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: var(--text);
+    border-radius: 6px; padding: 7px 9px; font-size: 16px; font-weight: 400;
+  }
+  .account-hint { color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
+  #account-save-btn, #account-unlink-btn {
+    width: 100%; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4);
+    color: var(--text); border-radius: 7px; padding: 8px; font-size: 0.76rem; font-weight: 800; cursor: pointer;
+  }
+  #account-linked-view p { margin-bottom: 10px; }
+  #account-linked-view b { color: var(--green); }
   #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
   #notes-list.open { display: flex; }
   #notes-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
@@ -575,6 +597,23 @@
   <div class="acc-item" data-key="bb"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Bollinger Bands</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-bb">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-bb">—</div></div>
   <div class="acc-item" data-key="pivot"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Pivot Points</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-pivot">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-pivot">—</div></div>
   <div class="acc-item" data-key="candlecmp"><div class="acc-head"><div class="acc-head-left"><span class="acc-dot neutral"></span><span class="acc-name">Candle Compare</span></div><div style="display:flex;align-items:center;gap:8px"><span class="acc-verdict neutral" id="v-candlecmp">—</span><span class="acc-arrow">▾</span></div></div><div class="acc-body" id="b-candlecmp">—</div></div>
+</div>
+
+<button id="account-settings-toggle">👤 حسابي (مفتاح Binance الخاص فيك) ▾</button>
+<div id="account-settings-box">
+  <div id="account-linked-view" style="display:none;">
+    <p>✅ متصل بحساب: <b id="account-linked-email"></b></p>
+    <button id="account-unlink-btn">فصل هذا الحساب من هذا الجهاز</button>
+  </div>
+  <div id="account-form-view">
+    <p class="account-hint">كل صديق يضيف إيميله ومفتاح Binance API الخاص فيه هنا، فيصير يشتري ويبيع بحسابه هو على نفس الموقع — مو بمفتاحك. المفاتيح تُحفظ مشفّرة على السيرفر.</p>
+    <label>الإيميل<input type="email" id="account-email-input" placeholder="you@example.com" autocomplete="off"></label>
+    <label>رمز قصير (4 خانات أو أكثر) — لحماية حسابك<input type="password" id="account-pin-input" placeholder="••••" autocomplete="off" inputmode="numeric"></label>
+    <label>Binance API Key<input type="text" id="account-apikey-input" placeholder="اتركه فاضي لو دخلت رمزك بس" autocomplete="off"></label>
+    <label>Binance API Secret<input type="password" id="account-apisecret-input" placeholder="اتركه فاضي لو دخلت رمزك بس" autocomplete="off"></label>
+    <p class="account-hint">أول مرة؟ لازم تدخل الإيميل والرمز والمفتاحين مع بعض. عندك حساب محفوظ؟ يكفي الإيميل والرمز.</p>
+    <button id="account-save-btn">حفظ / دخول</button>
+  </div>
 </div>
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
@@ -845,6 +884,57 @@
     setTimeout(() => this.classList.remove('disabled'), 1500);
   });
 
+  // ═══════════════════ حسابي — مفتاح Binance API خاص بكل صديق (بدل مفتاحك الافتراضي) ═══════════════════
+  // حفظ إيميل/رمز الحساب محليًا بالمتصفح — عشان ما تحتاج تكتبهم كل مرة تفتح الصفحة (مو تسجيل دخول
+  // حقيقي، بس تذكّر بسيط بجهازك أنت). يبقى المفتاح والسيكرت نفسهم ما يُخزّنون إلا مشفّرين بالسيرفر.
+  function saveAccountLocal(email, pin) {
+    try { localStorage.setItem('linkedAccount', JSON.stringify({ email, pin })); } catch (e) {}
+  }
+  function loadAccountLocal() {
+    try { return JSON.parse(localStorage.getItem('linkedAccount') || 'null'); } catch (e) { return null; }
+  }
+  function clearAccountLocal() {
+    try { localStorage.removeItem('linkedAccount'); } catch (e) {}
+  }
+
+  document.getElementById('account-settings-toggle').addEventListener('click', function () {
+    const box = document.getElementById('account-settings-box');
+    const open = box.classList.toggle('open');
+    this.textContent = open ? '👤 حسابي (مفتاح Binance الخاص فيك) ▴' : '👤 حسابي (مفتاح Binance الخاص فيك) ▾';
+  });
+  document.getElementById('account-save-btn').addEventListener('click', () => {
+    const email = document.getElementById('account-email-input').value.trim();
+    const pin = document.getElementById('account-pin-input').value.trim();
+    const apiKey = document.getElementById('account-apikey-input').value.trim();
+    const apiSecret = document.getElementById('account-apisecret-input').value.trim();
+    if (!email || !pin) { alert('لازم تدخل الإيميل والرمز على الأقل'); return; }
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const payload = { type: 'account_connect', email, pin };
+    if (apiKey && apiSecret) { payload.apiKey = apiKey; payload.apiSecret = apiSecret; }
+    ws.send(JSON.stringify(payload));
+    saveAccountLocal(email, pin);
+  });
+  document.getElementById('account-unlink-btn').addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'account_unlink' }));
+    clearAccountLocal();
+  });
+  function handleAccountStatus(msg) {
+    const linkedView = document.getElementById('account-linked-view');
+    const formView = document.getElementById('account-form-view');
+    if (msg.linked && msg.email) {
+      document.getElementById('account-linked-email').textContent = msg.email;
+      linkedView.style.display = 'block';
+      formView.style.display = 'none';
+      // نفضّي خانات المفتاح من المتصفح فور ما تُحفظ — ما ترجع تُعرض مرة ثانية
+      document.getElementById('account-apikey-input').value = '';
+      document.getElementById('account-apisecret-input').value = '';
+      document.getElementById('account-pin-input').value = '';
+    } else {
+      linkedView.style.display = 'none';
+      formView.style.display = 'block';
+    }
+  }
+
   // ═══════════════════ الساعة الحية أعلى الصفحة ═══════════════════
   function updateLiveClock() {
     const el = document.getElementById('macro-clock-value');
@@ -955,7 +1045,11 @@
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}`);
     setDot('connecting');
-    ws.onopen = () => { setDot('connected'); subscribe(); mainWsLastMsgTime = Date.now(); };
+    ws.onopen = () => {
+      setDot('connected'); subscribe(); mainWsLastMsgTime = Date.now();
+      const saved = loadAccountLocal();
+      if (saved && saved.email && saved.pin) ws.send(JSON.stringify({ type: 'account_connect', email: saved.email, pin: saved.pin }));
+    };
     ws.onmessage = (ev) => {
       mainWsLastMsgTime = Date.now();
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
@@ -965,6 +1059,7 @@
       else if (msg.type === 'bot_status') handleBotStatus(msg);
       else if (msg.type === 'error') handleBotError(msg);
       else if (msg.type === 'trade_result') flashTradeStatusDot(msg.side);
+      else if (msg.type === 'account_status') handleAccountStatus(msg);
     };
     ws.onclose = (ev) => {
       setDot('disconnected');
