@@ -55,7 +55,20 @@
   #btc-arrow.down { color: var(--red); }
   #btc-arrow.flat { color: var(--muted); }
   #macro-row {
-    flex: 1; display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    flex: 1; display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  #site-logo {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 5px 8px; background: var(--bg); border-left: 1px solid var(--border);
+    font-size: 0.72rem; font-weight: 800; color: var(--accent); white-space: nowrap;
+  }
+  #lang-select {
+    flex: 0 0 auto; background: var(--bg); color: var(--text); border: none; border-left: 1px solid var(--border);
+    font-size: 0.72rem; font-weight: 800; padding: 0 8px; cursor: pointer;
+  }
+  #manual-auto-select {
+    flex: 0 0 auto; background: var(--bg); color: var(--text); border: none; border-left: 1px solid var(--border);
+    font-size: 0.72rem; font-weight: 800; padding: 0 8px; cursor: pointer;
   }
   .macro-box {
     flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -160,6 +173,16 @@
   }
   #trade-status-dot.buy { background: var(--green); box-shadow: 0 0 6px var(--green); }
   #trade-status-dot.sell { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  #trade-pnl-info {
+    display: flex; align-items: center; gap: 5px; font-size: 0.62rem; font-weight: 700;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; padding: 2px 7px; white-space: nowrap;
+  }
+  #trade-pnl-price { color: var(--muted); font-family: 'Courier New', monospace; }
+  #trade-pnl-label.win { color: var(--green); }
+  #trade-pnl-label.lose { color: var(--red); }
+  #trade-pnl-pct.win { color: var(--green); }
+  #trade-pnl-pct.lose { color: var(--red); }
   #chart-container.expanded { height: 82vh; }
   #uci-header {
     padding: 6px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
@@ -363,25 +386,20 @@
 
 <header>
   <div id="macro-row">
+    <div id="site-logo">📈 Crypto Auto Online</div>
+    <select id="manual-auto-select" title="تلقائي = يرجّع كل نسب المؤشرات للإعدادات الافتراضية لو تلخبطت">
+      <option value="manual" selected>🔧 يدوي</option>
+      <option value="auto">⚙️ تلقائي</option>
+    </select>
     <div class="macro-box" id="macro-btc">
       <span class="macro-label">BTC</span>
       <span class="macro-price" id="macro-btc-price">—</span>
       <span class="macro-arrow flat" id="macro-btc-arrow">▬</span>
     </div>
-    <div class="macro-box" id="macro-gold">
-      <span class="macro-label">🥇XAU</span>
-      <span class="macro-price" id="macro-gold-price">—</span>
-      <span class="macro-arrow flat" id="macro-gold-arrow">▬</span>
-    </div>
-    <div class="macro-box" id="macro-dxy">
-      <span class="macro-label">DXY</span>
-      <span class="macro-price" id="macro-dxy-price">—</span>
-      <span class="macro-arrow flat" id="macro-dxy-arrow">▬</span>
-    </div>
-    <div class="macro-box" id="macro-clock">
-      <span class="macro-label">🕐 الوقت</span>
-      <span class="macro-price" id="macro-clock-value">—</span>
-    </div>
+    <select id="lang-select">
+      <option value="ar" selected>AR</option>
+      <option value="en">EN</option>
+    </select>
   </div>
   <div id="conn-dot"></div>
 </header>
@@ -447,6 +465,11 @@
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
   <span id="trade-status-dot" title="أخضر = آخر عملية شراء، أحمر = آخر عملية بيع"></span>
+  <span id="trade-pnl-info" style="display:none;">
+    <span id="trade-pnl-price"></span>
+    <span id="trade-pnl-label"></span>
+    <span id="trade-pnl-pct"></span>
+  </span>
 </div>
 <div id="chart-tools-row">
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
@@ -625,7 +648,6 @@
   let currentInterval = '5m';
   let ws = null;
   let btcWs = null;
-  let goldWs = null;
   let chart = null;
   let candleSeries = null;
   let ma20Series = null;
@@ -641,6 +663,7 @@
   let lastFullCandles = []; // آخر شموع كاملة للرمز/الفريم الحالي — تُستخدم لحساب مؤشرات الشارت (MA/Bollinger)
   let lastPrice = null;
   let lastBotStatus = null;
+  let currentOpenTrade = null; // أحدث صفقة شراء مفتوحة على العملة المعروضة حاليًا — لعرض السعر والربح/الخسارة
   let explosionFullList = []; // كل العملات المرشّحة مرتبة من الأقوى للأضعف (تُملأ من الخادم)
   let explosionPage = 0;      // صفحة العرض الحالية (كل صفحة = 3 عملات)
   let lastMtfSnapshot = null;
@@ -869,6 +892,41 @@
   });
 
   // ═══════════════════ زر "شراء" الفوري (بوت الشراء اليدوي) ═══════════════════
+  // ═══════════════════ اختيار اللغة (يبدّل اتجاه الصفحة ويتذكر اختيارك) ═══════════════════
+  document.getElementById('lang-select').addEventListener('change', function () {
+    const lang = this.value;
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    try { localStorage.setItem('uiLang', lang); } catch (e) {}
+  });
+  (function restoreLangPref() {
+    try {
+      const saved = localStorage.getItem('uiLang');
+      if (saved) {
+        document.getElementById('lang-select').value = saved;
+        document.documentElement.lang = saved;
+        document.documentElement.dir = saved === 'ar' ? 'rtl' : 'ltr';
+      }
+    } catch (e) {}
+  })();
+
+  // ═══════════════════ يدوي/تلقائي — "تلقائي" يرجّع كل نسب ومربعات المؤشرات للإعدادات الافتراضية ═══════════════════
+  // (نفس القيم اللي بالكود أصلًا — DEFAULT_BOX_CONFIGS) لو المستخدم عدّل النسب وتلخبطت وما عرف يرجعها.
+  document.getElementById('manual-auto-select').addEventListener('change', function () {
+    if (this.value !== 'auto') return; // "يدوي" لا يسوي شي — بس يعني وضعك الحالي المخصص مستمر
+    if (!confirm('يرجّع كل نسب المؤشرات (القرار، الارتداد، القرار النهائي، وباقي المربعات) للإعدادات الافتراضية. متأكد؟')) {
+      this.value = 'manual';
+      return;
+    }
+    boxConfigs = JSON.parse(JSON.stringify(DEFAULT_BOX_CONFIGS));
+    saveBoxConfigs();
+    ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort'].forEach((bk) => {
+      const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
+      renderBoxConfigDropdown(bk, containerId);
+    });
+    renderConsensus();
+  });
+
   document.getElementById('manual-buy-btn').addEventListener('click', function () {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     this.classList.add('disabled');
@@ -934,14 +992,6 @@
       formView.style.display = 'block';
     }
   }
-
-  // ═══════════════════ الساعة الحية أعلى الصفحة ═══════════════════
-  function updateLiveClock() {
-    const el = document.getElementById('macro-clock-value');
-    if (el) el.textContent = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
-  updateLiveClock();
-  setInterval(updateLiveClock, 1000);
 
   // ═══════════════════ لوحة المؤشر المركب الشامل (UCI) — مستقلة تمامًا عن القرار النهائي ═══════════════════
   // نفس البيانات القادمة من السيرفر (msg.uci: composite/signal) بدون أي تغيير في الحساب — فقط طريقة العرض تحولت من شارت خطي إلى مقياس (Gauge) دقيق بالنسبة المئوية مع تصنيف نصي.
@@ -1108,16 +1158,6 @@
     arrowEl.textContent = btcArrowState === 'up' ? '▲' : btcArrowState === 'down' ? '▼' : '▬';
   }
 
-  // ═══════════════════ اتصال الذهب المستقل ═══════════════════
-  function connectGoldTicker() {
-    if (goldWs) try { goldWs.close(); } catch (e) {}
-    goldWs = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
-    goldWs.onopen = () => goldWs.send(JSON.stringify({ type: 'subscribe', symbol: 'PAXGUSDT', interval: '5m' }));
-    goldWs.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch { return; } if (msg.type === 'update' && msg.symbol === 'PAXGUSDT') { const latest = msg.candles[msg.candles.length-1]; if (latest) { const priceEl = document.getElementById('macro-gold-price'); priceEl.textContent = fmt(latest.close); } } };
-    goldWs.onclose = () => setTimeout(connectGoldTicker, 3000);
-    goldWs.onerror = () => goldWs.close();
-  }
-
   // ═══════════════════ استقبال التحديثات ═══════════════════
   function handleUpdate(msg) {
     if (msg.symbol !== currentSymbol || msg.interval !== currentInterval) return;
@@ -1154,6 +1194,7 @@
       lastPrice = latest.close;
       const symbolLivePriceEl = document.getElementById('symbol-live-price');
       if (symbolLivePriceEl) symbolLivePriceEl.innerHTML = `${fmt(latest.close)} <span class="updated-at">آخر تحديث ${new Date().toLocaleTimeString('ar-EG')}</span>`;
+      renderTradePnl();
     }
     document.getElementById('chart-symbol').textContent = msg.symbol;
     renderIndicators(msg.indicators);
@@ -2071,6 +2112,25 @@
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
+    const trades = (msg.manualBot && msg.manualBot.trades) || [];
+    currentOpenTrade = trades.find(t => t.symbol === currentSymbol && t.status !== 'sold') || null;
+    renderTradePnl();
+  }
+
+  // يعرض بجانب نقطة الحالة: سعر الشراء + رابح/خاسر + النسبة٪ — كلها بمكان واحد صغير
+  function renderTradePnl() {
+    const info = document.getElementById('trade-pnl-info');
+    if (!currentOpenTrade || !lastPrice) { info.style.display = 'none'; return; }
+    const pct = ((lastPrice - currentOpenTrade.buyPrice) / currentOpenTrade.buyPrice) * 100;
+    const win = pct >= 0;
+    document.getElementById('trade-pnl-price').textContent = `شراء @ ${currentOpenTrade.buyPrice}`;
+    const labelEl = document.getElementById('trade-pnl-label');
+    labelEl.textContent = win ? 'رابح' : 'خاسر';
+    labelEl.className = win ? 'win' : 'lose';
+    const pctEl = document.getElementById('trade-pnl-pct');
+    pctEl.textContent = `${win ? '+' : ''}${pct.toFixed(2)}%`;
+    pctEl.className = win ? 'win' : 'lose';
+    info.style.display = 'flex';
   }
 
   function handleBotError(msg) {
@@ -2103,6 +2163,7 @@
     currentSeriesSymbol = null;
     lastCandleTime = null;
     lastPrice = null;
+    document.getElementById('trade-pnl-info').style.display = 'none';
     showLoading(true);
     document.querySelectorAll('.tf-box').forEach(b => b.classList.remove('green','red','yellow'));
     subscribe();
@@ -2178,24 +2239,6 @@
     } catch (e) {}
   }
 
-  let prevDxy = null;
-  async function loadMacroOverview() {
-    try {
-      const r = await fetch('/api/macro-overview');
-      const d = await r.json();
-      if (d.dxy != null) {
-        const el = document.getElementById('macro-dxy-price');
-        el.textContent = d.dxy.toFixed(2);
-        const arrowEl = document.getElementById('macro-dxy-arrow');
-        if (prevDxy !== null) {
-          if (d.dxy > prevDxy) { el.style.color = 'var(--green)'; arrowEl.className = 'macro-arrow up'; arrowEl.textContent = '▲'; }
-          else if (d.dxy < prevDxy) { el.style.color = 'var(--red)'; arrowEl.className = 'macro-arrow down'; arrowEl.textContent = '▼'; }
-        }
-        prevDxy = d.dxy;
-      }
-    } catch (e) {}
-  }
-
   async function loadFuturesZone() {
     try {
       const r = await fetch(`/api/futures-zone?symbol=${currentSymbol}`);
@@ -2264,12 +2307,9 @@
   initUciChart();
   connect();
   connectBtcTicker();
-  connectGoldTicker();
   loadMarketOverview();
-  loadMacroOverview();
   loadFuturesZone();
   setInterval(loadMarketOverview, 60000);
-  setInterval(loadMacroOverview, 60000);
   setInterval(loadFuturesZone, 60000);
   setInterval(renderConsensus, 30000);
 </script>
