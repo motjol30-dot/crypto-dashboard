@@ -6,7 +6,7 @@ const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
 const crypto = require('crypto');
-const { RSI, MACD, BollingerBands, EMA, CCI, ATR } = require('technicalindicators');
+const { RSI, MACD, BollingerBands, EMA } = require('technicalindicators');
 
 const PORT = process.env.PORT || 3000;
 
@@ -51,9 +51,9 @@ const SCAN_POOL_EXTRA = [
 // دمج القائمتين + إزالة التكرار — هذا هو حوض البحث الكامل اللي يشوفه البوت
 const SCAN_POOL = Array.from(new Set([...SYMBOLS, ...SCAN_POOL_EXTRA]));
 
-const INTERVALS = ['1s','1m','3m','5m','15m','30m','1h','2h','4h'];
-const MEXC_WS_INTERVAL = { '1m':'Min1', '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
-const OKX_BAR = { '1s':'1s', '1m':'1m', '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
+const INTERVALS = ['3m','5m','15m','30m','1h','2h','4h'];
+const MEXC_WS_INTERVAL = { '3m':'Min3','5m':'Min5','15m':'Min15','30m':'Min30','1h':'Hour1','2h':'Hour2','4h':'Hour4' };
+const OKX_BAR = { '3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H' };
 
 const candleStore = {};
 const streamWs = {};
@@ -69,9 +69,10 @@ const SESSION_TTL_MS = 15 * 60 * 1000;
 const AUTH_ENABLED = process.env.AUTH_ENABLED === 'true';
 const activeSessions = new Map();
 
-// إعدادات API — البوت الآن يعمل على Binance فقط (بوت الشبكة الجديد)
 const BINANCE_API_KEY = process.env.BINANCE_API_KEY || '';
 const BINANCE_API_SECRET = process.env.BINANCE_API_SECRET || '';
+const MEXC_API_KEY = process.env.MEXC_API_KEY || '';
+const MEXC_API_SECRET = process.env.MEXC_API_SECRET || '';
 
 function sweepSessions() {
   const now = Date.now();
@@ -141,8 +142,6 @@ if (AUTH_ENABLED) {
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
-// كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
-app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
@@ -243,7 +242,7 @@ wss.on('connection', (ws, req) => {
   if (sid) activeSessions.set(sid, Date.now());
 
   if (explosionRanking.length) {
-    ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking }));
+    ws.send(JSON.stringify({ type: 'explosion_scan', ranking: explosionRanking.slice(0, 3) }));
   }
   ws.send(botStatusPayload());
 
@@ -265,56 +264,43 @@ wss.on('connection', (ws, req) => {
     }
     else if (msg.type === 'bot_toggle') {
       if (msg.enabled) {
-        if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
-          ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance — أضِف متغيرات البيئة أولاً' }));
+        const hasKeys = botState.exchange === 'binance'
+          ? (BINANCE_API_KEY && BINANCE_API_SECRET)
+          : (MEXC_API_KEY && MEXC_API_SECRET);
+        if (!hasKeys) {
+          ws.send(JSON.stringify({ type: 'error', message: `لا يوجد مفتاح API معرّف لمنصة ${botState.exchange === 'binance' ? 'Binance' : 'MEXC'} — أضِف متغيرات البيئة أولاً` }));
           return;
         }
-        const symbol = botState.manualSymbol || 'BTCUSDT';
-        botState.manualSymbol = symbol;
-        try {
-          await ensureStream(symbol, SCAN_INTERVAL).catch(() => {});
-          await cancelAllOpenOrders(symbol);
-          const price = await getCurrentPrice(symbol);
-          botState.enabled = true;
-          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `🤖 تشغيل بوت الشبكة على ${symbol} — السعر الحالي ${price}` });
-          await placeGridOrders(symbol, price);
-        } catch (err) {
-          botState.enabled = false;
-          const detail = err.response?.data?.msg || err.message;
-          ws.send(JSON.stringify({ type: 'error', message: 'فشل تشغيل البوت: ' + detail }));
-        }
-      } else {
-        const symbol = botState.manualSymbol || 'BTCUSDT';
-        botState.enabled = false;
-        try { await cancelAllOpenOrders(symbol); } catch {}
-        botState.pendingOrders = {};
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: '⏹️ تم إيقاف البوت وإلغاء كل أوامر الشبكة المفتوحة' });
       }
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
+      botState.enabled = !!msg.enabled;
       broadcastBotStatus();
     }
+    else if (msg.type === 'bot_set_exchange') {
+      if (msg.exchange === 'mexc' || msg.exchange === 'binance') {
+        botState.exchange = msg.exchange;
+        broadcastBotStatus();
+      }
+    }
     else if (msg.type === 'bot_set_trade_size') {
-      // بوت الشبكة: هذه القيمة = مبلغ الصفقة بالـ USDT لكل مستوى في الشبكة
       const v = parseFloat(msg.tradeSizeUsdt);
       if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_take_profit') {
-      // بوت الشبكة: هذه القيمة = نسبة المسافة بين كل مستوى شراء/بيع والمستوى الذي يليه (GRID_STEP_PERCENT)
       const v = parseFloat(msg.takeProfitPercent);
-      if (v > 0 && v <= 20) { botState.takeProfitPercent = v; broadcastBotStatus(); }
+      if (v > 0 && v <= 100) { botState.takeProfitPercent = v; broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_max_positions') {
-      // بوت الشبكة: هذه القيمة = عدد مستويات الشراء (وعدد مستويات البيع، بنفس العدد) في الشبكة (GRID_SIZE)
       const v = parseInt(msg.maxConcurrentPositions, 10);
-      if (v >= 1 && v <= 20) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
+      if (v >= 1 && v <= SCAN_SYMBOLS.length) { botState.maxConcurrentPositions = v; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_set_scan_window') {
+      const v = parseFloat(msg.scanWindowMinutes);
+      if (v > 0 && v <= 60) { botState.scanWindowMinutes = v; broadcastBotStatus(); }
+    }
+    else if (msg.type === 'bot_set_strategy_mode') {
+      if (msg.mode === 'auto' || msg.mode === 'manual') { botState.strategyMode = msg.mode; broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_manual_symbol') {
-      // اختيار عملة الشبكة — يحصل تلقائيًا لما يضغط المستخدم على أحد مربعات "أقوى 3 عملات" فوق.
-      // لتفادي أوامر شبكة يتيمة، يُمنع تغيير العملة والبوت شغّال — لازم إيقافه أولًا.
-      if (botState.enabled) {
-        ws.send(JSON.stringify({ type: 'error', message: 'أوقف البوت أولًا قبل تغيير عملة الشبكة' }));
-        return;
-      }
       const raw = (msg.symbol || '').toString().trim().toUpperCase();
       if (!raw) { botState.manualSymbol = null; broadcastBotStatus(); }
       else if (/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
@@ -325,54 +311,55 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح — لازم ينتهي بـ USDT' }));
       }
     }
-    else if (msg.type === 'manual_buy_now') {
-      // زر "شراء الآن" — شراء Market فوري على الرمز المعروض حاليًا بالواجهة
-      if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance' }));
-        return;
-      }
-      const raw = (msg.symbol || '').toString().trim().toUpperCase();
-      if (!/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح' }));
-        return;
-      }
-      executeManualBuy(raw).then(() => {
-        broadcastBotStatus();
-        ws.send(JSON.stringify({ type: 'trade_result', side: 'BUY', symbol: raw }));
-      }).catch((err) => {
-        const detail = err.response?.data?.msg || err.message;
-        ws.send(JSON.stringify({ type: 'error', message: 'فشل الشراء: ' + detail }));
-      });
-    }
-    else if (msg.type === 'manual_sell_now') {
-      // زر "بيع الآن" — يبيع فورًا (Market) أقرب صفقة شراء يدوي مفتوحة على هذا الرمز، ملغيًا أمر
-      // البيع المحدد المسبق (Limit) لو كان موجود، بدل ما ينتظر يوصل سعره
-      if (!(BINANCE_API_KEY && BINANCE_API_SECRET)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'لا يوجد مفتاح API معرّف لمنصة Binance' }));
-        return;
-      }
-      const raw = (msg.symbol || '').toString().trim().toUpperCase();
-      if (!/^[A-Z0-9]{2,20}USDT$/.test(raw)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'رمز العملة غير صحيح' }));
-        return;
-      }
-      executeManualSell(raw).then(() => {
-        broadcastBotStatus();
-        ws.send(JSON.stringify({ type: 'trade_result', side: 'SELL', symbol: raw }));
-      }).catch((err) => {
-        const detail = err.response?.data?.msg || err.message;
-        ws.send(JSON.stringify({ type: 'error', message: 'فشل البيع: ' + detail }));
-      });
-    }
-    else if (msg.type === 'manual_bot_toggle') {
-      manualBotState.enabled = !!msg.enabled;
-      botState.tradeLog.unshift({ time: Date.now(), symbol: '', type: 'error', message: manualBotState.enabled ? '🟢 تفعيل بوت البيع التلقائي (للشراء اليدوي)' : '⏹️ إيقاف بوت البيع التلقائي (للشراء اليدوي)' });
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
+    else if (msg.type === 'bot_set_buy_rules') {
+      const r = msg.buyRules || {};
+      const clean = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      botState.buyRules = {
+        rsiBelow: r.rsiBelow === '' || r.rsiBelow == null ? null : clean(r.rsiBelow),
+        priceBelow: r.priceBelow === '' || r.priceBelow == null ? null : clean(r.priceBelow),
+        dropPercentFromHigh: r.dropPercentFromHigh === '' || r.dropPercentFromHigh == null ? null : clean(r.dropPercentFromHigh),
+        bbLowerTouch: !!r.bbLowerTouch,
+      };
       broadcastBotStatus();
     }
-    else if (msg.type === 'bot_manual_close' || msg.type === 'bot_cancel_pending') {
-      // خاصة ببوت الشبكة فقط — الشبكة تُدار وتُعاد موازنتها تلقائيًا، لا حاجة لإغلاق يدوي
-      ws.send(JSON.stringify({ type: 'error', message: 'بوت الشبكة تلقائي بالكامل — لا حاجة لأوامر يدوية عليه.' }));
+    else if (msg.type === 'bot_set_sell_rules') {
+      const r = msg.sellRules || {};
+      const clean = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      botState.sellRules = {
+        stopLossPercent: r.stopLossPercent === '' || r.stopLossPercent == null ? null : clean(r.stopLossPercent),
+        rsiAbove: r.rsiAbove === '' || r.rsiAbove == null ? null : clean(r.rsiAbove),
+        priceAbove: r.priceAbove === '' || r.priceAbove == null ? null : clean(r.priceAbove),
+      };
+      broadcastBotStatus();
+    }
+    else if (msg.type === 'bot_manual_close') {
+      const { symbol } = msg;
+      if (botState.positions[symbol]) {
+        executeBotSell(symbol, null, 'إغلاق يدوي من المستخدم').catch((err) => {
+          const detail = err.response?.data?.msg || err.message;
+          ws.send(JSON.stringify({ type: 'error', message: 'فشل إغلاق الصفقة: ' + detail }));
+          botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
+          broadcastBotStatus();
+        });
+      }
+    }
+    else if (msg.type === 'bot_cancel_pending') {
+      const { symbol } = msg;
+      const pending = botState.pendingOrders[symbol];
+      if (pending) {
+        (async () => {
+          try {
+            await cancelOrder(pending.exchange, symbol, pending.orderId);
+            delete botState.pendingOrders[symbol];
+            botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: 'أُلغي الأمر المعلّق يدويًا من المستخدم' });
+            botState.tradeLog = botState.tradeLog.slice(0, 50);
+            broadcastBotStatus();
+          } catch (err) {
+            const detail = err.response?.data?.msg || err.message;
+            ws.send(JSON.stringify({ type: 'error', message: 'فشل إلغاء الأمر: ' + detail }));
+          }
+        })();
+      }
     }
   });
 
@@ -384,9 +371,6 @@ const SCAN_INTERVAL = '15m';
 const SCAN_SYMBOLS = SYMBOLS;
 
 let explosionRanking = [];
-
-// حد أدنى لمتوسط السيولة (بالدولار) على فريم 15 دقيقة عشان نستبعد العملات شبه الميتة من الترشيح
-const MIN_AVG_QUOTE_VOLUME_15M = 15000;
 
 function computeExplosionScore(candles) {
   if (!candles || candles.length < 80) return null;
@@ -471,11 +455,13 @@ function computeExplosionScore(candles) {
   score -= rsiPenalty;
 
   const price = closes[n-1];
-  const avgQuoteVol50 = avgVol50 * price;
-
-  // 🚫 فلتر سيولة حقيقي: نرفض أي عملة متوسط تداولها بآخر 50 شمعة (15د) أقل من حد أدنى بالدولار —
-  // هذا يمنع ترشيح عملات "ميتة" حجمها ضعيف جدًا وممكن تواجه انزلاق سعر (slippage) كبير عند التنفيذ.
-  if (!Number.isFinite(avgQuoteVol50) || avgQuoteVol50 < MIN_AVG_QUOTE_VOLUME_15M) return null;
+  let priceBias = 0;
+  if (price < 1) priceBias = 12;
+  else if (price < 2) priceBias = 8;
+  else if (price < 5) priceBias = 5;
+  else if (price <= 50) priceBias = 2;
+  else if (price > 200) priceBias = -5;
+  score += priceBias;
 
   const overextended = pricePosition > 0.8 || recentGainPct > 10 || (lastRsi != null && lastRsi > 70);
 
@@ -488,55 +474,18 @@ function computeExplosionScore(candles) {
     recentGainPct: Math.round(recentGainPct*10)/10,
     rsi: lastRsi != null ? Math.round(lastRsi) : null,
     volRatio: Math.round(volRatio*100)/100,
-    avgQuoteVol50: Math.round(avgQuoteVol50),
   };
 }
 
-// يفحص كامل حوض الـ~211 عملة (SCAN_POOL) ويطلع فعليًا أقوى العملات من كامل السوق (مو أفضل واحدة
-// من كل ثلث كما كان سابقًا) — هذا يحل مشكلتين كانتا موجودتين: (1) مربع فاضي بدون عملة لو ثلث معين
-// ما فيه ترشيح صالح هذي الدورة، و(2) نفس العملات ما تتغير لأن كل مربع محصور بثلث ثابت من البداية.
-// بنفس أسلوب الفحص الخفيف (REST مؤقت الذاكرة، بدون بث WebSocket دائم لكل عملة) حتى ما نثقل
-// السيرفر بفتح 211 اتصال دائم ولا تتعطل لوحة التحكم عند فتحها.
-//
-// مرحلة إضافية: بعد الترتيب الأولي على 15 دقيقة، نجيب تأكيد الساعة (1h) فقط لأفضل 15 مرشّح (مو
-// كل الحوض — توفير للشبكة)، ونعدّل النقاط: تأكيد مع الاتجاه = مكافأة، تعارض معه = عقوبة، ثم نعيد
-// الترتيب ونطلع أفضل 3 نهائيًا. هذا يمنع ترشيح عملة إشارتها الفنية جيدة على المدى القصير لكنها
-// تسبح عكس اتجاه السوق الأعم على الساعة.
-const HTF_CONFIRM_POOL_SIZE = 15;
-const HTF_AGREE_BONUS = 10;
-const HTF_CONFLICT_PENALTY = 18;
-
-async function runExplosionScan() {
+function runExplosionScan() {
   const results = [];
-  for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
-    const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
-    await Promise.all(batch.map(async (symbol) => {
-      if (!candleStore[`${symbol}_${SCAN_INTERVAL}`]) await refreshScanCache(symbol);
-      const candles = getCandlesForScan(symbol);
-      const res = computeExplosionScore(candles);
-      if (res) results.push({ symbol, ...res });
-    }));
+  for (const symbol of SCAN_SYMBOLS) {
+    const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+    const res = computeExplosionScore(candles);
+    if (res) results.push({ symbol, ...res });
   }
   results.sort((a, b) => b.score - a.score);
-
-  // تأكيد الساعة لأفضل المرشحين فقط
-  const contenders = results.slice(0, HTF_CONFIRM_POOL_SIZE);
-  await Promise.all(contenders.map(c => refreshHtfCache(c.symbol)));
-  for (const c of contenders) {
-    const htfTrend = getHtfTrend(c.symbol);
-    c.htfTrend = htfTrend;
-    if (htfTrend === 'unknown' || htfTrend === 'neutral' || c.direction === 'neutral') continue;
-    if (htfTrend === c.direction) c.score = Math.min(100, c.score + HTF_AGREE_BONUS);
-    else c.score = Math.max(0, c.score - HTF_CONFLICT_PENALTY);
-  }
-  contenders.sort((a, b) => b.score - a.score);
-  const rest = results.slice(HTF_CONFIRM_POOL_SIZE);
-  const finalPool = [...contenders, ...rest];
-  finalPool.sort((a, b) => b.score - a.score); // ترتيب نهائي شامل بعد دمج تعديلات تأكيد الساعة
-
-  // نحتفظ بالقائمة الكاملة (كل عملة اجتازت فلتر السيولة وفيها بيانات كافية) مرتبة من الأقوى للأضعف،
-  // عشان الواجهة تقدر تستعرضها بالسحب ثلاثة ثلاثة بدل ما تقتصر على أفضل 3 بس.
-  explosionRanking = finalPool.length ? finalPool : explosionRanking;
+  explosionRanking = results.slice(0, 3);
   broadcastExplosionScan();
 }
 
@@ -549,19 +498,23 @@ function broadcastExplosionScan() {
 }
 
 (async () => {
-  // نحمّل بث مباشر دائم فقط لقائمة الـ40 الأساسية (تُستخدم للرسم البياني الرئيسي واختيار العملة يدويًا)
   const batchSize = 10;
   const symbols = [...SCAN_SYMBOLS];
   for (let i = 0; i < symbols.length; i += batchSize) {
     const batch = symbols.slice(i, i + batchSize);
     await Promise.all(batch.map(symbol => ensureStream(symbol, SCAN_INTERVAL).catch(err => console.error(err))));
   }
-  // أول فحص لأقوى 3 عملات على كامل حوض الـ~240 عملة (REST خفيف مؤقت الذاكرة — لا يفتح بث دائم)
-  runExplosionScan().catch(err => console.error('[explosion-scan] فشل الفحص الأول:', err.message));
+  runExplosionScan();
 })();
 
-// فحص أقوى 3 عملات على كامل الحوض كل 4 دقائق (حسب طلب المستخدم)
-setInterval(() => { runExplosionScan().catch(err => console.error('[explosion-scan] فشل:', err.message)); }, 4 * 60 * 1000);
+let scanInterval = setInterval(() => {
+  if (explosionRanking.length < 3) {
+    runExplosionScan();
+  } else {
+    clearInterval(scanInterval);
+    setInterval(runExplosionScan, 5 * 60 * 1000);
+  }
+}, 10000);
 
 async function fetchHistoricalBinance(symbol, interval, limit = 300) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -639,17 +592,13 @@ const SCAN_CACHE_TTL_MS = 3 * 60 * 1000; // نعيد جلب أي عملة ما �
 async function refreshScanCache(symbol) {
   const now = Date.now();
   if (scanCacheUpdatedAt[symbol] && now - scanCacheUpdatedAt[symbol] < SCAN_CACHE_TTL_MS) return;
-  // محاولتان قبل ما نتجاهل العملة — لتقليل فراغ المربعات بسبب فشل عابر بالشبكة/التقييد المؤقت من المنصة
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const candles = await fetchHistorical(symbol, '15m', 100);
-      if (candles && candles.length >= 60) {
-        scanCandleCache[symbol] = candles;
-        scanCacheUpdatedAt[symbol] = now;
-        return;
-      }
-    } catch (err) { /* حاول مرة ثانية، ولو فشلت كمان نتجاهل العملة هذي الدورة */ }
-  }
+  try {
+    const candles = await fetchHistorical(symbol, '15m', 100);
+    if (candles && candles.length >= 60) {
+      scanCandleCache[symbol] = candles;
+      scanCacheUpdatedAt[symbol] = now;
+    }
+  } catch (err) { /* تجاهل — نحاول العملة الجاية، هذا فحص أولي سريع مو تنفيذ */ }
 }
 
 // يرجّع أحدث شموع متاحة للعملة: البث المباشر لو موجود (أدق)، وإلا ذاكرة الفحص السريع
@@ -659,41 +608,43 @@ function getCandlesForScan(symbol) {
   return scanCandleCache[symbol] || null;
 }
 
-/* ============================================================================
- * تأكيد الفريم الأعلى (1 ساعة) — نجيب شموع الساعة فقط لأفضل المرشحين (مو كل الحوض) عشان نتأكد
- * إن إشارة الانضغاط على 15 دقيقة ما تكون عكس اتجاه السوق الأعم على الساعة. كاش منفصل بعمر أطول
- * (20 دقيقة) لأن شموع الساعة تتغيّر ببطء أكثر من 15 دقيقة.
- * ============================================================================ */
-const htfCandleCache = {};      // symbol -> شموع الساعة (~60 شمعة)
-const htfCacheUpdatedAt = {};   // symbol -> وقت آخر تحديث
-const HTF_CACHE_TTL_MS = 20 * 60 * 1000;
-
-async function refreshHtfCache(symbol) {
-  const now = Date.now();
-  if (htfCacheUpdatedAt[symbol] && now - htfCacheUpdatedAt[symbol] < HTF_CACHE_TTL_MS) return;
-  try {
-    const candles = await fetchHistorical(symbol, '1h', 60);
-    if (candles && candles.length >= 55) {
-      htfCandleCache[symbol] = candles;
-      htfCacheUpdatedAt[symbol] = now;
-    }
-  } catch (err) { /* نتجاهل — لو ما توفر تأكيد الساعة، الترشيح يكمل بدونه بدل ما يتعطل */ }
+// فحص محلي سريع بدون أي طلب شبكة إطلاقًا — يُستخدم لتقييم حوض الـ200 عملة كامل بسرعة كل دورة
+function quickScreenSymbol(symbol) {
+  const candles = getCandlesForScan(symbol);
+  if (!candles || candles.length < 60) return null;
+  const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+  if (!indicators) return null;
+  const decision = makeDecision(indicators);
+  updateBotBtcLayer();
+  const decision7Base = computeDecision7Score(indicators, decision);
+  const decision7Signal = Math.max(-1, Math.min(1, decision7Base + computeBtcBoost()));
+  const fourBoxSignal = computeFourBoxScore(indicators);
+  const secondarySignal = computeSecondaryScore(indicators, decision);
+  const frameSignal = computeFrameScore(symbol, indicators);
+  const dashboardSignal = 0.30 * decision7Signal + 0.20 * secondarySignal + 0.45 * fourBoxSignal + 0.05 * frameSignal;
+  const botOwnSignal = computeBotOwnSignalLocal(indicators, candles);
+  const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
+  const filter = passesEntryFilters(candles);
+  return { symbol, composite, price: indicators.currentPrice, passesFilters: filter.ok };
 }
 
-// اتجاه الساعة: نقارن EMA20 مقابل EMA50 وموقع السعر منهم — تأكيد بسيط وموثوق بدون تعقيد زائد
-function getHtfTrend(symbol) {
-  const candles = htfCandleCache[symbol];
-  if (!candles || candles.length < 55) return 'unknown';
-  const closes = candles.map(c => c.close);
-  const ema20Arr = EMA.calculate({ values: closes, period: 20 });
-  const ema50Arr = EMA.calculate({ values: closes, period: 50 });
-  if (!ema20Arr.length || !ema50Arr.length) return 'unknown';
-  const ema20 = ema20Arr[ema20Arr.length - 1];
-  const ema50 = ema50Arr[ema50Arr.length - 1];
-  const price = closes[closes.length - 1];
-  if (ema20 > ema50 && price > ema20) return 'up';
-  if (ema20 < ema50 && price < ema20) return 'down';
-  return 'neutral';
+// يدور على كل حوض البحث (200 عملة) بدفعات، يحدّث الذاكرة لو قديمة، ويرجّع أفضل مرشح شراء محتمل
+async function scanFullPool() {
+  const results = [];
+  const now = Date.now();
+  const validSet = botState.exchange === 'binance' ? await getBinanceValidSymbols() : null;
+  for (let i = 0; i < SCAN_POOL.length; i += SCAN_BATCH_SIZE) {
+    const batch = SCAN_POOL.slice(i, i + SCAN_BATCH_SIZE);
+    await Promise.all(batch.map(async (symbol) => {
+      if (validSet && !validSet.has(symbol)) return; // الرمز مو متاح فعليًا للتداول الفوري على Binance حاليًا
+      if (blacklistedSymbols[symbol] && blacklistedSymbols[symbol] > now) return; // عملة محظورة مؤقتًا بسبب فشل تنفيذ سابق
+      if (!candleStore[`${symbol}_15m`]) await refreshScanCache(symbol);
+      const r = quickScreenSymbol(symbol);
+      if (r) results.push(r);
+    }));
+  }
+  results.sort((a, b) => b.composite - a.composite);
+  return results;
 }
 
 // تحقق حقيقي وحيّ من رموز Binance الفعلية (بعض العملات بالقائمة تتغيّر تسميتها أو تُشطب من Binance
@@ -720,6 +671,11 @@ async function getBinanceValidSymbols() {
   }
   return binanceValidSymbolsCache; // ممكن يرجّع null لو فشلت أول محاولة تحميل — بنتجاهل الفلترة وقتها
 }
+
+// حظر مؤقت لأي عملة يفشل تنفيذ أمر الشراء عليها فعليًا (رمز غير صحيح، سوق مقفول، إلخ) — يمنع البوت من التعليق
+// على نفس العملة الفاشلة دورة بعد دورة
+const blacklistedSymbols = {}; // symbol -> timestamp الانتهاء
+const SYMBOL_BLACKLIST_MS = 60 * 60 * 1000; // ساعة كاملة
 
 async function ensureStream(symbol, interval) {
   const key = `${symbol}_${interval}`;
@@ -756,7 +712,6 @@ function connectBinanceStream(symbol, interval, onFail) {
     if (!k) return;
     updateCandleStore(symbol, interval, { time: Math.floor(k.t / 1000), open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c), volume: parseFloat(k.v), isClosed: k.x === true });
     broadcastUpdate(symbol, interval);
-    maybeBroadcastManualPrice(symbol, interval);
   });
   ws.on('error', (err) => console.error(`[${key}] Binance WS error:`, err.message));
   ws.on('close', () => {
@@ -785,7 +740,6 @@ function connectMexcStream(symbol, interval, onFail) {
     const k = msg.d.k;
     updateCandleStore(symbol, interval, { time: Math.floor(k.t / 1000), open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c), volume: parseFloat(k.v), isClosed: k.X === true });
     broadcastUpdate(symbol, interval);
-    maybeBroadcastManualPrice(symbol, interval);
   });
   ws.on('error', (err) => console.error(`[${key}] MEXC WS error:`, err.message));
   ws.on('close', () => {
@@ -812,7 +766,6 @@ function connectOkxStream(symbol, interval) {
     if (!row) return;
     updateCandleStore(symbol, interval, { time: Math.floor(Number(row[0]) / 1000), open: parseFloat(row[1]), high: parseFloat(row[2]), low: parseFloat(row[3]), close: parseFloat(row[4]), volume: parseFloat(row[5]), isClosed: row[8] === '1' });
     broadcastUpdate(symbol, interval);
-    maybeBroadcastManualPrice(symbol, interval);
   });
   ws.on('error', (err) => console.error(`[${key}] OKX WS error:`, err.message));
   ws.on('close', () => {
@@ -876,26 +829,13 @@ function computeHourlyLayer(symbol) {
   return { verdict, bull, bear, notes };
 }
 
-// يبث آخر سعر حي لعملة التداول اليدوي المختارة فورًا مع كل تحديث شمعة يوصل من البورصة (عدة مرات
-// بالثانية على العملات النشطة) — مستقل عن اشتراك الرسم البياني، عشان مربعي الشراء/البيع فوق يتحدثان لحظيًا.
-function maybeBroadcastManualPrice(symbol, interval) {
-  if (interval !== SCAN_INTERVAL || symbol !== botState.manualSymbol) return;
-  const candles = candleStore[`${symbol}_${interval}`];
-  const lastCandle = candles && candles[candles.length - 1];
-  if (!lastCandle) return;
-  const payload = JSON.stringify({ type: 'manual_price', symbol, price: lastCandle.close, time: Date.now() });
-  for (const client of wss.clients) { if (client.readyState === WebSocket.OPEN) client.send(payload); }
-}
-
 function broadcastUpdate(symbol, interval) {
   const key = `${symbol}_${interval}`;
   const candles = candleStore[key];
   if (!candles || !candles.length) return;
   const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
-  const uci = computeUCISeries(candles);
-  if (indicators) indicators.uci = uci.length ? { composite: uci[uci.length - 1].composite, signal: uci[uci.length - 1].signal } : null;
   const decision = makeDecision(indicators);
-  const payload = JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision, uci });
+  const payload = JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision });
   for (const [client, sub] of clientSubs) {
     if (client.readyState === WebSocket.OPEN && sub.symbol === symbol && sub.interval === interval) client.send(payload);
   }
@@ -907,10 +847,8 @@ function sendSnapshot(ws, symbol, interval) {
   const candles = candleStore[key];
   if (!candles || !candles.length) return;
   const indicators = computeIndicatorsFixedReversal(symbol, interval, candles);
-  const uci = computeUCISeries(candles);
-  if (indicators) indicators.uci = uci.length ? { composite: uci[uci.length - 1].composite, signal: uci[uci.length - 1].signal } : null;
   const decision = makeDecision(indicators);
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision, uci }));
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'update', symbol, interval, candles, indicators, decision }));
 }
 
 function computeMtfSnapshot(symbol) {
@@ -926,65 +864,12 @@ function computeMtfSnapshot(symbol) {
 }
 
 const lastMtfBroadcast = {};
-
-// ── طبقة الفريمات فائقة القصر (1ث/3ث/5ث/1د/3د/5د) — قرار ثنائي إجباري: مرتفع أو هابط، بدون محايد ──
-// Binance ما يدعم شموع 3 و5 ثواني أصلًا كفريم مباشر، فنبنيها احنا محليًا بتجميع شموع الثانية الواحدة
-// (كل 3 شموع = شمعة 3 ثواني، كل 5 = شمعة 5 ثواني) بعد ما صار عندنا بث حي لفريم 1s أصلًا.
-function aggregateCandles(candles, groupSize) {
-  const out = [];
-  for (let i = 0; i + groupSize <= candles.length; i += groupSize) {
-    const group = candles.slice(i, i + groupSize);
-    out.push({
-      time: group[0].time,
-      high: Math.max(...group.map(c => c.high)),
-      low: Math.min(...group.map(c => c.low)),
-      close: group[group.length - 1].close,
-    });
-  }
-  return out;
-}
-// اتجاه ثنائي إجباري لسلسلة إغلاقات: نقارن آخر سعر بمتوسط الفترة السابقة — ما فيه حالة "محايد"، أي
-// تعادل يُحسم لصالح الصعود (>=) عشان دايمًا نطلع بقرار واحد واضح.
-function seriesDirection(closes) {
-  if (!closes || closes.length < 6) return null;
-  const lookback = Math.min(10, closes.length - 1);
-  const ref = closes[closes.length - 1 - lookback];
-  const last = closes[closes.length - 1];
-  return last >= ref ? 'up' : 'down';
-}
-function computeUltraShortTrend(symbol) {
-  const c1s = candleStore[`${symbol}_1s`];
-  if (!c1s || c1s.length < 20) return null; // لسه ما وصل بث كافي لفريم الثانية
-
-  const c3s = aggregateCandles(c1s, 3);
-  const c5s = aggregateCandles(c1s, 5);
-  const c1m = candleStore[`${symbol}_1m`];
-  const c3m = candleStore[`${symbol}_3m`];
-  const c5m = candleStore[`${symbol}_5m`];
-
-  const dirs = [
-    seriesDirection(c1s.map(c => c.close)),
-    seriesDirection(c3s.map(c => c.close)),
-    seriesDirection(c5s.map(c => c.close)),
-    c1m && c1m.length >= 6 ? seriesDirection(c1m.map(c => c.close)) : null,
-    c3m && c3m.length >= 6 ? seriesDirection(c3m.map(c => c.close)) : null,
-    c5m && c5m.length >= 6 ? seriesDirection(c5m.map(c => c.close)) : null,
-  ].filter(Boolean);
-  if (!dirs.length) return null;
-
-  const upCount = dirs.filter(d => d === 'up').length;
-  const downCount = dirs.length - upCount;
-  if (upCount === downCount) return dirs[0]; // تعادل: نرجّح أقصر فريم (1 ثانية) كفاصل
-  return upCount > downCount ? 'up' : 'down';
-}
-
 function broadcastMtfUpdate(symbol, force = false) {
   const now = Date.now();
   if (!force && lastMtfBroadcast[symbol] && now - lastMtfBroadcast[symbol] < 3000) return;
   lastMtfBroadcast[symbol] = now;
   const snapshot = computeMtfSnapshot(symbol);
-  const ultraShortTrend = computeUltraShortTrend(symbol);
-  const payload = JSON.stringify({ type: 'mtf_update', symbol, snapshot, ultraShortTrend });
+  const payload = JSON.stringify({ type: 'mtf_update', symbol, snapshot });
   for (const [client, sub] of clientSubs) {
     if (client.readyState === WebSocket.OPEN && sub.symbol === symbol) client.send(payload);
   }
@@ -1000,92 +885,6 @@ function computeWMA(values, period) {
   const sumW = w.reduce((a, b) => a + b, 0);
   const sumWV = values.reduce((s, v, i) => s + v * w[i], 0);
   return sumWV / sumW;
-}
-
-// ── Universal Composite Indicator (UCI) ────────────────────────────────────
-// مستقل تمامًا عن نظام المربعات/الإجماع الحالي — لا يُضاف لـ consensusTracker ولا GROUP_MAP.
-// يعيد سلسلة زمنية كاملة {time, composite, signal} لعرضها في لوحة منفصلة تحت الشموع،
-// مطابقة لمنطق مؤشر Pine Script (RSI + Stochastic + MACD/ATR + CCI → EMA5 → EMA9).
-function computeUCISeries(candles) {
-  const n = candles.length;
-  if (n < 45) return [];
-  const closes = candles.map(c => c.close);
-  const highs = candles.map(c => c.high);
-  const lows = candles.map(c => c.low);
-
-  const RSI_LEN = 14, STOCH_K = 14, STOCH_SMOOTH = 3;
-  const MACD_FAST = 12, MACD_SLOW = 26, MACD_SIGNAL = 9, ATR_LEN = 14;
-  const CCI_LEN = 20, COMP_EMA = 5, SIGNAL_EMA = 9;
-
-  const alignEnd = (arr) => { const out = new Array(n).fill(null); const off = n - arr.length; for (let i = 0; i < arr.length; i++) out[off + i] = arr[i]; return out; };
-
-  // RSI
-  const rsiAligned = alignEnd(RSI.calculate({ values: closes, period: RSI_LEN }));
-
-  // Stochastic %K (raw) + SMA smoothing — يطابق ta.stoch(...) ثم sma(stochSmooth) في Pine
-  const stochRaw = new Array(n).fill(null);
-  for (let i = STOCH_K - 1; i < n; i++) {
-    let hh = -Infinity, ll = Infinity;
-    for (let j = i - STOCH_K + 1; j <= i; j++) { if (highs[j] > hh) hh = highs[j]; if (lows[j] < ll) ll = lows[j]; }
-    stochRaw[i] = hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100;
-  }
-  const stochSmoothed = new Array(n).fill(null);
-  for (let i = 0; i < n; i++) {
-    if (i < STOCH_K - 1 + STOCH_SMOOTH - 1) continue;
-    let sum = 0, ok = true;
-    for (let j = i - STOCH_SMOOTH + 1; j <= i; j++) { if (stochRaw[j] == null) { ok = false; break; } sum += stochRaw[j]; }
-    if (ok) stochSmoothed[i] = sum / STOCH_SMOOTH;
-  }
-
-  // MACD histogram normalized by ATR(14)
-  const macdAligned = alignEnd(MACD.calculate({ values: closes, fastPeriod: MACD_FAST, slowPeriod: MACD_SLOW, signalPeriod: MACD_SIGNAL, SimpleMAOscillator: false, SimpleMASignal: false }));
-  const atrAligned = alignEnd(ATR.calculate({ period: ATR_LEN, high: highs, low: lows, close: closes }));
-  const macdNorm = new Array(n).fill(null);
-  for (let i = 0; i < n; i++) {
-    const m = macdAligned[i], atrV = atrAligned[i];
-    if (!m || m.MACD == null || m.signal == null || atrV == null || !atrV) continue;
-    let v = ((m.MACD - m.signal) / atrV) * 25 + 50;
-    macdNorm[i] = Math.max(0, Math.min(100, v));
-  }
-
-  // CCI normalized
-  const cciAligned = alignEnd(CCI.calculate({ period: CCI_LEN, high: highs, low: lows, close: closes }));
-  const cciNorm = new Array(n).fill(null);
-  for (let i = 0; i < n; i++) {
-    if (cciAligned[i] == null) continue;
-    let v = ((cciAligned[i] + 200) / 400) * 100;
-    cciNorm[i] = Math.max(0, Math.min(100, v));
-  }
-
-  // compositeRaw = متوسط الأربعة، فقط حيث تتوفر كلها
-  const compositeRaw = new Array(n).fill(null);
-  for (let i = 0; i < n; i++) {
-    const a = rsiAligned[i], b = stochSmoothed[i], c = macdNorm[i], d = cciNorm[i];
-    if (a == null || b == null || c == null || d == null) continue;
-    compositeRaw[i] = (a + b + c + d) / 4;
-  }
-
-  const idx1 = [], vals1 = [];
-  for (let i = 0; i < n; i++) if (compositeRaw[i] != null) { idx1.push(i); vals1.push(compositeRaw[i]); }
-  if (vals1.length < COMP_EMA) return [];
-  const compEma = EMA.calculate({ period: COMP_EMA, values: vals1 });
-  const compositeLine = new Array(n).fill(null);
-  const off1 = vals1.length - compEma.length;
-  for (let i = 0; i < compEma.length; i++) compositeLine[idx1[off1 + i]] = compEma[i];
-
-  const idx2 = [], vals2 = [];
-  for (let i = 0; i < n; i++) if (compositeLine[i] != null) { idx2.push(i); vals2.push(compositeLine[i]); }
-  const signalEma = vals2.length >= SIGNAL_EMA ? EMA.calculate({ period: SIGNAL_EMA, values: vals2 }) : [];
-  const signalLine = new Array(n).fill(null);
-  const off2 = vals2.length - signalEma.length;
-  for (let i = 0; i < signalEma.length; i++) signalLine[idx2[off2 + i]] = signalEma[i];
-
-  const series = [];
-  for (let i = 0; i < n; i++) {
-    if (compositeLine[i] == null) continue;
-    series.push({ time: candles[i].time, composite: Math.round(compositeLine[i] * 100) / 100, signal: signalLine[i] == null ? null : Math.round(signalLine[i] * 100) / 100 });
-  }
-  return series;
 }
 
 function computeIndicators(candles) {
@@ -1714,46 +1513,359 @@ function makeDecision(indicators) {
   if (trendStable === true) confidence = Math.min(100, Math.round(confidence * 1.1));
   else if (trendStable === false) confidence = Math.round(confidence * 0.85);
 
-  // منطقة الشراء ومنطقة البيع: مكان واحد فقط لكل منطقة (مش نطاق من رقمين) —
-  // الشراء = أفضل نقطة دخول (الحد الأدنى لبولينجر)، والبيع = نفس نقطة الدخول مضروبة
-  // بنسبة جني الربح التي يضبطها المستخدم (بوت-take-profit)، فتتحدّث تلقائيًا كل ما غيّر النسبة.
-  const fmtZonePrice = (p) => (p == null || !Number.isFinite(p)) ? null : (p >= 1 ? p.toFixed(4) : p.toFixed(8));
-  const buyPriceNum = bb ? bb.lower : null;
-  const tpPct = (botState && botState.takeProfitPercent > 0) ? botState.takeProfitPercent : 1;
-  const sellPriceNum = buyPriceNum != null ? buyPriceNum * (1 + tpPct / 100) : null;
-  const buyZone = buyPriceNum != null ? { price: fmtZonePrice(buyPriceNum) } : null;
-  const sellZone = sellPriceNum != null ? { price: fmtZonePrice(sellPriceNum) } : null;
+  const buyZone = bb ? { from: bb.lower.toFixed(4), to: ((bb.lower + bb.middle) / 2).toFixed(4) } : null;
+  const sellZone = bb ? { from: ((bb.upper + bb.middle) / 2).toFixed(4), to: bb.upper.toFixed(4) } : null;
   const early = computeEarlySignal(indicators);
   return { trend, action, confidence, notes, buyZone, sellZone, early };
 }
 
-// ── بوت الشبكة (Grid Bot) ─────────────────────────────────────────────────────
-// امسحنا البوت اليدوي القديم بالكامل. البوت الآن بوت شبكة تلقائي كامل على Binance فقط،
-// نفس منطق سكربت Python اللي زوّدنا به المستخدم: عند التشغيل يلغي كل الأوامر المفتوحة على
-// الرمز، يجيب السعر الحالي، ثم يضع GRID_SIZE أوامر شراء Limit تحت السعر و GRID_SIZE أوامر بيع
-// Limit فوق السعر بمسافة GRID_STEP_PERCENT بين كل مستوى. كل 30 ثانية يفحص الأوامر المفتوحة،
-// ولو نقص عددها عن المتوقع (يعني تنفذت صفقة) يلغي الباقي ويعيد بناء الشبكة على السعر الجديد.
-//
-// ⚠️ ملاحظة مهمة (نفس قيد سكربت Python الأصلي): أوامر البيع Limit على Binance Spot تتطلب
-// إنك تملك فعليًا كمية من العملة الأساسية (مثلاً BTC) لتغطية أوامر البيع، وإلا سترفضها Binance
-// برسالة "insufficient balance". هذا سلوك طبيعي في أي بوت شبكة على Spot وليس خطأ بالكود.
+// ── بوت التداول ──────────────────────────────────────────────────────────────
 
 let botState = {
   enabled: false,
   exchange: 'binance',
-  tradeSizeUsdt: 50,        // مبلغ الصفقة بالـ USDT لكل مستوى في الشبكة (AMOUNT_PER_GRID محسوبة ديناميكيًا)
-  takeProfitPercent: 1,     // GRID_STEP_PERCENT: نسبة المسافة بين كل مستوى (١٪ افتراضيًا)
-  maxConcurrentPositions: 5,// GRID_SIZE: عدد مستويات الشراء (ونفس العدد للبيع)
-  manualSymbol: 'BTCUSDT',  // الرمز اللي تعمل عليه الشبكة حاليًا
-  positions: {},            // غير مستخدم في بوت الشبكة (موجود فقط توافقًا مع الواجهة القديمة)
-  pendingOrders: {},        // أوامر الشبكة المفتوحة حاليًا، كل أمر بمفتاح فريد
-  pendingSellOrders: {},    // غير مستخدم في بوت الشبكة (توافقًا مع الواجهة القديمة)
+  tradeSizeUsdt: 50,
+  takeProfitPercent: 1,
+  maxConcurrentPositions: 1,
+  scanWindowMinutes: 2, // وقت الفحص المخصص لكل عملة — قابل للتعديل من اللوحة
+  strategyMode: 'auto', // 'auto' = خوارزمية البوت التلقائية | 'manual' = المستخدم يحدد شروط الشراء/البيع بنفسه
+  manualSymbol: null, // بوضع "يدوي": لو محددة، البوت يراقب هذي العملة بس. لو null، يفحص كل حوض البحث بنفس قواعد المستخدم
+  buyRules: { rsiBelow: null, priceBelow: null, dropPercentFromHigh: null, bbLowerTouch: false }, // قواعد الشراء اليدوية — كلها اختيارية، والمفعّل منها لازم يتحقق كله مع بعض
+  sellRules: { stopLossPercent: null, rsiAbove: null, priceAbove: null }, // قواعد بيع إضافية فوق جني الربح التلقائي الموجود أصلاً
+  positions: {},
+  pendingOrders: {},
+  pendingSellOrders: {},
   tradeLog: [],
+  lastSignals: {},
+  scanStatus: { active: false, symbol: null, poolIndex: 0, windowStartedAt: null, checked: 0, total: 0 },
 };
 
-const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء فحص أقوى 3 عملات (REST خفيف) — يُستخدم في runExplosionScan فوق
+// خُفِّفت هذي العتبة من 0.35 إلى 0.22 (بطلب المستخدم) عشان يزيد تردد الشراء — راقب الأداء وعدّل حسب الحاجة
+const BOT_BUY_THRESHOLD = 0.22;
+const BOT_SELL_THRESHOLD = -0.22;
+const MAX_PENDING_BUY_MINUTES = 5; // كان 45 دقيقة — هذا كان يعلّق البوت كامل لو أمر واحد ما نفذ، خصوصًا مع سعر بعيد عن السوق
+const TP_LEVELS = [1, 1.5, 2];
+const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء الفحص السريع (REST خفيف)
 
-// ── توقيع وأدوات Binance ────────────────────────────────────────────────────
+function computeFourBoxScore(indicators) {
+  if (!indicators) return 0;
+  const leanOf = { stability: 0, reversal: 0, momentum: 0, hourly: 0 };
+  { let bull = 0, bear = 0;
+    if (indicators.adx && indicators.adx.adx >= 20) { if (indicators.adx.pdi > indicators.adx.mdi) bull++; else bear++; }
+    if (indicators.williamsR) { if (indicators.williamsR.zoneUp) bull++; if (indicators.williamsR.zoneDown) bear++; }
+    if (indicators.ichimoku && indicators.currentPrice != null) { const top = Math.max(indicators.ichimoku.spanA, indicators.ichimoku.spanB); const bottom = Math.min(indicators.ichimoku.spanA, indicators.ichimoku.spanB); if (indicators.currentPrice > top) bull++; else if (indicators.currentPrice < bottom) bear++; }
+    if (indicators.obv != null && indicators.obvTrendRef != null) { if (indicators.obv > indicators.obvTrendRef) bull++; else bear++; }
+    const total = bull + bear; leanOf.stability = total > 0 ? (bull - bear) / total : 0; }
+  { let bull = 0, bear = 0;
+    if (indicators.stochRsi) { if (indicators.stochRsi.crossUp || indicators.stochRsi.zoneUp) bull++; if (indicators.stochRsi.crossDown || indicators.stochRsi.zoneDown) bear++; }
+    if (indicators.williamsR) { if (indicators.williamsR.crossUpFrom80 || indicators.williamsR.zoneUp) bull++; if (indicators.williamsR.crossDownFrom20 || indicators.williamsR.zoneDown) bear++; }
+    if (indicators.bbPercentB) { if (indicators.bbPercentB.zoneUp) bull++; if (indicators.bbPercentB.zoneDown) bear++; }
+    if (indicators.rsiDivergence) { if (indicators.rsiDivergence.type === 'bullish') bull++; else if (indicators.rsiDivergence.type === 'bearish') bear++; }
+    const total = bull + bear; leanOf.reversal = total > 0 ? (bull - bear) / total : 0; }
+  { let bull = 0, bear = 0;
+    if (indicators.rsi != null) { if (indicators.rsi > 55) bull++; else if (indicators.rsi < 45) bear++; }
+    if (indicators.macd) { if (indicators.macd.value > indicators.macd.signal) bull++; else bear++; }
+    if (indicators.stochastic) { if (indicators.stochastic.k > 55 && indicators.stochastic.k >= indicators.stochastic.d) bull++; else if (indicators.stochastic.k < 45 && indicators.stochastic.k <= indicators.stochastic.d) bear++; }
+    if (indicators.adx && indicators.adx.adx >= 20) { if (indicators.adx.pdi > indicators.adx.mdi) bull++; else bear++; }
+    const total = bull + bear; leanOf.momentum = total > 0 ? (bull - bear) / total : 0; }
+  { const hl = indicators.hourlyLayer; const total = hl ? hl.bull + hl.bear : 0; leanOf.hourly = total > 0 ? (hl.bull - hl.bear) / total : 0; }
+  return leanOf.stability * 0.45 + leanOf.reversal * 0.30 + leanOf.momentum * 0.20 + leanOf.hourly * 0.05;
+}
+
+function computeDecision7Score(indicators, decision) {
+  if (!indicators || !decision) return 0;
+  const terms = [];
+  if (indicators.ema200 != null && indicators.currentPrice != null) terms.push({ sign: indicators.currentPrice > indicators.ema200 ? 1 : -1, w: 1 });
+  terms.push({ sign: decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0, w: 1 });
+  let mBull = 0, mBear = 0;
+  if (indicators.rsi != null) { if (indicators.rsi > 55) mBull++; else if (indicators.rsi < 45) mBear++; }
+  if (indicators.macd) { if (indicators.macd.value > indicators.macd.signal) mBull++; else mBear++; }
+  terms.push({ sign: mBull > mBear ? 1 : mBull < mBear ? -1 : 0, w: 1 });
+  let vBull = 0, vBear = 0;
+  if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') vBull++;
+  if (indicators.cvd && indicators.cvd.signal === 'bearish_divergence') vBear++;
+  if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') vBull++;
+  if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') vBear++;
+  terms.push({ sign: vBull > vBear ? 1 : vBull < vBear ? -1 : 0, w: 1 });
+  let rBull = 0, rBear = 0;
+  if (indicators.stochRsi) { if (indicators.stochRsi.crossUp || indicators.stochRsi.zoneUp) rBull++; if (indicators.stochRsi.crossDown || indicators.stochRsi.zoneDown) rBear++; }
+  if (indicators.williamsR) { if (indicators.williamsR.crossUpFrom80 || indicators.williamsR.zoneUp) rBull++; if (indicators.williamsR.crossDownFrom20 || indicators.williamsR.zoneDown) rBear++; }
+  terms.push({ sign: rBull > rBear ? 1 : rBull < rBear ? -1 : 0, w: 1 });
+  if (indicators.chop != null) {
+    const majoritySign = Math.sign(terms.reduce((s, t) => s + t.sign * t.w, 0)) || 0;
+    if (indicators.chop < 38.2) terms.push({ sign: majoritySign, w: 2 });
+    else if (indicators.chop > 61.8) terms.push({ sign: 0, w: 2 });
+  }
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0;
+}
+
+function computeFrameScore(symbol, indicators) {
+  const snapshot = computeMtfSnapshot(symbol);
+  const watched = ['5m', '15m', '30m', '1h'];
+  let sumLean = 0;
+  for (const iv of watched) {
+    const info = snapshot[iv];
+    if (!info) continue;
+    const sign = info.action === 'buy zone' ? 1 : info.action === 'sell zone' ? -1 : 0;
+    sumLean += (sign * (info.confidence / 100)) * 0.20;
+  }
+  if (indicators && indicators.ema200 != null && indicators.currentPrice != null) sumLean += (indicators.currentPrice > indicators.ema200 ? 1 : -1) * 0.20;
+  return sumLean;
+}
+
+const BTC_LAYER_STEP_SERVER = 70;
+const BTC_LAYER_PCT_CAP_SERVER = 25;
+let botBtcRefPrice = null;
+let botBtcLastDiff = 0;
+function updateBotBtcLayer() {
+  const btcCandles = candleStore[`BTCUSDT_${SCAN_INTERVAL}`];
+  if (!btcCandles || !btcCandles.length) return;
+  const price = btcCandles[btcCandles.length - 1].close;
+  if (botBtcRefPrice === null) { botBtcRefPrice = price; return; }
+  botBtcLastDiff = price - botBtcRefPrice;
+}
+function computeBtcBoost() {
+  const moved70 = Math.abs(botBtcLastDiff) >= BTC_LAYER_STEP_SERVER;
+  if (!moved70) return 0;
+  const pct = Math.min(100, (Math.abs(botBtcLastDiff) / BTC_LAYER_PCT_CAP_SERVER) * 100) / 100;
+  const sign = botBtcLastDiff > 0 ? 1 : -1;
+  return sign * pct * 0.3;
+}
+
+function computeSecondaryScore(indicators, decision) {
+  if (!indicators) return 0;
+  let volumeLean = 0;
+  { let bull = 0, bear = 0;
+    if (indicators.cvd && indicators.cvd.signal === 'bullish_divergence') bull++;
+    if (indicators.cvd && indicators.cvd.signal === 'bearish_divergence') bear++;
+    if (indicators.accDist && indicators.accDist.zone === 'تجميع (Accumulation)') bull++;
+    if (indicators.accDist && indicators.accDist.zone === 'تصريف (Distribution)') bear++;
+    const total = bull + bear; volumeLean = total > 0 ? (bull - bear) / total : 0; }
+  const trendSign = (indicators.ema200 != null && indicators.currentPrice != null) ? (indicators.currentPrice > indicators.ema200 ? 1 : -1) : 0;
+  const actionSign = decision ? (decision.action === 'buy zone' ? 1 : decision.action === 'sell zone' ? -1 : 0) : 0;
+  const confWeight = decision ? (decision.confidence || 50) / 100 : 0.5;
+  const confidenceLean = actionSign * confWeight;
+  const W = { trend: 0.20, action: 0.10, volume: 0.30, confidence: 0.20, analysis: 0.20 };
+  return trendSign * W.trend + actionSign * W.action + volumeLean * W.volume + confidenceLean * W.confidence + trendSign * W.analysis;
+}
+
+function computeBotOwnSignalTerms(indicators, candles) {
+  const terms = [];
+  const closes = candles.map(c => c.close);
+  const rsiSeries = RSI.calculate({ values: closes, period: 14 });
+  if (rsiSeries.length >= 5) {
+    const recent = rsiSeries.slice(-5);
+    const slope = recent[recent.length - 1] - recent[0];
+    terms.push({ sign: Math.abs(slope) > 3 ? (slope > 0 ? 1 : -1) : 0, w: 1 });
+  }
+  if (indicators.vwap != null && indicators.currentPrice != null) {
+    const dev = (indicators.currentPrice - indicators.vwap) / indicators.vwap;
+    terms.push({ sign: Math.abs(dev) > 0.004 ? (dev > 0 ? 1 : -1) : 0, w: 1 });
+  }
+  if (indicators.atr && indicators.atr.percent != null && indicators.ema50 != null && indicators.currentPrice != null) {
+    const trendDir = indicators.currentPrice > indicators.ema50 ? 1 : -1;
+    terms.push({ sign: indicators.atr.percent >= 0.5 ? trendDir : 0, w: 1 });
+  }
+  return terms;
+}
+// نسخة سريعة بدون أي طلب شبكة — تُستخدم بالفحص الأولي على كل العملات (150+) عشان ما نبطّئ الدورة بمكالمات API
+function computeBotOwnSignalLocal(indicators, candles) {
+  if (!indicators || !candles || candles.length < 20) return 0;
+  const terms = computeBotOwnSignalTerms(indicators, candles);
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0;
+}
+async function computeBotOwnSignal(indicators, candles, symbol) {
+  if (!indicators || !candles || candles.length < 20) return 0;
+  const terms = computeBotOwnSignalTerms(indicators, candles);
+  try {
+    const bf = await fetchBinanceFutures(symbol);
+    if (bf) {
+      let sign = 0, count = 0;
+      if (bf.fundingRate != null) { sign += bf.fundingRate > 0.02 ? -1 : bf.fundingRate < -0.02 ? 1 : 0; count++; }
+      if (bf.longShortRatio != null) { sign += bf.longShortRatio > 2 ? -1 : bf.longShortRatio < 0.5 ? 1 : 0; count++; }
+      if (count > 0) terms.push({ sign: Math.sign(sign) || 0, w: 1 });
+    }
+  } catch (e) {}
+  const totalWeight = terms.reduce((s, t) => s + t.w, 0);
+  const rawScore = terms.reduce((s, t) => s + t.sign * t.w, 0);
+  return totalWeight > 0 ? rawScore / totalWeight : 0;
+}
+
+// خُفِّف من 100000 إلى 50000 (بطلب المستخدم) عشان يقبل عملات أقل سيولة شوي
+const MIN_LIQUIDITY_USDT = 50000;
+
+function passesEntryFilters(candles) {
+  if (!candles || candles.length < 11) return { ok: false, reason: 'بيانات غير كافية' };
+  const last10 = candles.slice(-11, -1);
+  const closes = last10.map(c => c.close);
+  const changePct = ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100;
+  const currentPrice = candles[candles.length - 1].close;
+  const rangeHigh = Math.max(...last10.map(c => c.high));
+  const rangeLow = Math.min(...last10.map(c => c.low));
+  const posInRange = rangeHigh > rangeLow ? (currentPrice - rangeLow) / (rangeHigh - rangeLow) : 0.5;
+  const avgQuoteVolume = last10.reduce((s, c) => s + c.volume * c.close, 0) / last10.length;
+
+  // خُفِّفت هذي الشروط (بطلب المستخدم): نزول أقل تشددًا، ونطاق أوسع بالقرب من الأسفل
+  const declineConfirmed = changePct < -0.08;
+  const nearLowerZone = posInRange <= 0.70;
+  const liquidOk = avgQuoteVolume >= MIN_LIQUIDITY_USDT;
+
+  if (!declineConfirmed) return { ok: false, reason: `ما فيه نزول كافٍ (${changePct.toFixed(2)}%)` };
+  if (!nearLowerZone) return { ok: false, reason: `السعر مو بأدنى المدى (${(posInRange * 100).toFixed(0)}%)` };
+  if (!liquidOk) return { ok: false, reason: `سيولة ضعيفة (${fmtBig(avgQuoteVolume)} USDT)` };
+  return { ok: true, reason: `نزول ${changePct.toFixed(2)}% + السعر بأدنى ${(posInRange * 100).toFixed(0)}% + سيولة ${fmtBig(avgQuoteVolume)} USDT` };
+}
+
+function fmtBig(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toFixed(0);
+}
+
+// ── قواعد التداول اليدوية (المستخدم يحدد شروط الشراء والبيع بنفسه) ─────────────
+
+// يتحقق من شروط الشراء اللي فعّلها المستخدم. أي شرط قيمته null/false يُتجاهل تمامًا.
+// كل الشروط المفعّلة لازم تتحقق مع بعض (AND) — لازم يكون فيه شرط واحد مفعّل على الأقل وإلا ما يشتري إطلاقًا.
+function evaluateManualBuyRules(indicators, candles) {
+  const rules = botState.buyRules || {};
+  const reasons = [];
+  let anyRuleSet = false;
+
+  if (rules.rsiBelow != null) {
+    anyRuleSet = true;
+    if (indicators.rsi == null || indicators.rsi >= rules.rsiBelow) return { ok: false };
+    reasons.push(`RSI (${indicators.rsi.toFixed(1)}) تحت ${rules.rsiBelow}`);
+  }
+  if (rules.priceBelow != null) {
+    anyRuleSet = true;
+    if (indicators.currentPrice == null || indicators.currentPrice >= rules.priceBelow) return { ok: false };
+    reasons.push(`السعر (${indicators.currentPrice}) تحت ${rules.priceBelow}`);
+  }
+  if (rules.dropPercentFromHigh != null) {
+    anyRuleSet = true;
+    const highs = candles.slice(-20).map(c => c.high);
+    const recentHigh = Math.max(...highs);
+    const dropPct = recentHigh ? ((recentHigh - indicators.currentPrice) / recentHigh) * 100 : 0;
+    if (dropPct < rules.dropPercentFromHigh) return { ok: false };
+    reasons.push(`انخفض ${dropPct.toFixed(2)}% عن أعلى قمة بآخر 20 شمعة`);
+  }
+  if (rules.bbLowerTouch) {
+    anyRuleSet = true;
+    if (!indicators.bb || indicators.currentPrice > indicators.bb.lower) return { ok: false };
+    reasons.push('السعر لمس/تحت بولينجر السفلي');
+  }
+
+  if (!anyRuleSet) return { ok: false };
+  return { ok: true, reason: reasons.join(' + ') };
+}
+
+// يتحقق من شروط البيع الإضافية اللي فعّلها المستخدم فوق جني الربح التلقائي الموجود أصلاً (TP ladder).
+// أول شرط يتحقق يكفي وحده لإصدار أمر بيع فوري (Market) — هذي شروط طوارئ/خروج، مو AND.
+function evaluateManualSellRules(indicators, position) {
+  const rules = botState.sellRules || {};
+  if (!position || !position.entryPrice) return { ok: false };
+  const pnlPct = ((indicators.currentPrice - position.entryPrice) / position.entryPrice) * 100;
+
+  if (rules.stopLossPercent != null && pnlPct <= -Math.abs(rules.stopLossPercent)) {
+    return { ok: true, reason: `وقف خسارة: الصفقة عند ${pnlPct.toFixed(2)}%` };
+  }
+  if (rules.rsiAbove != null && indicators.rsi != null && indicators.rsi > rules.rsiAbove) {
+    return { ok: true, reason: `RSI (${indicators.rsi.toFixed(1)}) فوق ${rules.rsiAbove}` };
+  }
+  if (rules.priceAbove != null && indicators.currentPrice > rules.priceAbove) {
+    return { ok: true, reason: `السعر (${indicators.currentPrice}) فوق ${rules.priceAbove}` };
+  }
+  return { ok: false };
+}
+
+// دورة الشراء بوضع "يدوي" — إما عملة محددة، أو فحص كل الحوض بنفس قواعد المستخدم فقط (بدون خوارزمية التقييم التلقائية)
+async function runManualBuyCycle(now) {
+  if (botState.manualSymbol) {
+    const symbol = botState.manualSymbol;
+    if (botState.positions[symbol] || botState.pendingOrders[symbol]) {
+      botState.scanStatus = { active: false, symbol: null, windowStartedAt: null, checked: 1, total: 1 };
+      return;
+    }
+    if (!candleStore[`${symbol}_15m`]) { try { await ensureStream(symbol, SCAN_INTERVAL); } catch (err) { /* نكمل لو فشل */ } }
+    const candles = candleStore[`${symbol}_15m`];
+    botState.scanStatus = { active: true, symbol, windowStartedAt: now, checked: 1, total: 1 };
+    if (!candles || candles.length < 30) return;
+    const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+    if (!indicators) return;
+    const buyCheck = evaluateManualBuyRules(indicators, candles);
+    if (buyCheck.ok) {
+      const sig = {
+        symbol, price: indicators.currentPrice,
+        buyPoints: [{ point: 1, label: 'قاعدة يدوية', price: indicators.currentPrice, triggered: true }],
+        filterReason: buyCheck.reason, strongReversalUp: false,
+      };
+      await placeBotLimitBuy(sig);
+      botState.scanStatus.active = false;
+    }
+    return;
+  }
+
+  // ما فيه عملة محددة — يفحص كل حوض البحث ويشتري أول عملة تحقق قواعد المستخدم
+  const validSet = botState.exchange === 'binance' ? await getBinanceValidSymbols() : null;
+  let matched = null;
+  for (const symbol of SCAN_POOL) {
+    if (validSet && !validSet.has(symbol)) continue;
+    if (blacklistedSymbols[symbol] && blacklistedSymbols[symbol] > now) continue;
+    if (botState.positions[symbol] || botState.pendingOrders[symbol]) continue;
+    if (!candleStore[`${symbol}_15m`]) await refreshScanCache(symbol);
+    const candles = getCandlesForScan(symbol);
+    if (!candles || candles.length < 30) continue;
+    const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+    if (!indicators) continue;
+    const buyCheck = evaluateManualBuyRules(indicators, candles);
+    if (buyCheck.ok) { matched = { symbol, price: indicators.currentPrice, reason: buyCheck.reason }; break; }
+  }
+
+  if (matched) {
+    if (!candleStore[`${matched.symbol}_15m`] || candleStore[`${matched.symbol}_15m`].length < 60) {
+      try { await ensureStream(matched.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل */ }
+    }
+    botState.scanStatus = { active: true, symbol: matched.symbol, windowStartedAt: now, checked: SCAN_POOL.length, total: SCAN_POOL.length };
+    const sig = {
+      symbol: matched.symbol, price: matched.price,
+      buyPoints: [{ point: 1, label: 'قاعدة يدوية', price: matched.price, triggered: true }],
+      filterReason: matched.reason, strongReversalUp: false,
+    };
+    await placeBotLimitBuy(sig);
+    botState.scanStatus.active = false;
+  } else {
+    botState.scanStatus = { active: false, symbol: null, windowStartedAt: null, checked: SCAN_POOL.length, total: SCAN_POOL.length };
+  }
+}
+
+function computeBuyPoints(candles, indicators, sig) {
+  if (!candles || candles.length < 20 || !indicators) return [];
+  const price = indicators.currentPrice;
+  const lows = candles.slice(-20).map(c => c.low);
+  const recentLow = Math.min(...lows);
+  const bbLower = indicators.bb?.lower;
+  return [
+    // نقطة 2 و3 تحتاجان شرط فني فعلي (تحققهما ليس دائمًا). نقطة 1 هي البديل الافتراضي —
+    // لازم سعرها يكون قريب من السوق (فوقه بشعرة) لا 0.5% تحته، وإلا الأمر يعلّق للأبد
+    // لو السعر ما ينزل لهالمستوى (كان هذا هو سبب تعليق الشراء الأساسي).
+    { point: 2, label: 'ارتداد من بولينجر السفلي + StochRSI', price: roundPrice(bbLower || price * 0.99), triggered: sig.action === 'buy' && !!indicators.stochRsi?.crossUp },
+    { point: 3, label: 'كسر قاع 20 شمعة بابتلاع صاعد', price: roundPrice(recentLow * 0.99), triggered: sig.action === 'buy' && !!indicators.candleCompare?.bullEngulf },
+    { point: 1, label: 'دخول قريب من السعر الحالي (بديل افتراضي)', price: roundPrice(price * 1.0015), triggered: sig.action === 'buy' && sig.passesFilters },
+  ];
+}
+
+// ── أوامر API ────────────────────────────────────────────────────────────────
+
+function mexcSignedQuery(params) {
+  const qs = new URLSearchParams(params).toString();
+  const sig = crypto.createHmac('sha256', MEXC_API_SECRET).update(qs).digest('hex');
+  return `${qs}&signature=${sig}`;
+}
 function binanceSignedQuery(params) {
   const qs = new URLSearchParams(params).toString();
   const sig = crypto.createHmac('sha256', BINANCE_API_SECRET).update(qs).digest('hex');
@@ -1775,107 +1887,365 @@ function roundPrice(price) {
   return Number(price.toFixed(8));
 }
 
-async function placeLimitOrder(symbol, side, price, quantity) {
+async function placeMexcOrder(symbol, side, quoteOrderQty, quantity) {
+  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
+  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
+  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function placeBinanceOrder(symbol, side, quoteOrderQty, quantity) {
+  const params = { symbol, side, type: 'MARKET', timestamp: Date.now(), recvWindow: 5000 };
+  if (side === 'BUY') params.quoteOrderQty = quoteOrderQty; else params.quantity = quantity;
+  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+function placeOrder(exchange, symbol, side, quoteOrderQty, quantity) {
+  return exchange === 'binance' ? placeBinanceOrder(symbol, side, quoteOrderQty, quantity) : placeMexcOrder(symbol, side, quoteOrderQty, quantity);
+}
+
+async function placeMexcLimitOrder(symbol, side, price, quantity) {
+  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.post(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, null, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function placeBinanceLimitOrder(symbol, side, price, quantity) {
   const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
   const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
   return data;
 }
-async function cancelOrder(symbol, orderId) {
+function placeLimitOrder(exchange, symbol, side, price, quantity) {
+  return exchange === 'binance' ? placeBinanceLimitOrder(symbol, side, price, quantity) : placeMexcLimitOrder(symbol, side, price, quantity);
+}
+
+async function queryMexcOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.get(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function queryBinanceOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
+  return data;
+}
+function queryOrder(exchange, symbol, orderId) {
+  return exchange === 'binance' ? queryBinanceOrder(symbol, orderId) : queryMexcOrder(symbol, orderId);
+}
+
+async function cancelMexcOrder(symbol, orderId) {
+  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const { data } = await axios.delete(`https://api.mexc.com/api/v3/order?${mexcSignedQuery(params)}`, { headers: { 'X-MEXC-APIKEY': MEXC_API_KEY }, timeout: 10000 });
+  return data;
+}
+async function cancelBinanceOrder(symbol, orderId) {
   const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
   const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
   return data;
 }
-async function getOpenOrders(symbol) {
-  const params = { symbol, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.get(`https://api.binance.com/api/v3/openOrders?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
-  return data;
+function cancelOrder(exchange, symbol, orderId) {
+  return exchange === 'binance' ? cancelBinanceOrder(symbol, orderId) : cancelMexcOrder(symbol, orderId);
 }
-async function getCurrentPrice(symbol) {
-  const { data } = await axios.get(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`, { timeout: 10000 });
-  return parseFloat(data.price);
+
+async function executeBotSell(symbol, sig, reasonOverride) {
+  const pos = botState.positions[symbol];
+  if (!pos) return;
+  if (botState.pendingSellOrders[symbol]) {
+    for (const o of botState.pendingSellOrders[symbol]) { try { await cancelOrder(o.exchange, symbol, o.orderId); } catch {} }
+    delete botState.pendingSellOrders[symbol];
+  }
+  if (botState.pendingOrders[symbol] && botState.pendingOrders[symbol].side === 'SELL') {
+    try { await cancelOrder(botState.exchange, symbol, botState.pendingOrders[symbol].orderId); } catch {}
+    delete botState.pendingOrders[symbol];
+  }
+  const data = await placeOrder(botState.exchange, symbol, 'SELL', null, pos.qty);
+  const executedQty = parseFloat(data.executedQty || pos.qty);
+  const quoteReceived = parseFloat(data.cummulativeQuoteQty || 0);
+  const exitPrice = executedQty ? quoteReceived / executedQty : pos.entryPrice;
+  const pnl = quoteReceived - (pos.qty * pos.entryPrice);
+  const pnlPct = pos.entryPrice ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+  delete botState.positions[symbol];
+  const reason = reasonOverride || 'إغلاق يدوي فوري';
+  botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: exitPrice, qty: executedQty, quoteAmount: quoteReceived, exchange: botState.exchange, reason, pnl, pnlPct });
+  botState.tradeLog = botState.tradeLog.slice(0, 50);
+  broadcastBotStatus();
 }
 
 function logBotError(symbol, err) {
   const detail = err.response?.data?.msg || err.message;
-  console.error(`[GRID-BOT] خطأ في ${symbol}:`, detail);
+  console.error(`[BOT] خطأ في ${symbol}:`, detail);
   botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: String(detail) });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
 
-// 🧹 إلغاء كافة الأوامر المفتوحة على الرمز — نفس cancel_all_orders() في سكربت Python
-async function cancelAllOpenOrders(symbol) {
-  let orders;
-  try { orders = await getOpenOrders(symbol); } catch (err) { logBotError(symbol, err); return; }
-  for (const o of orders) {
-    try { await cancelOrder(symbol, o.orderId); } catch (err) { logBotError(symbol, err); }
-  }
-}
-
-// 🛠️ بناء وإرسال شبكة الأوامر الجديدة — نفس place_grid_orders() في سكربت Python
-async function placeGridOrders(symbol, currentPrice) {
-  const gridSize = botState.maxConcurrentPositions;
-  const stepPct = botState.takeProfitPercent / 100;
-  const usdtPerLevel = botState.tradeSizeUsdt;
-  botState.pendingOrders = {};
-
-  for (let i = 1; i <= gridSize; i++) {
-    const buyPrice = roundPrice(currentPrice * (1 - stepPct * i));
-    const qty = roundQty(usdtPerLevel / buyPrice, buyPrice);
-    if (!qty || qty <= 0) continue;
+async function placeBotTakeProfitSells(symbol, position) {
+  const qtyPerOrder = roundQty(position.qty / 3, position.entryPrice);
+  if (!qtyPerOrder || qtyPerOrder <= 0) return;
+  const tpBase = botState.takeProfitPercent / 100;
+  botState.pendingSellOrders[symbol] = [];
+  for (const [i, mult] of TP_LEVELS.entries()) {
+    const sellPrice = roundPrice(position.entryPrice * (1 + tpBase * mult));
+    const pointName = `TP${i + 1} (${(botState.takeProfitPercent * mult).toFixed(1)}%)`;
     try {
-      const data = await placeLimitOrder(symbol, 'BUY', buyPrice, qty);
+      const data = await placeLimitOrder(botState.exchange, symbol, 'SELL', sellPrice, qtyPerOrder);
       if (data.orderId) {
-        botState.pendingOrders[`${symbol}_buy_${i}`] = { orderId: data.orderId, side: 'BUY', symbol, price: buyPrice, qty, level: i };
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: buyPrice, qty, exchange: 'binance', reason: `📥 أمر شراء شبكة #${i} عند ${buyPrice}` });
+        botState.pendingSellOrders[symbol].push({ orderId: data.orderId, side: 'SELL', price: sellPrice, qty: qtyPerOrder, placedAt: Date.now(), exchange: botState.exchange, point: pointName });
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty: qtyPerOrder, exchange: botState.exchange, reason: `أمر بيع ${pointName} معلّق عند ${sellPrice}` });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
       }
     } catch (err) { logBotError(symbol, err); }
   }
-
-  for (let i = 1; i <= gridSize; i++) {
-    const sellPrice = roundPrice(currentPrice * (1 + stepPct * i));
-    const qty = roundQty(usdtPerLevel / sellPrice, sellPrice);
-    if (!qty || qty <= 0) continue;
-    try {
-      const data = await placeLimitOrder(symbol, 'SELL', sellPrice, qty);
-      if (data.orderId) {
-        botState.pendingOrders[`${symbol}_sell_${i}`] = { orderId: data.orderId, side: 'SELL', symbol, price: sellPrice, qty, level: i };
-        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty, exchange: 'binance', reason: `📤 أمر بيع شبكة #${i} عند ${sellPrice}` });
-      }
-    } catch (err) { logBotError(symbol, err); }
-  }
-
-  botState.tradeLog = botState.tradeLog.slice(0, 50);
 }
 
-// 🔄 دورة المراقبة الدورية — نفس حلقة while True في سكربت Python: تفحص الأوامر المفتوحة كل 30 ثانية،
-// ولو نقص عددها عن المتوقع (GRID_SIZE × 2) فهذا يعني تنفيذ صفقة، فتُعاد موازنة الشبكة على السعر الجديد.
-async function runBotCycle() {
-  if (!botState.enabled) return;
-  const symbol = botState.manualSymbol || 'BTCUSDT';
+async function placeBotLimitBuy(sig) {
+  const { symbol } = sig;
+  const buyPoint = sig.buyPoints?.find(p => p.triggered);
+  // نقطة الدخول: لو فيه نقطة فنية فعليًا محققة (بولينجر/ابتلاع) نستخدم سعرها، وإلا نشتري قريب من السعر
+  // الحالي (فوقه بشعرة) بدل نقطة عامة أبعد 0.5% كانت تخلي الأمر يعلّق لأنه ما يوصله السعر أبدًا
+  const rawPrice = buyPoint ? buyPoint.price : sig.price * 1.0015;
+  const buyPrice = roundPrice(rawPrice);
+  const qty = roundQty(botState.tradeSizeUsdt / buyPrice, buyPrice);
+  if (!qty || qty <= 0) return;
+
   try {
-    const openOrders = await getOpenOrders(symbol);
-    const expectedTotal = botState.maxConcurrentPositions * 2;
-    if (openOrders.length < expectedTotal) {
-      botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: '🔔 اكتشاف تنفيذ صفقة في السوق! جاري تحديث وموازنة الشبكة...' });
-      await cancelAllOpenOrders(symbol);
-      const newPrice = await getCurrentPrice(symbol);
-      await placeGridOrders(symbol, newPrice);
-      botState.tradeLog = botState.tradeLog.slice(0, 50);
+    let data;
+    if (sig.strongReversalUp) {
+      data = await placeOrder(botState.exchange, symbol, 'BUY', botState.tradeSizeUsdt, null);
+      const executedQty = parseFloat(data.executedQty || qty);
+      const quoteAmount = parseFloat(data.cummulativeQuoteQty || botState.tradeSizeUsdt);
+      const fillPrice = executedQty > 0 ? quoteAmount / executedQty : buyPrice;
+      botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
+      botState.tradeLog.unshift({
+        time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty,
+        quoteAmount, exchange: botState.exchange,
+        reason: `شراء فوري (Market) بسبب إشارة ارتداد قوية — ${sig.filterReason}`,
+      });
+      await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
+    } else {
+      data = await placeLimitOrder(botState.exchange, symbol, 'BUY', buyPrice, qty);
+      if (!data.orderId) return;
+      botState.pendingOrders[symbol] = {
+        orderId: data.orderId, side: 'BUY', price: buyPrice, qty,
+        placedAt: Date.now(), exchange: botState.exchange,
+      };
+      botState.tradeLog.unshift({
+        time: Date.now(), symbol, type: 'order', side: 'BUY',
+        price: buyPrice, qty, exchange: botState.exchange,
+        reason: `أمر شراء Limit (${buyPoint?.label || 'نقطة عامة'}) عند ${buyPrice} — ${sig.filterReason}`,
+      });
     }
+    botState.tradeLog = botState.tradeLog.slice(0, 50);
   } catch (err) {
     logBotError(symbol, err);
+    blacklistedSymbols[symbol] = Date.now() + SYMBOL_BLACKLIST_MS;
+    botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `تم حظر ${symbol} مؤقتًا لمدة ساعة بسبب فشل تنفيذ الشراء` });
+    botState.tradeLog = botState.tradeLog.slice(0, 50);
   }
+}
+
+async function checkPendingOrders(symbol) {
+  const buyOrder = botState.pendingOrders[symbol];
+  if (buyOrder) {
+    let data;
+    try { data = await queryOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch { return; }
+    const status = data.status;
+    if (status === 'FILLED') {
+      const executedQty = parseFloat(data.executedQty || buyOrder.qty);
+      const quoteAmount = parseFloat(data.cummulativeQuoteQty || executedQty * buyOrder.price);
+      const fillPrice = executedQty ? quoteAmount / executedQty : buyOrder.price;
+      botState.positions[symbol] = { qty: executedQty, entryPrice: fillPrice, entryTime: Date.now() };
+      delete botState.pendingOrders[symbol];
+      botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'BUY', price: fillPrice, qty: executedQty, quoteAmount, exchange: buyOrder.exchange, reason: `نفذ أمر الشراء عند ${fillPrice.toFixed(6)}` });
+      botState.tradeLog = botState.tradeLog.slice(0, 50);
+      await placeBotTakeProfitSells(symbol, botState.positions[symbol]);
+    } else if (status === 'CANCELED' || status === 'EXPIRED' || status === 'REJECTED') {
+      delete botState.pendingOrders[symbol];
+    } else {
+      const ageMinutes = (Date.now() - buyOrder.placedAt) / 60000;
+      // نلغي أي أمر شراء ما تنفذ بعد انتهاء المهلة، بغض النظر عن اتجاه السعر — كان الشرط القديم
+      // يطلب ابتعاد السعر 1% فوق سعر الأمر، فلو السعر ما تحرك (سوق هادئ) الأمر يفضل معلّق للأبد
+      // ويقفل البوت كامل عن البحث عن فرص جديدة. الهدف هنا: تحرير البوت بسرعة لعملة أفضل.
+      if (ageMinutes > MAX_PENDING_BUY_MINUTES) {
+        try { await cancelOrder(buyOrder.exchange, symbol, buyOrder.orderId); } catch {}
+        delete botState.pendingOrders[symbol];
+        botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'error', message: `أُلغي أمر الشراء المعلق بعد ${MAX_PENDING_BUY_MINUTES} دقائق بدون تنفيذ` });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
+      }
+    }
+  }
+  const sellOrders = botState.pendingSellOrders[symbol];
+  if (sellOrders && sellOrders.length) {
+    for (const order of [...sellOrders]) {
+      let data;
+      try { data = await queryOrder(order.exchange, symbol, order.orderId); } catch { continue; }
+      if (data.status === 'FILLED') {
+        const executedQty = parseFloat(data.executedQty || order.qty);
+        const quoteAmount = parseFloat(data.cummulativeQuoteQty || executedQty * order.price);
+        const fillPrice = executedQty ? quoteAmount / executedQty : order.price;
+        const pos = botState.positions[symbol];
+        const pnl = pos ? quoteAmount - executedQty * pos.entryPrice : null;
+        const pnlPct = pos && pos.entryPrice ? ((fillPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
+        botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
+        botState.tradeLog.unshift({ time: Date.now(), symbol, side: 'SELL', price: fillPrice, qty: executedQty, quoteAmount, exchange: order.exchange, reason: `نفذ بيع ${order.point} عند ${fillPrice.toFixed(6)}`, pnl, pnlPct });
+        botState.tradeLog = botState.tradeLog.slice(0, 50);
+      } else if (['CANCELED', 'EXPIRED', 'REJECTED'].includes(data.status)) {
+        botState.pendingSellOrders[symbol] = botState.pendingSellOrders[symbol].filter(o => o.orderId !== order.orderId);
+      }
+    }
+    if (botState.pendingSellOrders[symbol].length === 0) delete botState.pendingSellOrders[symbol];
+  }
+}
+
+async function runBotCycle() {
+  if (!botState.enabled) return;
+
+  const symbolsToCheck = new Set([...Object.keys(botState.pendingOrders), ...Object.keys(botState.pendingSellOrders)]);
+  for (const symbol of symbolsToCheck) { try { await checkPendingOrders(symbol); } catch (err) { logBotError(symbol, err); } }
+
+  // مراقبة وقف الخسارة وأي قواعد بيع إضافية على كل صفقة مفتوحة — تعمل دائمًا (بكل الأوضاع) فوق جني الربح التلقائي
+  for (const symbol of Object.keys(botState.positions)) {
+    try {
+      const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+      if (!candles || candles.length < 30) continue;
+      const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+      if (!indicators) continue;
+      const manualSell = evaluateManualSellRules(indicators, botState.positions[symbol]);
+      if (manualSell.ok) await executeBotSell(symbol, null, `بيع حسب القاعدة: ${manualSell.reason}`);
+    } catch (err) { logBotError(symbol, err); }
+  }
+
+  const openCount = Object.keys(botState.positions).length + Object.keys(botState.pendingOrders).length;
+  if (openCount >= botState.maxConcurrentPositions) {
+    botState.scanStatus.active = false;
+    broadcastBotStatus();
+    return; // ما فيه مكان لصفقة جديدة حاليًا — نوقف البحث النشط لحد ما تتحرر صفقة
+  }
+
+  const now = Date.now();
+
+  // ── الوضع اليدوي: المستخدم يحدد شروط الشراء بنفسه، بدون خوارزمية التقييم التلقائية ──
+  if (botState.strategyMode === 'manual') {
+    try { await runManualBuyCycle(now); } catch (err) { logBotError(botState.manualSymbol || 'manual-scan', err); }
+    broadcastBotStatus();
+    return;
+  }
+
+  // ── الوضع التلقائي (الافتراضي) ──
+  const focus = botState.scanStatus;
+
+  // لو عندنا عملة "قيد الفحص" حاليًا وضمن نافذتها المخصصة (قابلة للتعديل من اللوحة)، كمّل فحصها بعمق (مع طلبات الشبكة الكاملة)
+  const scanWindowMs = (botState.scanWindowMinutes || 2) * 60 * 1000;
+  if (focus.active && focus.symbol && (now - focus.windowStartedAt) < scanWindowMs) {
+    try {
+      const sig = await evaluateBotSignal(focus.symbol, true);
+      if (sig) {
+        botState.lastSignals[focus.symbol] = sig;
+        if (sig.action === 'buy' && sig.passesFilters) {
+          await placeBotLimitBuy(sig);
+          botState.scanStatus.active = false;
+          broadcastBotStatus();
+          return;
+        }
+      }
+    } catch (err) { logBotError(focus.symbol, err); }
+    broadcastBotStatus();
+    return; // لسا بالوقت المسموح لهذي العملة — ما نبحث عن غيرها إلا لو خلصت الدقيقتين أو لقينا فرصة
+  }
+
+  // انتهت نافذة العملة السابقة (أو ما فيه عملة قيد الفحص أصلًا) — ما لقينا فيها فرصة، نطلع ونبحث عن غيرها
+  if (focus.active && focus.symbol) {
+    botState.tradeLog.unshift({ time: now, symbol: focus.symbol, type: 'error', message: `لا فرصة خلال ${botState.scanWindowMinutes || 2} دقيقة — انتقل البحث لعملة أخرى` });
+    botState.tradeLog = botState.tradeLog.slice(0, 50);
+  }
+
+  // فحص سريع (محلي، بدون شبكة) لكل حوض البحث (~200 عملة) لاختيار أفضل مرشح جديد
+  const results = await scanFullPool();
+  const candidate = results.find((r) => r.composite >= BOT_BUY_THRESHOLD * 0.6 && !botState.positions[r.symbol] && !botState.pendingOrders[r.symbol]);
+
+  if (candidate) {
+    if (!candleStore[`${candidate.symbol}_15m`]) {
+      try { await ensureStream(candidate.symbol, SCAN_INTERVAL); } catch (err) { /* نكمل بذاكرة الفحص السريع لو فشل الترقية */ }
+    }
+    botState.scanStatus = { active: true, symbol: candidate.symbol, windowStartedAt: now, checked: results.length, total: SCAN_POOL.length };
+    try {
+      const sig = await evaluateBotSignal(candidate.symbol, true);
+      if (sig) {
+        botState.lastSignals[candidate.symbol] = sig;
+        if (sig.action === 'buy' && sig.passesFilters) {
+          await placeBotLimitBuy(sig);
+          botState.scanStatus.active = false;
+        }
+      }
+    } catch (err) { logBotError(candidate.symbol, err); }
+  } else {
+    botState.scanStatus = { active: false, symbol: null, windowStartedAt: null, checked: results.length, total: SCAN_POOL.length };
+  }
+
   broadcastBotStatus();
+}
+
+async function evaluateBotSignal(symbol, includeNetwork = true) {
+  const candles = candleStore[`${symbol}_${SCAN_INTERVAL}`];
+  if (!candles || candles.length < 60) return null;
+  const indicators = computeIndicatorsFixedReversal(symbol, SCAN_INTERVAL, candles);
+  if (!indicators) return null;
+  const decision = makeDecision(indicators);
+  updateBotBtcLayer();
+  const decision7Base = computeDecision7Score(indicators, decision);
+  const decision7Signal = Math.max(-1, Math.min(1, decision7Base + computeBtcBoost()));
+  const fourBoxSignal = computeFourBoxScore(indicators);
+  const secondarySignal = computeSecondaryScore(indicators, decision);
+  const frameSignal = computeFrameScore(symbol, indicators);
+  const dashboardSignal = 0.30 * decision7Signal + 0.20 * secondarySignal + 0.45 * fourBoxSignal + 0.05 * frameSignal;
+  // مكالمات الشبكة (تمويل بايننس الآجل) غالية لو كررناها على 100+ عملة كل دورة — نتجاوزها بالفحص السريع الأولي
+  // ونجيبها بس للمرشحين المختصرين قبل قرار الشراء النهائي (شوف runBotCycle)
+  const botOwnSignal = includeNetwork ? await computeBotOwnSignal(indicators, candles, symbol) : computeBotOwnSignalLocal(indicators, candles);
+  const composite = 0.75 * dashboardSignal + 0.25 * botOwnSignal;
+  let action = 'hold';
+  if (composite >= BOT_BUY_THRESHOLD) action = 'buy';
+  else if (composite <= BOT_SELL_THRESHOLD) action = 'sell';
+
+  let strongReversalUp = false;
+  let strongReversalDown = false;
+  if (indicators.early) {
+    if (indicators.early.verdict === 'bull' && indicators.early.strength >= 60) strongReversalUp = true;
+    else if (indicators.early.verdict === 'bear' && indicators.early.strength >= 60) strongReversalDown = true;
+  }
+
+  if (strongReversalUp && action !== 'sell') {
+    action = 'buy';
+  } else if (strongReversalDown && action !== 'buy') {
+    action = 'sell';
+  }
+
+  let filter = passesEntryFilters(candles);
+  if (strongReversalUp && !filter.ok) {
+    filter = { ok: true, reason: 'إشارة إنذار مبكر قوية (تجاوز الفلاتر)' };
+  } else if (strongReversalDown && !filter.ok) {
+    filter = { ok: true, reason: 'إشارة انعكاس هبوطي قوية' };
+  }
+
+  const buyPoints = computeBuyPoints(candles, indicators, { action, passesFilters: filter.ok, price: indicators.currentPrice });
+
+  return {
+    symbol, decision7Signal, fourBoxSignal, secondarySignal, frameSignal, dashboardSignal, botOwnSignal, composite, action,
+    price: indicators.currentPrice,
+    buyZone: decision.buyZone, sellZone: decision.sellZone,
+    passesFilters: filter.ok, filterReason: filter.reason,
+    buyPoints,
+    strongReversalUp,
+    strongReversalDown,
+  };
 }
 
 function botStatusPayload() {
   return JSON.stringify({
     type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
     tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
-    maxConcurrentPositions: botState.maxConcurrentPositions, manualSymbol: botState.manualSymbol,
+    maxConcurrentPositions: botState.maxConcurrentPositions, scanWindowMinutes: botState.scanWindowMinutes,
+    strategyMode: botState.strategyMode, manualSymbol: botState.manualSymbol,
+    buyRules: botState.buyRules, sellRules: botState.sellRules,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
-    pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20),
-    manualBot: { enabled: manualBotState.enabled, trades: manualBotState.trades.slice(0, 30) },
+    pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20), lastSignals: botState.lastSignals,
+    scanStatus: botState.scanStatus,
   });
 }
 function broadcastBotStatus() {
@@ -1885,111 +2255,6 @@ function broadcastBotStatus() {
   }
 }
 
-setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية — فحص الشبكة وإعادة الموازنة عند الحاجة
-
-// ── بوت الشراء اليدوي + بوت البيع التلقائي (طبقة ثانية مستقلة عن بوت الشبكة) ──────────────────
-// زر "شراء الآن" ينفّذ Market فوري على الرمز المعروض. بمجرد تسجيل الصفقة، بوت البيع (مستقل، دورة
-// كل 10 ثوانٍ لأنه لازم يكون سريع) يضع لها أمر بيع Limit تلقائي = سعر الشراء × (1 + نسبة البيع%)،
-// ثم يتابعها لحد ما تُنفذ. يشترك مع بوت الشبكة بنفس القيم (مبلغ الصفقة USDT، نسبة البيع، وأقصى
-// عدد صفقات مفتوحة بنفس الوقت) بدل ما نكرر إعدادات منفصلة له.
-// يشترك مع بوت الشبكة بنفس القيم (مبلغ الصفقة USDT، نسبة البيع، وأقصى عدد صفقات مفتوحة بنفس الوقت)
-// بدل ما نكرر إعدادات منفصلة له. مفعّل دائمًا — ما فيه مفتاح تشغيل/إيقاف بالواجهة (بطلب المستخدم).
-let manualBotState = {
-  enabled: true,
-  trades: [], // { id, symbol, qty, buyPrice, buyOrderId, sellOrderId, sellPrice, status: 'open'|'pending_sell'|'sold', time }
-};
-
-async function placeMarketOrder(symbol, side, quantity) {
-  const params = { symbol, side, type: 'MARKET', quantity, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, null, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
-  return data;
-}
-async function queryOrderStatus(symbol, orderId) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
-  const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params)}`, { headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }, timeout: 10000 });
-  return data;
-}
-
-// 🟢 تنفيذ شراء فوري (Market) — يُستدعى عند ضغط المستخدم على زر "شراء الآن"
-async function executeManualBuy(symbol) {
-  // شلنا حد أقصى عدد الصفقات — كان يمنع الشراء مرة ثانية بدون سبب واضح للمستخدم، وأصلًا ما فيه
-  // مكان بالواجهة يتحكم فيه بعد حذف لوحة البوت، فأبقاؤه كان يعطّل الشراء بصمت بلا تفسير.
-  const price = await getCurrentPrice(symbol);
-  const qty = roundQty(botState.tradeSizeUsdt / price, price);
-  if (!qty || qty <= 0) throw new Error('الكمية المحسوبة صفر — تأكد من مبلغ الصفقة');
-  const data = await placeMarketOrder(symbol, 'BUY', qty);
-  // متوسط سعر التنفيذ الفعلي من fills لو متوفرة، وإلا السعر اللحظي اللي جبناه قبل الإرسال
-  let fillPrice = price;
-  if (data.fills && data.fills.length) {
-    const totalQty = data.fills.reduce((s, f) => s + parseFloat(f.qty), 0);
-    const totalCost = data.fills.reduce((s, f) => s + parseFloat(f.qty) * parseFloat(f.price), 0);
-    if (totalQty > 0) fillPrice = totalCost / totalQty;
-  }
-  const trade = {
-    id: `${symbol}_${Date.now()}`, symbol, qty, buyPrice: roundPrice(fillPrice),
-    buyOrderId: data.orderId, sellOrderId: null, sellPrice: null, status: 'open', time: Date.now(),
-  };
-  manualBotState.trades.unshift(trade);
-  manualBotState.trades = manualBotState.trades.slice(0, 100);
-  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: trade.buyPrice, qty, exchange: 'binance', reason: `🟢 شراء يدوي فوري عند ${trade.buyPrice}` });
-  botState.tradeLog = botState.tradeLog.slice(0, 50);
-  return trade;
-}
-
-// 🔴 تنفيذ بيع فوري (Market) — يُستدعى عند ضغط المستخدم على زر "بيع الآن". يبيع أقرب صفقة مفتوحة
-// (أحدث صفقة بحالة open أو pending_sell) على نفس الرمز، ويلغي أمر البيع المحدد المسبق لو كان موجود.
-async function executeManualSell(symbol) {
-  const trade = manualBotState.trades.find(t => t.symbol === symbol && t.status !== 'sold');
-  if (!trade) throw new Error(`لا توجد صفقة شراء مفتوحة على ${symbol} حاليًا`);
-  if (trade.status === 'pending_sell' && trade.sellOrderId) {
-    try { await cancelOrder(symbol, trade.sellOrderId); } catch (err) { /* ممكن يكون اتنفذ قبل ما نلغيه، نكمل عادي */ }
-  }
-  const data = await placeMarketOrder(symbol, 'SELL', trade.qty);
-  let fillPrice = trade.sellPrice || trade.buyPrice;
-  if (data.fills && data.fills.length) {
-    const totalQty = data.fills.reduce((s, f) => s + parseFloat(f.qty), 0);
-    const totalCost = data.fills.reduce((s, f) => s + parseFloat(f.qty) * parseFloat(f.price), 0);
-    if (totalQty > 0) fillPrice = totalCost / totalQty;
-  }
-  trade.status = 'sold';
-  trade.sellPrice = roundPrice(fillPrice);
-  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'SELL', price: trade.sellPrice, qty: trade.qty, exchange: 'binance', reason: `🔴 بيع يدوي فوري عند ${trade.sellPrice}` });
-  botState.tradeLog = botState.tradeLog.slice(0, 50);
-  return trade;
-}
-
-// 🔄 دورة بوت البيع التلقائي — كل 10 ثوانٍ (أسرع من دورة الشبكة، حسب طلب المستخدم بالسرعة):
-// 1) أي صفقة "open" بدون أمر بيع بعد → نضع لها أمر بيع Limit فورًا حسب نسبة البيع الحالية.
-// 2) أي صفقة "pending_sell" → نتحقق هل أمر البيع نُفذ، ولو نعم نعلّمها "sold".
-async function runManualSellCycle() {
-  if (!manualBotState.enabled || !manualBotState.trades.length) return;
-  const pct = botState.takeProfitPercent / 100;
-  for (const trade of manualBotState.trades) {
-    if (trade.status === 'sold') continue;
-    try {
-      if (trade.status === 'open') {
-        const sellPrice = roundPrice(trade.buyPrice * (1 + pct));
-        const data = await placeLimitOrder(trade.symbol, 'SELL', sellPrice, trade.qty);
-        if (data.orderId) {
-          trade.sellOrderId = data.orderId;
-          trade.sellPrice = sellPrice;
-          trade.status = 'pending_sell';
-          botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'order', side: 'SELL', price: sellPrice, qty: trade.qty, exchange: 'binance', reason: `📤 أمر بيع تلقائي (${botState.takeProfitPercent}%) عند ${sellPrice}` });
-        }
-      } else if (trade.status === 'pending_sell' && trade.sellOrderId) {
-        const status = await queryOrderStatus(trade.symbol, trade.sellOrderId);
-        if (status.status === 'FILLED') {
-          trade.status = 'sold';
-          botState.tradeLog.unshift({ time: Date.now(), symbol: trade.symbol, type: 'error', message: `✅ تم تنفيذ أمر البيع عند ${trade.sellPrice} — الصفقة اكتملت` });
-        }
-      }
-    } catch (err) { logBotError(trade.symbol, err); }
-  }
-  botState.tradeLog = botState.tradeLog.slice(0, 50);
-  // نحتفظ بسجل الصفقات المباعة آخر 6 ساعات بس، بعدها تُحذف من القائمة (تبقى بسجل الأحداث النصي)
-  manualBotState.trades = manualBotState.trades.filter(t => t.status !== 'sold' || (Date.now() - t.time) < 6 * 60 * 60 * 1000);
-  broadcastBotStatus();
-}
-setInterval(runManualSellCycle, 10 * 1000);
+setInterval(runBotCycle, 30 * 1000); // كل 30 ثانية
 
 server.listen(PORT, () => console.log(`Crypto Dashboard running on port ${PORT}`));
