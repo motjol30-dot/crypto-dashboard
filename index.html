@@ -370,6 +370,11 @@
   }
   #account-linked-view p { margin-bottom: 10px; }
   #account-linked-view b { color: var(--green); }
+  #visitor-count-box {
+    margin: 0 10px 10px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 0.74rem; color: var(--muted); text-align: center;
+  }
+  #visitor-count-box b { color: var(--accent); font-size: 0.9rem; }
   #notes-list { list-style: none; padding: 0 10px 14px; display: none; flex-direction: column; gap: 4px; }
   #notes-list.open { display: flex; }
   #notes-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 0.7rem; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
@@ -638,6 +643,8 @@
     <button id="account-save-btn">حفظ / دخول</button>
   </div>
 </div>
+
+<div id="visitor-count-box">👥 عدد الزوار المتصلين الآن بلوحة التحليل: <b id="visitor-count-value">—</b></div>
 
 <button id="notes-toggle">عرض كل ملاحظات التحليل ▾</button>
 <ul id="notes-list"></ul>
@@ -2302,6 +2309,15 @@
     renderConsensus();
   }
 
+  // ═══════════════════ عدد الزوار المتصلين الآن ═══════════════════
+  async function loadVisitorCount() {
+    try {
+      const r = await fetch('/api/visitor-count');
+      const d = await r.json();
+      document.getElementById('visitor-count-value').textContent = d.count;
+    } catch (e) {}
+  }
+
   // ═══════════════════ تهيئة ═══════════════════
   initChart();
   initUciChart();
@@ -2309,8 +2325,10 @@
   connectBtcTicker();
   loadMarketOverview();
   loadFuturesZone();
+  loadVisitorCount();
   setInterval(loadMarketOverview, 60000);
   setInterval(loadFuturesZone, 60000);
+  setInterval(loadVisitorCount, 10000);
   setInterval(renderConsensus, 30000);
 </script>
 </body>

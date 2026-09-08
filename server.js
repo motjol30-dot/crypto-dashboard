@@ -193,6 +193,12 @@ app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/api/symbols', (_req, res) => res.json({ symbols: SYMBOLS, intervals: INTERVALS }));
 // كل مربعات البحث الثلاثة تقترح الآن من كامل حوض الـ~211 عملة (مو ثلث ثابت لكل مربع كما كان سابقًا)
 app.get('/api/explosion-groups', (_req, res) => res.json({ groups: [SCAN_POOL, SCAN_POOL, SCAN_POOL] }));
+// عدد الزوار المتصلين الآن بلوحة التحليل (كل اتصال WebSocket حي = متصفح مفتوح على الصفحة)
+app.get('/api/visitor-count', (_req, res) => {
+  let count = 0;
+  for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) count++;
+  res.json({ count });
+});
 
 let marketCache = { data: null, ts: 0 };
 const MARKET_CACHE_MS = 60 * 1000;
