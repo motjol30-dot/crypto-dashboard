@@ -1708,6 +1708,8 @@
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: false, weight: 10 },
       { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 10 },
+      { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 10 },
+      { key: 'reversalConsensus', name: 'إجماع الارتداد', checked: true, weight: 10 },
     ]},
     ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + إجماع الارتداد + الساعة + فريم 1د)', indicators: [
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 30 },
@@ -1954,7 +1956,8 @@
 
     const frame1mInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
     const frame1mSign = frame1mInfo ? (frame1mInfo.action === 'buy zone' ? 1 : frame1mInfo.action === 'sell zone' ? -1 : 0) : 0;
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean, frame1m: frame1mSign };
+    const finalHourlySign = lastHourlyLayer ? (lastHourlyLayer.verdict === 'bull' ? 1 : lastHourlyLayer.verdict === 'bear' ? -1 : 0) : 0;
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean, frame1m: frame1mSign, hourly: finalHourlySign, reversalConsensus: lastReversalConsensusLean };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
