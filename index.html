@@ -437,10 +437,9 @@
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
   <div id="tf-bar">
-    <div class="tf-box" data-interval="1s"><span class="tf-name">1ث</span></div>
-    <div class="tf-box" data-interval="1m"><span class="tf-name">1د</span></div>
+    <div class="tf-box active" data-interval="1m"><span class="tf-name">1د</span></div>
     <div class="tf-box" data-interval="3m"><span class="tf-name">3د</span></div>
-    <div class="tf-box active" data-interval="5m"><span class="tf-name">5د</span></div>
+    <div class="tf-box" data-interval="5m"><span class="tf-name">5د</span></div>
     <div class="tf-box" data-interval="15m"><span class="tf-name">15د</span></div>
     <div class="tf-box" data-interval="30m"><span class="tf-name">30د</span></div>
     <div class="tf-box" data-interval="1h"><span class="tf-name">1س</span></div>
@@ -652,7 +651,7 @@
 <script>
       // ═══════════════════ المتغيرات العامة ═══════════════════
   let currentSymbol = 'BTCUSDT';
-  let currentInterval = '5m';
+  let currentInterval = '1m';
   let ws = null;
   let btcWs = null;
   let chart = null;
@@ -1708,6 +1707,7 @@
       { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: false, weight: 10 },
+      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 1, noWeight: true },
     ]},
     ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + إجماع الارتداد + الساعة + فريم 1د)', indicators: [
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 30 },
@@ -1952,7 +1952,9 @@
     renderEarlyBox();
     renderEarlyBoxes();
 
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean };
+    const frame1mInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
+    const frame1mSign = frame1mInfo ? (frame1mInfo.action === 'buy zone' ? 1 : frame1mInfo.action === 'sell zone' ? -1 : 0) : 0;
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean, frame1m: frame1mSign };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
