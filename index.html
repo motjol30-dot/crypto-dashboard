@@ -292,6 +292,14 @@
   .early-arrow.down { color: var(--red); }
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; touch-action: pan-y; user-select: none; }
   #explosion-swipe-hint { font-size: 0.6rem; color: var(--muted); text-align: center; padding: 4px 10px 0; }
+  #candle-predict-row { display: flex; gap: 8px; padding: 8px 10px 0; }
+  .candle-predict-box {
+    flex: 1; text-align: center; padding: 8px 4px; border-radius: 8px; font-size: 0.72rem; font-weight: 800;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--muted);
+    opacity: 0.45; transition: opacity 0.25s, box-shadow 0.25s, background 0.25s, border-color 0.25s;
+  }
+  .candle-predict-box.up.lit { opacity: 1; background: var(--buy-bg); border-color: rgba(63,185,80,0.6); color: var(--green); box-shadow: 0 0 10px rgba(63,185,80,0.4); }
+  .candle-predict-box.down.lit { opacity: 1; background: var(--sell-bg); border-color: rgba(248,81,73,0.6); color: var(--red); box-shadow: 0 0 10px rgba(248,81,73,0.4); }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
     background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
@@ -433,6 +441,11 @@
   </div>
 </div>
 <div id="explosion-swipe-hint">👉 اسحب يمين/يسار على المربعات فوق لعرض العملات التالية (كل العملات مرتبة من الأقوى للأضعف)</div>
+
+<div id="candle-predict-row" title="EMA9/EMA21 + MACD + RSI14 + Volume — توقع اتجاه الشمعة القادمة للعملة المعروضة">
+  <div class="candle-predict-box up" id="candle-predict-green">🟢 الشمعة القادمة: صعود</div>
+  <div class="candle-predict-box down" id="candle-predict-red">🔴 الشمعة القادمة: هبوط</div>
+</div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -763,6 +776,59 @@
       else out.push(prev);
     }
     return out; // نفس طول مصفوفة الشموع
+  }
+
+  // ═══════════════════ طبقة توقع الشمعة القادمة (EMA9/EMA21 + MACD + RSI14 + Volume_SMA5) ═══════════════════
+  // منطق مطابق للمواصفة اللي أرسلها المستخدم: تحسب على أحدث بيانات العملة/الفريم المعروض حاليًا.
+  function computeEMASeries(values, period) {
+    if (values.length < period) return [];
+    const k = 2 / (period + 1);
+    const out = [values.slice(0, period).reduce((a, b) => a + b, 0) / period]; // البذرة = SMA
+    for (let i = period; i < values.length; i++) out.push(values[i] * k + out[out.length - 1] * (1 - k));
+    return out; // out[0] يقابل values[period-1]
+  }
+  function computeCandlePredictSignal(candles) {
+    if (!candles || candles.length < 40) return null;
+    const closes = candles.map(c => c.close);
+    const volumes = candles.map(c => c.volume);
+
+    const ema9Arr = computeEMASeries(closes, 9);
+    const ema21Arr = computeEMASeries(closes, 21);
+    if (!ema9Arr.length || !ema21Arr.length) return null;
+    const ema9 = ema9Arr[ema9Arr.length - 1];
+    const ema21 = ema21Arr[ema21Arr.length - 1];
+    const lastClose = closes[closes.length - 1];
+
+    const ema12Arr = computeEMASeries(closes, 12);
+    const ema26Arr = computeEMASeries(closes, 26);
+    if (!ema12Arr.length || !ema26Arr.length) return null;
+    const startEma12Index = ema12Arr.length - ema26Arr.length; // نحاذي نهايات السلسلتين
+    const macdLineArr = ema26Arr.map((v, i) => ema12Arr[startEma12Index + i] - v);
+    const signalArr = computeEMASeries(macdLineArr, 9);
+    if (!signalArr.length) return null;
+    const macdLine = macdLineArr[macdLineArr.length - 1];
+    const signalLine = signalArr[signalArr.length - 1];
+
+    const rsiArr = computeRSI(closes, 14);
+    if (!rsiArr.length) return null;
+    const rsi14 = rsiArr[rsiArr.length - 1];
+
+    const volSma5 = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const lastVolume = volumes[volumes.length - 1];
+
+    const bullish = lastClose > ema9 && ema9 > ema21 && macdLine > signalLine && rsi14 > 40 && rsi14 < 65 && lastVolume > volSma5;
+    const bearish = lastClose < ema9 && ema9 < ema21 && macdLine < signalLine && rsi14 < 60 && rsi14 > 35 && lastVolume > volSma5;
+    if (bullish) return 'up';
+    if (bearish) return 'down';
+    return null;
+  }
+
+  let lastCandlePredictSignal = null; // 'up' | 'down' | null — يُستخدم كمصدر إضافي بالقرار النهائي/النسخة المدمجة
+  function renderCandlePredictBoxes() {
+    lastCandlePredictSignal = computeCandlePredictSignal(lastFullCandles);
+    document.getElementById('candle-predict-green').classList.toggle('lit', lastCandlePredictSignal === 'up');
+    document.getElementById('candle-predict-red').classList.toggle('lit', lastCandlePredictSignal === 'down');
+    renderConsensus(); // تحديث فوري لأي مربع مفعّل عنده هذا المصدر
   }
 
   function ensureSubChart(kind) {
@@ -1188,6 +1254,7 @@
 
     lastFullCandles = msg.candles;
     renderChartIndicators();
+    renderCandlePredictBoxes();
 
     const latest = msg.candles[msg.candles.length - 1];
     if (latest) {
@@ -1710,12 +1777,14 @@
       { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 10 },
       { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 10 },
       { key: 'reversalConsensus', name: 'إجماع الارتداد', checked: true, weight: 10 },
+      { key: 'candlePredict', name: 'توقع الشمعة القادمة (EMA/MACD/RSI/Volume)', checked: true, weight: 10 },
     ]},
     ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + إجماع الارتداد + الساعة + فريم 1د)', indicators: [
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 30 },
       { key: 'reversalConsensus', name: 'إجماع الارتداد', checked: true, weight: 30 },
       { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 25 },
       { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 15 },
+      { key: 'candlePredict', name: 'توقع الشمعة القادمة (EMA/MACD/RSI/Volume)', checked: true, weight: 10 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -1957,7 +2026,8 @@
     const frame1mInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
     const frame1mSign = frame1mInfo ? (frame1mInfo.action === 'buy zone' ? 1 : frame1mInfo.action === 'sell zone' ? -1 : 0) : 0;
     const finalHourlySign = lastHourlyLayer ? (lastHourlyLayer.verdict === 'bull' ? 1 : lastHourlyLayer.verdict === 'bear' ? -1 : 0) : 0;
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean, frame1m: frame1mSign, hourly: finalHourlySign, reversalConsensus: lastReversalConsensusLean };
+    const candlePredictLean = lastCandlePredictSignal === 'up' ? 1 : lastCandlePredictSignal === 'down' ? -1 : 0;
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean, frame1m: frame1mSign, hourly: finalHourlySign, reversalConsensus: lastReversalConsensusLean, candlePredict: candlePredictLean };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
@@ -1982,7 +2052,7 @@
     const frameInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
     const frameSign = frameInfo ? (frameInfo.action === 'buy zone' ? 1 : frameInfo.action === 'sell zone' ? -1 : 0) : 0;
     const hourlySign = lastHourlyLayer ? (lastHourlyLayer.verdict === 'bull' ? 1 : lastHourlyLayer.verdict === 'bear' ? -1 : 0) : 0;
-    const leanMap = { uci: lastUciLean, reversalConsensus: lastReversalConsensusLean, hourly: hourlySign, frame1m: frameSign };
+    const leanMap = { uci: lastUciLean, reversalConsensus: lastReversalConsensusLean, hourly: hourlySign, frame1m: frameSign, candlePredict: lastCandlePredictSignal === 'up' ? 1 : lastCandlePredictSignal === 'down' ? -1 : 0 };
     lastLeanMaps.ultrashort = leanMap;
     const lean = weightedLean('ultrashort', leanMap);
     const dir = lean >= 0 ? 'up' : 'down'; // إجباري: مرتفع أو هبوط بس، بدون محايد
