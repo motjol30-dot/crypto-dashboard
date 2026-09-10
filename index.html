@@ -790,7 +790,6 @@
   function computeCandlePredictSignal(candles) {
     if (!candles || candles.length < 40) return null;
     const closes = candles.map(c => c.close);
-    const volumes = candles.map(c => c.volume);
 
     const ema9Arr = computeEMASeries(closes, 9);
     const ema21Arr = computeEMASeries(closes, 21);
@@ -813,14 +812,15 @@
     if (!rsiArr.length) return null;
     const rsi14 = rsiArr[rsiArr.length - 1];
 
-    const volSma5 = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
-    const lastVolume = volumes[volumes.length - 1];
-
-    const bullish = lastClose > ema9 && ema9 > ema21 && macdLine > signalLine && rsi14 > 40 && rsi14 < 65 && lastVolume > volSma5;
-    const bearish = lastClose < ema9 && ema9 < ema21 && macdLine < signalLine && rsi14 < 60 && rsi14 > 35 && lastVolume > volSma5;
-    if (bullish) return 'up';
-    if (bearish) return 'down';
-    return null;
+    // كانت الصيغة الأولى تشترط تحقق 5 شروط بنفس اللحظة (AND صارم، منها شرط حجم) — نادر يصير عمليًا،
+    // وخلّى جهة الهبوط بالذات شبه ما تضيء أبدًا. الحل: تصويت بسيط بين اتجاه EMA + ماكد + RSI،
+    // وحسم إجباري دائمًا (بدون حالة محايدة).
+    let score = 0;
+    if (lastClose > ema9 && ema9 > ema21) score += 1;
+    else if (lastClose < ema9 && ema9 < ema21) score -= 1;
+    score += macdLine > signalLine ? 1 : -1;
+    score += rsi14 >= 50 ? 1 : -1;
+    return score >= 0 ? 'up' : 'down'; // إجباري دائمًا — بدون محايد
   }
 
   let lastCandlePredictSignal = null; // 'up' | 'down' | null — يُستخدم كمصدر إضافي بالقرار النهائي/النسخة المدمجة
@@ -1773,10 +1773,7 @@
       { key: 'fourbox', name: 'مربع الارتداد', checked: true, weight: 30 },
       { key: 'allind', name: 'مربع المؤشرات', checked: true, weight: 10 },
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
-      { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: false, weight: 10 },
-      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 10 },
-      { key: 'hourly', name: 'طبقة الساعة', checked: true, weight: 10 },
-      { key: 'reversalConsensus', name: 'إجماع الارتداد', checked: true, weight: 10 },
+      { key: 'ultrashort', name: 'مربع مرتفع/هبوط (UCI + إجماع الارتداد + الساعة + فريم 1د)', checked: true, weight: 20 },
       { key: 'candlePredict', name: 'توقع الشمعة القادمة (EMA/MACD/RSI/Volume)', checked: true, weight: 10 },
     ]},
     ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + إجماع الارتداد + الساعة + فريم 1د)', indicators: [
@@ -1939,6 +1936,7 @@
   let lastTrendSign = 0, lastActionSign = 0, lastConfidence = 50;
   let lastFourBoxLean = 0, lastSecondaryLean = 0, lastAllIndLean = 0, lastFrameLean = 0;
   let lastReversalConsensusLean = 0; // إجماع الارتداد — تُستخدم بالنسخة المدمجة (مرتفع/هبوط)
+  let lastUltrashortLean = 0; // نتيجة مربع "مرتفع/هبوط" المجمّع — تُستخدم كمصدر واحد بالقرار النهائي
 
   function setPill(id, cls, text) { const el = document.getElementById(id); if (el) { el.className = `pill-value ${cls}`; el.textContent = text; } }
 
@@ -2023,11 +2021,10 @@
     renderEarlyBox();
     renderEarlyBoxes();
 
-    const frame1mInfo = lastMtfSnapshot ? lastMtfSnapshot['1m'] : null;
-    const frame1mSign = frame1mInfo ? (frame1mInfo.action === 'buy zone' ? 1 : frame1mInfo.action === 'sell zone' ? -1 : 0) : 0;
-    const finalHourlySign = lastHourlyLayer ? (lastHourlyLayer.verdict === 'bull' ? 1 : lastHourlyLayer.verdict === 'bear' ? -1 : 0) : 0;
+    renderUltraShortComposite(); // لازم يحسب أول عشان lastUltrashortLean يكون جاهز/محدّث قبل القرار النهائي
+
     const candlePredictLean = lastCandlePredictSignal === 'up' ? 1 : lastCandlePredictSignal === 'down' ? -1 : 0;
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, uci: lastUciLean, frame1m: frame1mSign, hourly: finalHourlySign, reversalConsensus: lastReversalConsensusLean, candlePredict: candlePredictLean };
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, ultrashort: lastUltrashortLean, candlePredict: candlePredictLean };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
@@ -2043,7 +2040,6 @@
     document.getElementById('p-final').textContent = finalLabel;
     document.getElementById('p-final').className = `final-value ${finalClass}`;
     renderBoxConfigDropdown('final', 'final-cfg');
-    renderUltraShortComposite();
   }
 
   // نسخة مستقلة تجمع UCI + إجماع الارتداد + طبقة الساعة + فريم 1 دقيقة في كلمة واحدة فقط (مرتفع/هبوط
@@ -2055,6 +2051,7 @@
     const leanMap = { uci: lastUciLean, reversalConsensus: lastReversalConsensusLean, hourly: hourlySign, frame1m: frameSign, candlePredict: lastCandlePredictSignal === 'up' ? 1 : lastCandlePredictSignal === 'down' ? -1 : 0 };
     lastLeanMaps.ultrashort = leanMap;
     const lean = weightedLean('ultrashort', leanMap);
+    lastUltrashortLean = lean; // نخزنها عشان تُستخدم كمصدر واحد مجمّع بالقرار النهائي بدل تكرار مكوناتها
     const dir = lean >= 0 ? 'up' : 'down'; // إجباري: مرتفع أو هبوط بس، بدون محايد
     const word = dir === 'up' ? 'مرتفع' : 'هبوط';
     const badge = document.getElementById('ultrashort-copy-badge');
