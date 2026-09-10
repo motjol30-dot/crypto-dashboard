@@ -183,6 +183,11 @@
   #trade-pnl-label.lose { color: var(--red); }
   #trade-pnl-pct.win { color: var(--green); }
   #trade-pnl-pct.lose { color: var(--red); }
+  #candle-countdown {
+    font-size: 0.66rem; font-weight: 700; color: var(--muted); font-family: 'Courier New', monospace;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; padding: 2px 7px; white-space: nowrap;
+  }
   #chart-container.expanded { height: 82vh; }
   #uci-header {
     padding: 6px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
@@ -487,6 +492,7 @@
     <span id="trade-pnl-label"></span>
     <span id="trade-pnl-pct"></span>
   </span>
+  <span id="candle-countdown" title="الوقت المتبقي لإغلاق الشمعة الحالية">⏱ —</span>
 </div>
 <div id="chart-tools-row">
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
@@ -824,12 +830,33 @@
   }
 
   let lastCandlePredictSignal = null; // 'up' | 'down' | null — يُستخدم كمصدر إضافي بالقرار النهائي/النسخة المدمجة
-  function renderCandlePredictBoxes() {
+  // نسخة خفيفة بس تحدّث المربعين بصريًا — تُستخدم بحلقة الربع ثانية حتى ما نشغّل renderConsensus()
+  // الثقيلة 4 مرات بالثانية بلا داعي (تحسب كل مربعات القرار مرة ثانية).
+  function updateCandlePredictDisplay() {
     lastCandlePredictSignal = computeCandlePredictSignal(lastFullCandles);
     document.getElementById('candle-predict-green').classList.toggle('lit', lastCandlePredictSignal === 'up');
     document.getElementById('candle-predict-red').classList.toggle('lit', lastCandlePredictSignal === 'down');
-    renderConsensus(); // تحديث فوري لأي مربع مفعّل عنده هذا المصدر
   }
+  function renderCandlePredictBoxes() {
+    updateCandlePredictDisplay();
+    renderConsensus(); // تحديث فوري لأي مربع مفعّل عنده هذا المصدر — يصير مع كل تحديث سعر فعلي فقط
+  }
+
+  // ═══════════════════ الوقت المتبقي لإغلاق الشمعة الحالية + تحديث سريع لمربعي صعود/هبوط ═══════════════════
+  const INTERVAL_SECONDS = { '1s': 1, '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '2h': 7200, '4h': 14400 };
+  function updateCandleCountdown() {
+    const el = document.getElementById('candle-countdown');
+    const durationSec = INTERVAL_SECONDS[currentInterval];
+    if (!lastCandleTime || !durationSec) { el.textContent = '⏱ —'; return; }
+    const closeTime = lastCandleTime + durationSec;
+    let remaining = closeTime - Math.floor(Date.now() / 1000);
+    if (remaining < 0) remaining = 0;
+    const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const ss = String(remaining % 60).padStart(2, '0');
+    el.textContent = `⏱ ${mm}:${ss}`;
+  }
+  // كل ربع ثانية — يحدّث العد التنازلي ويعيد رسم مربعي صعود/هبوط (خفيف، بدون تشغيل القرار النهائي كامل)
+  setInterval(() => { updateCandleCountdown(); updateCandlePredictDisplay(); }, 250);
 
   function ensureSubChart(kind) {
     if (kind === 'rsi' && !rsiChart) {
