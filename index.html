@@ -297,7 +297,7 @@
   .early-arrow.down { color: var(--red); }
   #explosion-row { display: flex; gap: 8px; padding: 8px 10px 0; touch-action: pan-y; user-select: none; }
   #explosion-swipe-hint { font-size: 0.6rem; color: var(--muted); text-align: center; padding: 4px 10px 0; }
-  #candle-predict-row { display: flex; gap: 8px; padding: 8px 10px 0; }
+  #candle-predict-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0; position: relative; }
   .candle-predict-box {
     flex: 1; text-align: center; padding: 8px 4px; border-radius: 8px; font-size: 0.72rem; font-weight: 800;
     background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--muted);
@@ -305,6 +305,10 @@
   }
   .candle-predict-box.up.lit { opacity: 1; background: var(--buy-bg); border-color: rgba(63,185,80,0.6); color: var(--green); box-shadow: 0 0 10px rgba(63,185,80,0.4); }
   .candle-predict-box.down.lit { opacity: 1; background: var(--sell-bg); border-color: rgba(248,81,73,0.6); color: var(--red); box-shadow: 0 0 10px rgba(248,81,73,0.4); }
+  #candle-layers-settings-btn {
+    flex: 0 0 auto; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--muted); border-radius: 7px; padding: 6px 9px; font-size: 0.8rem; cursor: pointer;
+  }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
     background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
@@ -450,7 +454,9 @@
 <div id="candle-predict-row" title="EMA9/EMA21 + MACD + RSI14 + Volume — توقع اتجاه الشمعة القادمة للعملة المعروضة">
   <div class="candle-predict-box up" id="candle-predict-green">🟢 الشمعة القادمة: صعود</div>
   <div class="candle-predict-box down" id="candle-predict-red">🔴 الشمعة القادمة: هبوط</div>
+  <button type="button" id="candle-layers-settings-btn" title="تحكّم بطبقات الارتفاع/الهبوط ونسبها">⚙️</button>
 </div>
+<div id="candleLayers-cfg" class="cfg-dropdown"></div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -793,6 +799,74 @@
     for (let i = period; i < values.length; i++) out.push(values[i] * k + out[out.length - 1] * (1 - k));
     return out; // out[0] يقابل values[period-1]
   }
+  function computeStochastic(highs, lows, closes, kPeriod, dPeriod) {
+    const kArr = [];
+    for (let i = kPeriod - 1; i < closes.length; i++) {
+      const hh = Math.max(...highs.slice(i - kPeriod + 1, i + 1));
+      const ll = Math.min(...lows.slice(i - kPeriod + 1, i + 1));
+      kArr.push(hh > ll ? ((closes[i] - ll) / (hh - ll)) * 100 : 50);
+    }
+    const dArr = computeSMA(kArr, dPeriod);
+    return { kArr, dArr };
+  }
+
+  // ═══════════════════ طبقات الارتفاع/الهبوط القابلة للتحكم (مواصفة المستخدم: EMA200 + RSI/Stochastic
+  // + Bollinger + شمعة/حجم) — كل طبقة قابلة للتفعيل/الإيقاف ووضع نسبة لها من قائمة المؤشرات ═══════════════════
+  function computeCandleLayers(candles) {
+    if (!candles || candles.length < 210) return null; // EMA200 يحتاج بيانات كافية
+    const n = candles.length;
+    const closes = candles.map(c => c.close);
+    const highs = candles.map(c => c.high);
+    const lows = candles.map(c => c.low);
+    const volumes = candles.map(c => c.volume);
+    const last = candles[n - 1];
+    const lastClose = closes[n - 1];
+
+    const ema200Arr = computeEMASeries(closes, 200);
+    const ema200 = ema200Arr.length ? ema200Arr[ema200Arr.length - 1] : null;
+
+    const rsiArr = computeRSI(closes, 14);
+    const rsi14 = rsiArr.length ? rsiArr[rsiArr.length - 1] : null;
+
+    const stoch = computeStochastic(highs, lows, closes, 14, 3);
+    const k = stoch.kArr.length ? stoch.kArr[stoch.kArr.length - 1] : null;
+    const kPrev = stoch.kArr.length > 1 ? stoch.kArr[stoch.kArr.length - 2] : null;
+    const d = stoch.dArr.length ? stoch.dArr[stoch.dArr.length - 1] : null;
+    const dPrev = stoch.dArr.length > 1 ? stoch.dArr[stoch.dArr.length - 2] : null;
+    const stochBullCross = [k, kPrev, d, dPrev].every(v => v != null) && kPrev <= dPrev && k > d && k < 20;
+    const stochBearCross = [k, kPrev, d, dPrev].every(v => v != null) && kPrev >= dPrev && k < d && k > 80;
+
+    const bb = computeBollinger(closes, 20, 2);
+    const lastBB = bb.length ? bb[bb.length - 1] : null;
+
+    const volAvg20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, volumes.length);
+    const lastVolume = volumes[n - 1];
+
+    const body = Math.abs(last.close - last.open);
+    const range = (last.high - last.low) || 1e-9;
+    const upperWick = last.high - Math.max(last.open, last.close);
+    const lowerWick = Math.min(last.open, last.close) - last.low;
+    const strongBullCandle = last.close > last.open && body / range > 0.6;
+    const hammer = lowerWick > body * 2 && upperWick < body * 0.5 && last.close >= last.open;
+    const strongBearCandle = last.close < last.open && body / range > 0.6;
+    const shootingStar = upperWick > body * 2 && lowerWick < body * 0.5 && last.close <= last.open;
+
+    return {
+      up: {
+        trend: ema200 != null && lastClose > ema200,
+        momentum: rsi14 != null && rsi14 < 30 && stochBullCross,
+        volatility: !!lastBB && last.low <= lastBB.lower && last.close > lastBB.lower,
+        trigger: (strongBullCandle || hammer) && lastVolume > volAvg20 * 1.5,
+      },
+      down: {
+        trend: ema200 != null && lastClose < ema200,
+        momentum: rsi14 != null && rsi14 > 70 && stochBearCross,
+        volatility: !!lastBB && last.high >= lastBB.upper && last.close < lastBB.upper,
+        trigger: (strongBearCandle || shootingStar) && lastVolume > volAvg20 * 1.5,
+      },
+    };
+  }
+
   function computeCandlePredictSignal(candles) {
     if (!candles || candles.length < 40) return null;
     const closes = candles.map(c => c.close);
@@ -820,12 +894,27 @@
 
     // كانت الصيغة الأولى تشترط تحقق 5 شروط بنفس اللحظة (AND صارم، منها شرط حجم) — نادر يصير عمليًا،
     // وخلّى جهة الهبوط بالذات شبه ما تضيء أبدًا. الحل: تصويت بسيط بين اتجاه EMA + ماكد + RSI،
-    // وحسم إجباري دائمًا (بدون حالة محايدة).
+    // وحسم إجباري دائمًا (بدون حالة محايدة). هذا الجزء ما اتغير — أضفنا عليه بس (طلب المستخدم).
     let score = 0;
     if (lastClose > ema9 && ema9 > ema21) score += 1;
     else if (lastClose < ema9 && ema9 < ema21) score -= 1;
     score += macdLine > signalLine ? 1 : -1;
     score += rsi14 >= 50 ? 1 : -1;
+
+    // 🆕 طبقات الارتفاع/الهبوط القابلة للتحكم (checkbox + نسبة% من قائمة "طبقات توقع الشمعة") — تُضاف
+    // على نفس القرار بدل ما تحل محل التصويت الأصلي فوق.
+    const layers = computeCandleLayers(candles);
+    if (layers) {
+      const layersLeanMap = {
+        upTrend: layers.up.trend ? 1 : 0, upMomentum: layers.up.momentum ? 1 : 0,
+        upVolatility: layers.up.volatility ? 1 : 0, upTrigger: layers.up.trigger ? 1 : 0,
+        downTrend: layers.down.trend ? -1 : 0, downMomentum: layers.down.momentum ? -1 : 0,
+        downVolatility: layers.down.volatility ? -1 : 0, downTrigger: layers.down.trigger ? -1 : 0,
+      };
+      lastLeanMaps.candleLayers = layersLeanMap;
+      score += weightedLean('candleLayers', layersLeanMap) * 3; // نطابق مقياس التصويت الأصلي (تقريبًا [-3,3])
+    }
+
     return score >= 0 ? 'up' : 'down'; // إجباري دائمًا — بدون محايد
   }
 
@@ -836,6 +925,8 @@
     lastCandlePredictSignal = computeCandlePredictSignal(lastFullCandles);
     document.getElementById('candle-predict-green').classList.toggle('lit', lastCandlePredictSignal === 'up');
     document.getElementById('candle-predict-red').classList.toggle('lit', lastCandlePredictSignal === 'down');
+    const cfgEl = document.getElementById('candleLayers-cfg');
+    if (cfgEl && cfgEl.classList.contains('open')) renderBoxConfigDropdown('candleLayers', 'candleLayers-cfg');
   }
   function renderCandlePredictBoxes() {
     updateCandlePredictDisplay();
@@ -1019,7 +1110,7 @@
     }
     boxConfigs = JSON.parse(JSON.stringify(DEFAULT_BOX_CONFIGS));
     saveBoxConfigs();
-    ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort'].forEach((bk) => {
+    ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort', 'candleLayers'].forEach((bk) => {
       const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
       renderBoxConfigDropdown(bk, containerId);
     });
@@ -1810,6 +1901,16 @@
       { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 15 },
       { key: 'candlePredict', name: 'توقع الشمعة القادمة (EMA/MACD/RSI/Volume)', checked: true, weight: 10 },
     ]},
+    candleLayers: { label: 'طبقات توقع الشمعة (مرتفعة/هابطة)', indicators: [
+      { key: 'upTrend', name: '🟢 الاتجاه العام (فوق EMA200)', checked: true, weight: 15 },
+      { key: 'upMomentum', name: '🟢 الزخم والتشبع (RSI<30 + تقاطع Stochastic تحت 20)', checked: true, weight: 15 },
+      { key: 'upVolatility', name: '🟢 ارتداد بولنجر (يلمس الخط السفلي ويغلق داخله)', checked: true, weight: 15 },
+      { key: 'upTrigger', name: '🟢 زناد الدخول (شمعة صاعدة قوية/مطرقة + حجم ×1.5)', checked: true, weight: 15 },
+      { key: 'downTrend', name: '🔴 الاتجاه العام (تحت EMA200)', checked: true, weight: 10 },
+      { key: 'downMomentum', name: '🔴 الزخم والتشبع (RSI>70 + تقاطع Stochastic فوق 80)', checked: true, weight: 10 },
+      { key: 'downVolatility', name: '🔴 ارتداد بولنجر (يلمس الخط العلوي ويغلق داخله)', checked: true, weight: 10 },
+      { key: 'downTrigger', name: '🔴 زناد الدخول (شمعة هابطة قوية + حجم مرتفع)', checked: true, weight: 10 },
+    ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
       { key: 'cvd', name: 'CVD', checked: true, weight: 3 },
@@ -1915,7 +2016,7 @@
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
 
-  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort', 'candleLayers'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -1957,6 +2058,7 @@
   document.getElementById('final-verdict-row').addEventListener('click', () => toggleCfgDropdown('final-cfg'));
   document.getElementById('early-up-wrap').addEventListener('click', () => toggleCfgDropdown('earlyup-cfg'));
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
+  document.getElementById('candle-layers-settings-btn').addEventListener('click', () => toggleCfgDropdown('candleLayers-cfg'));
   document.getElementById('ultrashort-copy-badge').addEventListener('click', () => toggleCfgDropdown('ultrashort-cfg'));
 
   // ═══════════════════ الحالة العامة ═══════════════════
