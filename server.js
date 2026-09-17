@@ -354,6 +354,11 @@ wss.on('connection', (ws, req) => {
       const v = parseFloat(msg.tradeSizeUsdt);
       if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
     }
+    else if (msg.type === 'bot_set_sell_amount') {
+      // مبلغ البيع (USDT) — محفوظ حاليًا للعرض فقط؛ زر "بيع الآن" لسه يبيع كامل كمية الصفقة المفتوحة
+      const v = parseFloat(msg.sellAmountUsdt);
+      if (v > 0 && v <= 100000) { botState.sellAmountUsdt = v; broadcastBotStatus(); }
+    }
     else if (msg.type === 'bot_set_take_profit') {
       // بوت الشبكة: هذه القيمة = نسبة المسافة بين كل مستوى شراء/بيع والمستوى الذي يليه (GRID_STEP_PERCENT)
       const v = parseFloat(msg.takeProfitPercent);
@@ -1842,6 +1847,7 @@ let botState = {
   enabled: false,
   exchange: 'binance',
   tradeSizeUsdt: 50,        // مبلغ الصفقة بالـ USDT لكل مستوى في الشبكة (AMOUNT_PER_GRID محسوبة ديناميكيًا)
+  sellAmountUsdt: 50,       // مبلغ البيع (USDT) — محفوظ للعرض حاليًا
   takeProfitPercent: 1,     // GRID_STEP_PERCENT: نسبة المسافة بين كل مستوى (١٪ افتراضيًا)
   maxConcurrentPositions: 5,// GRID_SIZE: عدد مستويات الشراء (ونفس العدد للبيع)
   manualSymbol: 'BTCUSDT',  // الرمز اللي تعمل عليه الشبكة حاليًا
@@ -1973,7 +1979,7 @@ function botStatusPayload(ws) {
   const trades = manualBotState.tradesByAccount[accountKey] || [];
   return JSON.stringify({
     type: 'bot_status', enabled: botState.enabled, exchange: botState.exchange,
-    tradeSizeUsdt: botState.tradeSizeUsdt, takeProfitPercent: botState.takeProfitPercent,
+    tradeSizeUsdt: botState.tradeSizeUsdt, sellAmountUsdt: botState.sellAmountUsdt, takeProfitPercent: botState.takeProfitPercent,
     maxConcurrentPositions: botState.maxConcurrentPositions, manualSymbol: botState.manualSymbol,
     positions: botState.positions, pendingOrders: botState.pendingOrders,
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20),
@@ -2031,19 +2037,27 @@ async function executeManualBuy(symbol, accountKey, creds) {
   const data = await placeMarketOrder(symbol, 'BUY', qty, creds);
   // متوسط سعر التنفيذ الفعلي من fills لو متوفرة، وإلا السعر اللحظي اللي جبناه قبل الإرسال
   let fillPrice = price;
+  let filledQty = null;
   if (data.fills && data.fills.length) {
     const totalQty = data.fills.reduce((s, f) => s + parseFloat(f.qty), 0);
     const totalCost = data.fills.reduce((s, f) => s + parseFloat(f.qty) * parseFloat(f.price), 0);
     if (totalQty > 0) fillPrice = totalCost / totalQty;
+    if (totalQty > 0) filledQty = totalQty;
   }
+  // 🐛 إصلاح مشكلة "البيع ما يشتغل": كنا نسجّل الكمية المطلوبة (qty) بدل الكمية المنفذة فعليًا —
+  // أي فرق بسيط (تقريب Binance، سيولة، إلخ) كان يخلي أمر البيع لاحقًا يُرفض لعدم كفاية الرصيد الفعلي.
+  // الحل: نستخدم executedQty من Binance نفسها (المصدر الموثوق)، ونطرح هامش أمان بسيط جدًا (0.1%)
+  // يحمي من أي فرق تقريب أخير وقت البيع.
+  const actualQty = data.executedQty ? parseFloat(data.executedQty) : filledQty;
+  const safeQty = actualQty ? roundQty(actualQty * 0.999, price) : qty;
   const trade = {
-    id: `${symbol}_${Date.now()}`, symbol, qty, buyPrice: roundPrice(fillPrice),
+    id: `${symbol}_${Date.now()}`, symbol, qty: safeQty, buyPrice: roundPrice(fillPrice),
     buyOrderId: data.orderId, sellOrderId: null, sellPrice: null, status: 'open', time: Date.now(),
   };
   const trades = manualBotState.tradesByAccount[accountKey] || (manualBotState.tradesByAccount[accountKey] = []);
   trades.unshift(trade);
   manualBotState.tradesByAccount[accountKey] = trades.slice(0, 100);
-  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: trade.buyPrice, qty, exchange: 'binance', reason: `🟢 شراء يدوي فوري عند ${trade.buyPrice}` });
+  botState.tradeLog.unshift({ time: Date.now(), symbol, type: 'order', side: 'BUY', price: trade.buyPrice, qty: safeQty, exchange: 'binance', reason: `🟢 شراء يدوي فوري عند ${trade.buyPrice}` });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
   return trade;
 }

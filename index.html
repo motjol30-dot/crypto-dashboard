@@ -135,14 +135,19 @@
   #manual-buy-btn { background: var(--green); }
   #manual-sell-btn { background: var(--red); color: #1a0505; }
   #chart-amount-wrap {
-    display: flex; align-items: center; gap: 4px; font-size: 0.66rem; color: var(--muted);
-    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 7px; padding: 3px 8px;
+    display: flex; align-items: center; gap: 6px; font-size: 0.66rem; color: var(--muted);
   }
-  #chart-amount-input {
-    width: 55px; background: transparent; border: none; color: var(--text);
-    font-size: 16px; text-align: center; outline: none;
+  #chart-amount-buy-input, #chart-amount-sell-input {
+    width: 62px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
   }
+  #chart-amount-buy-input {
+    background: var(--buy-bg); border: 1px solid rgba(63,185,80,0.4); color: var(--green);
+  }
+  #chart-amount-buy-input::placeholder { color: rgba(63,185,80,0.75); font-weight: 800; }
+  #chart-amount-sell-input {
+    background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.4); color: var(--red);
+  }
+  #chart-amount-sell-input::placeholder { color: rgba(248,81,73,0.75); font-weight: 800; }
   #chart-tools-row {
     padding: 6px 12px; display: flex; gap: 8px; flex-wrap: wrap; position: relative;
     background: var(--surface); border-bottom: 1px solid var(--border);
@@ -305,6 +310,12 @@
   }
   .candle-predict-box.up.lit { opacity: 1; background: var(--buy-bg); border-color: rgba(63,185,80,0.6); color: var(--green); box-shadow: 0 0 10px rgba(63,185,80,0.4); }
   .candle-predict-box.down.lit { opacity: 1; background: var(--sell-bg); border-color: rgba(248,81,73,0.6); color: var(--red); box-shadow: 0 0 10px rgba(248,81,73,0.4); }
+  #candle-mtf-box {
+    margin: 6px 10px 0; padding: 5px 8px; border-radius: 7px; font-size: 0.62rem; font-weight: 800;
+    text-align: center; cursor: pointer; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted);
+  }
+  #candle-mtf-box.up { background: var(--buy-bg); border-color: rgba(63,185,80,0.5); color: var(--green); }
+  #candle-mtf-box.down { background: var(--sell-bg); border-color: rgba(248,81,73,0.5); color: var(--red); }
   .explosion-box {
     flex: 1; border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer;
     background: rgba(240,136,62,0.08); border: 1px solid rgba(240,136,62,0.35);
@@ -453,6 +464,9 @@
 </div>
 <div id="candleUp-cfg" class="cfg-dropdown"></div>
 <div id="candleDown-cfg" class="cfg-dropdown"></div>
+<div id="candle-mtf-box" title="اضغط للتحكم بفريمات 1د/3د/5د/15د ونسبها">📊 فريمات الشموع: —</div>
+<div id="candleUpMTF-cfg" class="cfg-dropdown"></div>
+<div id="candleDownMTF-cfg" class="cfg-dropdown"></div>
 
 <div id="tf-bar-wrap">
   <div id="tf-bar-label"><span>⏱️ الفريمات</span></div>
@@ -500,8 +514,8 @@
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
   <button type="button" class="trade-btn" id="manual-sell-btn">بيع</button>
   <div id="chart-amount-wrap">
-    <span>USDT</span>
-    <input type="number" id="chart-amount-input" min="1" step="1" value="50">
+    <input type="number" id="chart-amount-buy-input" min="1" step="1" value="50" placeholder="شراء" title="مبلغ الشراء (USDT)">
+    <input type="number" id="chart-amount-sell-input" min="1" step="1" value="50" placeholder="بيع" title="مبلغ البيع (USDT)">
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
@@ -863,7 +877,7 @@
     };
   }
 
-  function computeCandlePredictSignal(candles) {
+  function computeCandleUpDownScoresPure(candles) {
     if (!candles || candles.length < 40) return null;
     const closes = candles.map(c => c.close);
 
@@ -911,14 +925,19 @@
       volatility: layers && layers.down.volatility ? 1 : 0,
       trigger: layers && layers.down.trigger ? 1 : 0,
     };
-    lastLeanMaps.candleUp = upLeanMap;
-    lastLeanMaps.candleDown = downLeanMap;
     const upScore = weightedLean('candleUp', upLeanMap);
     const downScore = weightedLean('candleDown', downLeanMap);
-    lastCandleUpScore = upScore;
-    lastCandleDownScore = downScore;
+    return { upScore, downScore, upLeanMap, downLeanMap };
+  }
 
-    return upScore >= downScore ? 'up' : 'down'; // إجباري دائمًا — بدون محايد، تعادل يحسم لصالح الصعود
+  function computeCandlePredictSignal(candles) {
+    const result = computeCandleUpDownScoresPure(candles);
+    if (!result) return null;
+    lastLeanMaps.candleUp = result.upLeanMap;
+    lastLeanMaps.candleDown = result.downLeanMap;
+    lastCandleUpScore = result.upScore;
+    lastCandleDownScore = result.downScore;
+    return result.upScore >= result.downScore ? 'up' : 'down'; // إجباري دائمًا — بدون محايد، تعادل يحسم لصالح الصعود
   }
 
   let lastCandleUpScore = 0, lastCandleDownScore = 0; // آخر درجة لكل مربع (0..1) — لعرضها لو احتجناها لاحقًا
@@ -1116,7 +1135,7 @@
     }
     boxConfigs = JSON.parse(JSON.stringify(DEFAULT_BOX_CONFIGS));
     saveBoxConfigs();
-    ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort', 'candleUp', 'candleDown'].forEach((bk) => {
+    ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort', 'candleUp', 'candleDown', 'candleUpMTF', 'candleDownMTF'].forEach((bk) => {
       const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
       renderBoxConfigDropdown(bk, containerId);
     });
@@ -1413,6 +1432,61 @@
     else { badge.textContent = '—'; badge.className = ''; }
     renderFrameBox();
     renderUltraShortComposite();
+  }
+
+  // ═══════════════════ فريمات شموع الصعود/الهبوط (1د/3د/5د/15د) — مستقلة عن فريم الشارت الرئيسي ═══════════════════
+  // كل فريم له اتصال WS خفيف خاص فيه (بنفس أسلوب مؤشر BTC فوق)، يحسب اتجاه شمعته القادمة لحاله،
+  // والأربعة يتجمعون بمربع "فريمات شموع الصعود" ومربع "فريمات شموع الهبوط" (كل فريم قابل للتحكم
+  // والنسبة لحاله من داخل المربع)، واللي يطلع منهم يُضاف كمصدر بالقرار النهائي.
+  const MTF_CANDLE_FRAMES = ['1m', '3m', '5m', '15m'];
+  let mtfCandleSockets = {}, mtfCandleData = {};
+  let lastCandleUpMtfScore = 0, lastCandleDownMtfScore = 0;
+
+  function connectMtfCandleTicker(interval) {
+    if (mtfCandleSockets[interval]) { try { mtfCandleSockets[interval].onclose = null; mtfCandleSockets[interval].close(); } catch (e) {} }
+    const sock = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
+    mtfCandleSockets[interval] = sock;
+    sock.onopen = () => sock.send(JSON.stringify({ type: 'subscribe', symbol: currentSymbol, interval }));
+    sock.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'update' && msg.symbol === currentSymbol && msg.interval === interval) {
+        mtfCandleData[interval] = msg.candles;
+        renderCandleMtfComposite();
+      }
+    };
+    sock.onclose = () => setTimeout(() => connectMtfCandleTicker(interval), 3000);
+    sock.onerror = () => sock.close();
+  }
+  function resubscribeMtfCandleTickers() {
+    MTF_CANDLE_FRAMES.forEach(iv => { mtfCandleData[iv] = null; connectMtfCandleTicker(iv); });
+  }
+
+  function renderCandleMtfComposite() {
+    const upLeanMap = {}, downLeanMap = {};
+    MTF_CANDLE_FRAMES.forEach(iv => {
+      const key = 'frame' + iv;
+      const result = computeCandleUpDownScoresPure(mtfCandleData[iv]);
+      upLeanMap[key] = result && result.upScore >= result.downScore ? 1 : 0;
+      downLeanMap[key] = result && result.downScore > result.upScore ? 1 : 0;
+    });
+    lastLeanMaps.candleUpMTF = upLeanMap;
+    lastLeanMaps.candleDownMTF = downLeanMap;
+    lastCandleUpMtfScore = weightedLean('candleUpMTF', upLeanMap);
+    lastCandleDownMtfScore = weightedLean('candleDownMTF', downLeanMap);
+
+    const box = document.getElementById('candle-mtf-box');
+    if (box) {
+      const dir = lastCandleUpMtfScore >= lastCandleDownMtfScore ? 'up' : 'down';
+      box.textContent = dir === 'up'
+        ? `📊 فريمات الشموع: 🟢 ${Math.round(lastCandleUpMtfScore * 100)}%`
+        : `📊 فريمات الشموع: 🔴 ${Math.round(lastCandleDownMtfScore * 100)}%`;
+      box.className = 'candle-mtf-box ' + dir;
+    }
+    const upCfg = document.getElementById('candleUpMTF-cfg');
+    if (upCfg && upCfg.classList.contains('open')) renderBoxConfigDropdown('candleUpMTF', 'candleUpMTF-cfg');
+    const downCfg = document.getElementById('candleDownMTF-cfg');
+    if (downCfg && downCfg.classList.contains('open')) renderBoxConfigDropdown('candleDownMTF', 'candleDownMTF-cfg');
+    renderConsensus(); // يحدّث القرار النهائي فورًا لأنه صار يعتمد على هذي القيم
   }
 
   function handleExplosionScan(msg) {
@@ -1899,6 +1973,8 @@
       { key: 'early', name: 'مربع المسافة', checked: true, weight: 10 },
       { key: 'ultrashort', name: 'مربع مرتفع/هبوط (UCI + إجماع الارتداد + الساعة + فريم 1د)', checked: true, weight: 20 },
       { key: 'candlePredict', name: 'توقع الشمعة القادمة (EMA/MACD/RSI/Volume)', checked: true, weight: 10 },
+      { key: 'candleUpMTF', name: 'فريمات شموع الصعود (1د/3د/5د/15د)', checked: true, weight: 10 },
+      { key: 'candleDownMTF', name: 'فريمات شموع الهبوط (1د/3د/5د/15د)', checked: true, weight: 10 },
     ]},
     ultrashort: { label: 'مرتفع/هبوط (نسخة UCI + إجماع الارتداد + الساعة + فريم 1د)', indicators: [
       { key: 'uci', name: 'Universal Composite Indicator (UCI)', checked: true, weight: 30 },
@@ -1924,6 +2000,18 @@
       { key: 'momentum', name: 'الزخم والتشبع (RSI>70 + تقاطع Stochastic فوق 80)', checked: true, weight: 15 },
       { key: 'volatility', name: 'ارتداد بولنجر (يلمس الخط العلوي ويغلق داخله)', checked: true, weight: 15 },
       { key: 'trigger', name: 'زناد الدخول (شمعة هابطة قوية + حجم مرتفع)', checked: true, weight: 20 },
+    ]},
+    candleUpMTF: { label: 'فريمات شموع الصعود (1د/3د/5د/15د)', indicators: [
+      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 25 },
+      { key: 'frame3m', name: 'فريم 3 دقائق', checked: true, weight: 25 },
+      { key: 'frame5m', name: 'فريم 5 دقائق', checked: true, weight: 25 },
+      { key: 'frame15m', name: 'فريم 15 دقيقة', checked: true, weight: 25 },
+    ]},
+    candleDownMTF: { label: 'فريمات شموع الهبوط (1د/3د/5د/15د)', indicators: [
+      { key: 'frame1m', name: 'فريم 1 دقيقة', checked: true, weight: 25 },
+      { key: 'frame3m', name: 'فريم 3 دقائق', checked: true, weight: 25 },
+      { key: 'frame5m', name: 'فريم 5 دقائق', checked: true, weight: 25 },
+      { key: 'frame15m', name: 'فريم 15 دقيقة', checked: true, weight: 25 },
     ]},
     earlyup: { label: 'الارتفاع المبكر', indicators: [
       { key: 'rsidiv', name: 'انحراف إيجابي', checked: true, weight: 3 },
@@ -2030,7 +2118,7 @@
       </div>`).join('') + `<button class="cfg-save-btn" data-box="${boxKey}">حفظ</button>`;
   }
 
-  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort', 'candleUp', 'candleDown'].forEach((bk) => {
+  ['decision', 'fourbox', 'secondary', 'allind', 'early', 'final', 'earlyup', 'earlydown', 'ultrashort', 'candleUp', 'candleDown', 'candleUpMTF', 'candleDownMTF'].forEach((bk) => {
     const containerId = bk === 'decision' ? 'decision-cfg' : bk === 'final' ? 'final-cfg' : `${bk}-cfg`;
     renderBoxConfigDropdown(bk, containerId);
   });
@@ -2074,6 +2162,7 @@
   document.getElementById('early-down-wrap').addEventListener('click', () => toggleCfgDropdown('earlydown-cfg'));
   document.getElementById('candle-predict-green').addEventListener('click', () => toggleCfgDropdown('candleUp-cfg'));
   document.getElementById('candle-predict-red').addEventListener('click', () => toggleCfgDropdown('candleDown-cfg'));
+  document.getElementById('candle-mtf-box').addEventListener('click', () => { toggleCfgDropdown('candleUpMTF-cfg'); toggleCfgDropdown('candleDownMTF-cfg'); });
   document.getElementById('ultrashort-copy-badge').addEventListener('click', () => toggleCfgDropdown('ultrashort-cfg'));
 
   // ═══════════════════ الحالة العامة ═══════════════════
@@ -2168,7 +2257,7 @@
     renderUltraShortComposite(); // لازم يحسب أول عشان lastUltrashortLean يكون جاهز/محدّث قبل القرار النهائي
 
     const candlePredictLean = lastCandlePredictSignal === 'up' ? 1 : lastCandlePredictSignal === 'down' ? -1 : 0;
-    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, ultrashort: lastUltrashortLean, candlePredict: candlePredictLean };
+    const finalLeanMap = { decision: decision7Lean, secondary: lastSecondaryLean, fourbox: lastFourBoxLean, allind: lastAllIndLean, early: lastEarlyLean, ultrashort: lastUltrashortLean, candlePredict: candlePredictLean, candleUpMTF: lastCandleUpMtfScore, candleDownMTF: -lastCandleDownMtfScore };
     lastLeanMaps.final = finalLeanMap;
     const combinedLean = weightedLean('final', finalLeanMap);
     const finalV = dirWord3(combinedLean);
@@ -2331,7 +2420,8 @@
   // ═══════════════════ حالة البوتين (مبسّطة — العنصر الوحيد المتبقي بالواجهة هو مبلغ الصفقة) ═══════════════════
   function handleBotStatus(msg) {
     lastBotStatus = msg;
-    document.getElementById('chart-amount-input').value = msg.tradeSizeUsdt;
+    document.getElementById('chart-amount-buy-input').value = msg.tradeSizeUsdt;
+    document.getElementById('chart-amount-sell-input').value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
@@ -2361,8 +2451,11 @@
   }
 
   document.getElementById('chart-amount-save-btn').addEventListener('click', () => {
-    const v = parseFloat(document.getElementById('chart-amount-input').value);
-    if (v > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: v }));
+    const buyV = parseFloat(document.getElementById('chart-amount-buy-input').value);
+    const sellV = parseFloat(document.getElementById('chart-amount-sell-input').value);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (buyV > 0) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: buyV }));
+    if (sellV > 0) ws.send(JSON.stringify({ type: 'bot_set_sell_amount', sellAmountUsdt: sellV }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
@@ -2391,6 +2484,7 @@
     document.querySelectorAll('.tf-box').forEach(b => b.classList.remove('green','red','yellow'));
     subscribe();
     loadFuturesZone();
+    resubscribeMtfCandleTickers();
     if (lastBotStatus) handleBotStatus(lastBotStatus);
   }
 
@@ -2539,6 +2633,7 @@
   initUciChart();
   connect();
   connectBtcTicker();
+  resubscribeMtfCandleTickers();
   loadMarketOverview();
   loadFuturesZone();
   loadVisitorCount();
