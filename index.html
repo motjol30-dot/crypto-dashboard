@@ -148,6 +148,22 @@
     background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.4); color: var(--red);
   }
   #chart-amount-sell-input::placeholder { color: rgba(248,81,73,0.75); font-weight: 800; }
+  #auto-progress-box {
+    position: relative; overflow: hidden; min-width: 118px; padding: 5px 10px; border-radius: 6px; text-align: center;
+    font-size: 0.74rem; font-weight: 800; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text);
+    direction: ltr; white-space: nowrap;
+  }
+  #auto-progress-box.down { border-color: rgba(248,81,73,0.5); color: var(--red); }
+  #auto-progress-box.up { border-color: rgba(63,185,80,0.5); color: var(--green); }
+  #auto-progress-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; opacity: 0.25; transition: width 0.4s; }
+  #auto-progress-box.down #auto-progress-fill { background: var(--red); }
+  #auto-progress-box.up #auto-progress-fill { background: var(--green); }
+  #auto-progress-text { position: relative; }
+  #auto-symbol-chip {
+    background: rgba(255,214,10,0.14); border: 1px solid rgba(255,214,10,0.5); color: #ffd60a;
+    border-radius: 6px; padding: 5px 10px; font-size: 0.74rem; font-weight: 800; cursor: pointer;
+  }
+  #auto-symbol-chip:active { transform: scale(0.96); }
   #auto-pct-input {
     width: 74px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
     background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
@@ -519,6 +535,8 @@
 <div id="chart-tools-row">
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
   <button type="button" class="trade-btn" id="manual-sell-btn">بيع</button>
+  <div id="auto-progress-box" style="display:none;" title="تقدّم النسبة الحي — عند الوصول للنسبة المطلوبة ينفّذ تلقائيًا"><span id="auto-progress-fill"></span><span id="auto-progress-text">—</span></div>
+  <button type="button" id="auto-symbol-chip" style="display:none;" title="العملة المحفوظة للتداول التلقائي — اضغط للرجوع إليها">—</button>
   <div id="chart-amount-wrap">
     <input type="number" id="chart-amount-buy-input" min="1" step="1" value="50" placeholder="شراء" title="مبلغ الشراء (USDT)">
     <input type="number" id="chart-amount-sell-input" min="1" step="1" value="50" placeholder="بيع" title="مبلغ البيع (USDT)">
@@ -1331,6 +1349,7 @@
       else if (msg.type === 'bot_status') handleBotStatus(msg);
       else if (msg.type === 'error') handleBotError(msg);
       else if (msg.type === 'trade_result') flashTradeStatusDot(msg.side);
+      else if (msg.type === 'auto_progress') renderAutoProgress(msg);
       else if (msg.type === 'account_status') handleAccountStatus(msg);
     };
     ws.onclose = (ev) => {
@@ -2462,12 +2481,39 @@
     const sig = a ? `${a.pct}|${a.symbol}` : 'off';
     if (sig !== lastAutoSig) { lastAutoSig = sig; if (document.activeElement !== inp) inp.value = a ? a.pct : ''; }
     inp.classList.toggle('active', !!a);
+    const chip = document.getElementById('auto-symbol-chip');
+    const box = document.getElementById('auto-progress-box');
+    chip.style.display = a ? '' : 'none';
+    if (a) {
+      chip.textContent = '🤖 ' + a.symbol.replace('USDT', '');
+      chip.dataset.symbol = a.symbol;
+      if (!box.dataset.live) { box.style.display = ''; document.getElementById('auto-progress-text').textContent = '…'; }
+    } else { box.style.display = 'none'; delete box.dataset.live; }
     inp.title = a
       ? (a.state === 'holding'
           ? `🤖 تلقائي ${a.symbol} ${a.pct}% — ممسك صفقة من ${a.buyPrice}، يبيع عند ${(a.buyPrice * (1 + a.pct / 100)).toFixed(4)}`
           : `🤖 تلقائي ${a.symbol} ${a.pct}% — ينتظر نزول ${a.pct}% من أعلى سعر ${a.peak ? a.peak.toFixed(4) : ''}`)
       : 'نسبة التداول التلقائي: فاضي = يدوي';
   }
+
+  function renderAutoProgress(m) {
+    const box = document.getElementById('auto-progress-box');
+    if (!lastBotStatus || !lastBotStatus.autoTrade) return; // التلقائي متوقف — تجاهل رسالة متأخرة
+    const holding = m.state === 'holding';
+    const move = Math.max(0, m.move);
+    const ratio = Math.min(1, move / m.pct);
+    box.dataset.live = '1';
+    box.style.display = '';
+    box.classList.toggle('up', holding);
+    box.classList.toggle('down', !holding);
+    document.getElementById('auto-progress-fill').style.width = (ratio * 100).toFixed(0) + '%';
+    const sign = m.move < 0 ? '-' : '';
+    document.getElementById('auto-progress-text').textContent =
+      `${holding ? '⬆ بيع' : '⬇ شراء'}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+  }
+  document.getElementById('auto-symbol-chip').addEventListener('click', function () {
+    if (this.dataset.symbol) switchToSymbol(this.dataset.symbol);
+  });
 
   function handleBotError(msg) {
     alert('⚠️ ' + msg.message);

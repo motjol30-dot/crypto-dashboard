@@ -2207,6 +2207,12 @@ async function runAutoTradeCycle() {
         try { price = priceCache[a.symbol] = await getCurrentPrice(a.symbol); } catch { continue; } // خطأ شبكة عابر: نتخطى الدورة
       }
       const creds = getCredsForAccountKey(accountKey);
+      if (a.state === 'waiting_buy' && (!(a.peak > 0) || price > a.peak)) a.peak = price;
+      // تقدّم النسبة الحي للمربع بالواجهة: نزول من القمة (انتظار الشراء) أو ارتفاع من سعر الشراء (انتظار البيع)
+      const move = a.state === 'holding' && a.position
+        ? (price - a.position.buyPrice) / a.position.buyPrice * 100
+        : (a.peak - price) / a.peak * 100;
+      notifyAccount(accountKey, { type: 'auto_progress', symbol: a.symbol, state: a.state, pct: a.pct, move, price });
       if (a.state === 'waiting_buy') {
         if (!(a.peak > 0) || price > a.peak) a.peak = price;
         const dropPct = (a.peak - price) / a.peak * 100;
