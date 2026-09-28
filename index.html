@@ -148,6 +148,12 @@
     background: var(--sell-bg); border: 1px solid rgba(248,81,73,0.4); color: var(--red);
   }
   #chart-amount-sell-input::placeholder { color: rgba(248,81,73,0.75); font-weight: 800; }
+  #auto-pct-input {
+    width: 74px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
+    background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
+  }
+  #auto-pct-input::placeholder { color: rgba(255,214,10,0.7); font-weight: 800; font-size: 0.7rem; }
+  #auto-pct-input.active { background: rgba(255,214,10,0.25); box-shadow: 0 0 8px rgba(255,214,10,0.6); }
   #chart-tools-row {
     padding: 6px 12px; display: flex; gap: 8px; flex-wrap: wrap; position: relative;
     background: var(--surface); border-bottom: 1px solid var(--border);
@@ -516,6 +522,7 @@
   <div id="chart-amount-wrap">
     <input type="number" id="chart-amount-buy-input" min="1" step="1" value="50" placeholder="شراء" title="مبلغ الشراء (USDT)">
     <input type="number" id="chart-amount-sell-input" min="1" step="1" value="50" placeholder="بيع" title="مبلغ البيع (USDT)">
+    <input type="number" id="auto-pct-input" min="0.1" max="20" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
@@ -2422,6 +2429,7 @@
     lastBotStatus = msg;
     document.getElementById('chart-amount-buy-input').value = msg.tradeSizeUsdt;
     document.getElementById('chart-amount-sell-input').value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
+    syncAutoPctInput(msg.autoTrade);
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
@@ -2446,6 +2454,21 @@
     info.style.display = 'flex';
   }
 
+  // مربع النسبة: يتزامن مع حالة السيرفر فقط عند تغيّر الإعداد (حتى لا يمسح ما تكتبه أثناء الكتابة)
+  let lastAutoSig = null;
+  function syncAutoPctInput(a) {
+    const inp = document.getElementById('auto-pct-input');
+    if (!inp) return;
+    const sig = a ? `${a.pct}|${a.symbol}` : 'off';
+    if (sig !== lastAutoSig) { lastAutoSig = sig; if (document.activeElement !== inp) inp.value = a ? a.pct : ''; }
+    inp.classList.toggle('active', !!a);
+    inp.title = a
+      ? (a.state === 'holding'
+          ? `🤖 تلقائي ${a.symbol} ${a.pct}% — ممسك صفقة من ${a.buyPrice}، يبيع عند ${(a.buyPrice * (1 + a.pct / 100)).toFixed(4)}`
+          : `🤖 تلقائي ${a.symbol} ${a.pct}% — ينتظر نزول ${a.pct}% من أعلى سعر ${a.peak ? a.peak.toFixed(4) : ''}`)
+      : 'نسبة التداول التلقائي: فاضي = يدوي';
+  }
+
   function handleBotError(msg) {
     alert('⚠️ ' + msg.message);
   }
@@ -2456,6 +2479,9 @@
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (buyV > 0) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: buyV }));
     if (sellV > 0) ws.send(JSON.stringify({ type: 'bot_set_sell_amount', sellAmountUsdt: sellV }));
+    // النسبة: فاضية = يدوي (يوقف التلقائي)، موجودة = تشغيل التلقائي على العملة المعروضة حاليًا
+    const pctRaw = document.getElementById('auto-pct-input').value.trim();
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
