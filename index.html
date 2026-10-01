@@ -164,6 +164,12 @@
     border-radius: 6px; padding: 5px 10px; font-size: 0.74rem; font-weight: 800; cursor: pointer;
   }
   #auto-symbol-chip:active { transform: scale(0.96); }
+  #auto-anchor-chip {
+    background: rgba(255,214,10,0.14); border: 1px solid rgba(255,214,10,0.5); color: #ffd60a;
+    border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 800; margin-left: 6px;
+  }
+  #auto-progress-box.waiting-anchor { border-color: rgba(255,214,10,0.5); color: #ffd60a; }
+  #auto-progress-box.waiting-anchor #auto-progress-fill { background: #ffd60a; }
   #auto-pct-input {
     width: 74px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
     background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
@@ -522,6 +528,7 @@
 <div id="ultrashort-cfg" class="cfg-dropdown"></div>
 
 <div id="chart-header">
+  <span id="auto-anchor-chip" style="display:none;" title="سعر المرساة المحفوظ — ينتظر رجوع السعر لهذا المستوى قبل تشغيل النسبة (في حالة الصعود فقط)">—</span>
   <span id="chart-symbol">BTCUSDT</span>
   <span id="chart-price">—</span>
   <span id="trade-status-dot" title="أخضر = آخر عملية شراء، أحمر = آخر عملية بيع"></span>
@@ -2488,7 +2495,7 @@
       chip.textContent = '🤖 ' + a.symbol.replace('USDT', '');
       chip.dataset.symbol = a.symbol;
       if (!box.dataset.live) { box.style.display = ''; document.getElementById('auto-progress-text').textContent = '…'; }
-    } else { box.style.display = 'none'; delete box.dataset.live; }
+    } else { box.style.display = 'none'; delete box.dataset.live; document.getElementById('auto-anchor-chip').style.display = 'none'; }
     inp.title = a
       ? (a.state === 'holding'
           ? `🤖 تلقائي ${a.symbol} ${a.pct}% — ممسك صفقة من ${a.buyPrice}، يبيع عند ${(a.buyPrice * (1 + a.pct / 100)).toFixed(4)}`
@@ -2500,16 +2507,27 @@
     const box = document.getElementById('auto-progress-box');
     if (!lastBotStatus || !lastBotStatus.autoTrade) return; // التلقائي متوقف — تجاهل رسالة متأخرة
     const holding = m.state === 'holding';
-    const move = Math.max(0, m.move);
-    const ratio = Math.min(1, move / m.pct);
     box.dataset.live = '1';
     box.style.display = '';
-    box.classList.toggle('up', holding);
-    box.classList.toggle('down', !holding);
-    document.getElementById('auto-progress-fill').style.width = (ratio * 100).toFixed(0) + '%';
-    const sign = m.move < 0 ? '-' : '';
-    document.getElementById('auto-progress-text').textContent =
-      `${holding ? '⬆ بيع' : '⬇ شراء'}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+    box.classList.remove('up', 'down', 'waiting-anchor');
+    const fill = document.getElementById('auto-progress-fill');
+    const text = document.getElementById('auto-progress-text');
+    if (!holding && m.move === null) {
+      // السعر فوق المرساة بعد الحفظ: النسبة متوقفة لحد ما يرجع لسعر المرساة (انتظار الصعود فقط)
+      box.classList.add('waiting-anchor');
+      fill.style.width = '0%';
+      text.textContent = `⏳ ينتظر الرجوع لـ ${fmt(m.anchor)}`;
+    } else {
+      const move = Math.max(0, m.move);
+      const ratio = Math.min(1, move / m.pct);
+      box.classList.toggle('up', holding);
+      box.classList.toggle('down', !holding);
+      fill.style.width = (ratio * 100).toFixed(0) + '%';
+      const sign = m.move < 0 ? '-' : '';
+      text.textContent = `${holding ? '⬆ بيع' : '⬇ شراء'}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+    }
+    const chip = document.getElementById('auto-anchor-chip');
+    if (m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
   }
   document.getElementById('auto-symbol-chip').addEventListener('click', function () {
     if (this.dataset.symbol) switchToSymbol(this.dataset.symbol);

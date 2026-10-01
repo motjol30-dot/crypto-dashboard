@@ -465,9 +465,11 @@ wss.on('connection', (ws, req) => {
       if (cur && cur.symbol === symbol) {
         cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; // نفس العملة: نحدّث النسبة والمبلغ فقط بدون تصفير الحالة
       } else {
-        let peak = 0;
-        try { peak = await getCurrentPrice(symbol); } catch {}
-        autoTradeByAccount[accountKey] = { pct, symbol, amountUsdt: botState.tradeSizeUsdt, state: 'waiting_buy', peak, position: null, fails: 0, pausedUntil: 0, busy: false };
+        let price = 0;
+        try { price = await getCurrentPrice(symbol); } catch {}
+        // عند الحفظ: نسجّل سعر الحفظ كـ"مرساة" — إذا ارتفع السعر بعدها نتجاهل حساب النسبة تماماً حتى يرجع السعر لهذه المرساة
+        // (حتى لا يشتري البوت في منتصف صعود قوي)، وإذا نزل مباشرة بعد الحفظ تعمل النسبة عادي من أول لحظة.
+        autoTradeByAccount[accountKey] = { pct, symbol, amountUsdt: botState.tradeSizeUsdt, state: 'waiting_buy', peak: price, anchor: price, armed: false, position: null, fails: 0, pausedUntil: 0, busy: false };
       }
       saveAutoTrade();
       broadcastBotStatus();
@@ -2027,7 +2029,7 @@ function botStatusPayload(ws) {
     pendingSellOrders: botState.pendingSellOrders, tradeLog: botState.tradeLog.slice(0, 20),
     manualBot: { enabled: manualBotState.enabled, trades: trades.slice(0, 30) },
     linkedAccount: accountKey === '__default__' ? null : accountKey,
-    autoTrade: (() => { const a = autoTradeByAccount[accountKey]; return a ? { pct: a.pct, symbol: a.symbol, state: a.state, peak: a.peak, buyPrice: a.position ? a.position.buyPrice : null, amountUsdt: a.amountUsdt } : null; })(),
+    autoTrade: (() => { const a = autoTradeByAccount[accountKey]; return a ? { pct: a.pct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed, buyPrice: a.position ? a.position.buyPrice : null, amountUsdt: a.amountUsdt } : null; })(),
   });
 }
 function broadcastBotStatus() {
@@ -2182,7 +2184,7 @@ function saveAutoTrade() {
 function loadAutoTrade() {
   try { autoTradeByAccount = JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')) || {}; } catch (err) { autoTradeByAccount = {}; }
   for (const [k, a] of Object.entries(autoTradeByAccount)) {
-    a.busy = false; a.fails = 0; a.pausedUntil = 0;
+    a.busy = false; a.fails = 0; a.pausedUntil = 0; if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
     if (a.state === 'holding' && a.position) {
       const trades = manualBotState.tradesByAccount[k] || (manualBotState.tradesByAccount[k] = []);
       trades.unshift({ id: a.position.id, symbol: a.symbol, qty: a.position.qty, buyPrice: a.position.buyPrice, buyOrderId: null, sellOrderId: null, sellPrice: null, status: 'open', time: a.position.time, auto: true });
@@ -2207,14 +2209,19 @@ async function runAutoTradeCycle() {
         try { price = priceCache[a.symbol] = await getCurrentPrice(a.symbol); } catch { continue; } // خطأ شبكة عابر: نتخطى الدورة
       }
       const creds = getCredsForAccountKey(accountKey);
-      if (a.state === 'waiting_buy' && (!(a.peak > 0) || price > a.peak)) a.peak = price;
+      if (a.state === 'waiting_buy') {
+        if (!(a.anchor > 0)) { a.anchor = price; a.armed = true; a.peak = price; } // توافق صفقات قديمة بدون مرساة محفوظة
+        else if (!a.armed) {
+          if (price <= a.anchor) { a.armed = true; a.peak = a.anchor; } // رجع للمرساة (أو نزل مباشرة بدون ما يرتفع): نبدأ حساب النسبة من مستوى المرساة
+          // لسه فوق المرساة: ما نحسب شي، فقط ننتظر رجوعه — هذا يمنع الشراء في منتصف صعود قوي
+        } else if (price > a.peak) a.peak = price;
+      }
       // تقدّم النسبة الحي للمربع بالواجهة: نزول من القمة (انتظار الشراء) أو ارتفاع من سعر الشراء (انتظار البيع)
       const move = a.state === 'holding' && a.position
         ? (price - a.position.buyPrice) / a.position.buyPrice * 100
-        : (a.peak - price) / a.peak * 100;
-      notifyAccount(accountKey, { type: 'auto_progress', symbol: a.symbol, state: a.state, pct: a.pct, move, price });
-      if (a.state === 'waiting_buy') {
-        if (!(a.peak > 0) || price > a.peak) a.peak = price;
+        : (a.armed ? (a.peak - price) / a.peak * 100 : null);
+      notifyAccount(accountKey, { type: 'auto_progress', symbol: a.symbol, state: a.state, pct: a.pct, move, price, anchor: a.anchor, armed: a.armed });
+      if (a.state === 'waiting_buy' && a.armed) {
         const dropPct = (a.peak - price) / a.peak * 100;
         if (dropPct >= a.pct) {
           let trade;
@@ -2238,13 +2245,13 @@ async function runAutoTradeCycle() {
         const trades = manualBotState.tradesByAccount[accountKey] || [];
         const t = trades.find(x => x.id === a.position.id);
         if (!t || t.status === 'sold') { // بعتها يدويًا بالزر الأحمر → نرجع ننتظر النزول
-          a.state = 'waiting_buy'; a.position = null; a.peak = price; saveAutoTrade(); broadcastBotStatus();
+          a.state = 'waiting_buy'; a.position = null; a.peak = price; a.anchor = price; a.armed = false; saveAutoTrade(); broadcastBotStatus();
           continue;
         }
         if (price >= a.position.buyPrice * (1 + a.pct / 100)) {
           try {
             const sold = await executeManualSell(a.symbol, accountKey, creds, a.position.id, true);
-            a.state = 'waiting_buy'; a.position = null; a.peak = sold.sellPrice || price; a.fails = 0;
+            a.state = 'waiting_buy'; a.position = null; a.peak = sold.sellPrice || price; a.anchor = a.peak; a.armed = false; a.fails = 0;
             saveAutoTrade();
             notifyAccount(accountKey, { type: 'trade_result', side: 'SELL', symbol: a.symbol });
             broadcastBotStatus();
