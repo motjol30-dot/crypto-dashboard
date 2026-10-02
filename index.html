@@ -170,6 +170,12 @@
   }
   #auto-progress-box.waiting-anchor { border-color: rgba(255,214,10,0.5); color: #ffd60a; }
   #auto-progress-box.waiting-anchor #auto-progress-fill { background: #ffd60a; }
+  #auto-levels-input {
+    width: 48px; border-radius: 7px; padding: 3px 4px; font-size: 16px; text-align: center; outline: none;
+    background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
+  }
+  #auto-levels-input::placeholder { color: rgba(255,214,10,0.7); font-weight: 800; font-size: 0.68rem; }
+  #auto-levels-input.active { background: rgba(255,214,10,0.25); box-shadow: 0 0 8px rgba(255,214,10,0.6); }
   #auto-pct-input {
     width: 74px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
     background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
@@ -547,7 +553,8 @@
   <div id="chart-amount-wrap">
     <input type="number" id="chart-amount-buy-input" min="1" step="1" value="50" placeholder="شراء" title="مبلغ الشراء (USDT)">
     <input type="number" id="chart-amount-sell-input" min="1" step="1" value="50" placeholder="بيع" title="مبلغ البيع (USDT)">
-    <input type="number" id="auto-pct-input" min="0.1" max="20" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
+    <input type="number" id="auto-pct-input" min="0.1" max="50" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
+    <input type="number" id="auto-levels-input" min="1" max="10" step="1" placeholder="عدد" title="عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة. مثال 3 = يشتري 3 مرات، كل مرة عند نزول النسبة من آخر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع النسبة فوق متوسط سعر الشراء">
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
@@ -2484,10 +2491,16 @@
   let lastAutoSig = null;
   function syncAutoPctInput(a) {
     const inp = document.getElementById('auto-pct-input');
+    const levelsInp = document.getElementById('auto-levels-input');
     if (!inp) return;
-    const sig = a ? `${a.pct}|${a.symbol}` : 'off';
-    if (sig !== lastAutoSig) { lastAutoSig = sig; if (document.activeElement !== inp) inp.value = a ? a.pct : ''; }
+    const sig = a ? `${a.pct}|${a.levels}|${a.symbol}` : 'off';
+    if (sig !== lastAutoSig) {
+      lastAutoSig = sig;
+      if (document.activeElement !== inp) inp.value = a ? a.pct : '';
+      if (document.activeElement !== levelsInp) levelsInp.value = a && a.levels > 1 ? a.levels : '';
+    }
     inp.classList.toggle('active', !!a);
+    levelsInp.classList.toggle('active', !!a);
     const chip = document.getElementById('auto-symbol-chip');
     const box = document.getElementById('auto-progress-box');
     chip.style.display = a ? '' : 'none';
@@ -2496,24 +2509,30 @@
       chip.dataset.symbol = a.symbol;
       if (!box.dataset.live) { box.style.display = ''; document.getElementById('auto-progress-text').textContent = '…'; }
     } else { box.style.display = 'none'; delete box.dataset.live; document.getElementById('auto-anchor-chip').style.display = 'none'; }
+    const levels = a ? (a.levels || 1) : 1;
     inp.title = a
       ? (a.state === 'holding'
-          ? `🤖 تلقائي ${a.symbol} ${a.pct}% — ممسك صفقة من ${a.buyPrice}، يبيع عند ${(a.buyPrice * (1 + a.pct / 100)).toFixed(4)}`
+          ? `🤖 تلقائي ${a.symbol} ${a.pct}% — مرحلة شراء ${a.legsDone}/${levels}، متوسط الشراء ${a.avgBuyPrice ? a.avgBuyPrice.toFixed(4) : ''}، يبيع الكل عند ${a.avgBuyPrice ? (a.avgBuyPrice * (1 + a.pct / 100)).toFixed(4) : ''}`
           : `🤖 تلقائي ${a.symbol} ${a.pct}% — ينتظر نزول ${a.pct}% من أعلى سعر ${a.peak ? a.peak.toFixed(4) : ''}`)
       : 'نسبة التداول التلقائي: فاضي = يدوي';
+    levelsInp.title = levels > 1
+      ? `يشتري بالتدرّج ${levels} مرات، كل مرة عند نزول ${a ? a.pct : ''}% من آخر سعر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع ${a ? a.pct : ''}% فوق متوسط الشراء`
+      : 'عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة';
   }
 
   function renderAutoProgress(m) {
     const box = document.getElementById('auto-progress-box');
     if (!lastBotStatus || !lastBotStatus.autoTrade) return; // التلقائي متوقف — تجاهل رسالة متأخرة
     const holding = m.state === 'holding';
+    const levels = m.levels || 1;
     box.dataset.live = '1';
     box.style.display = '';
     box.classList.remove('up', 'down', 'waiting-anchor');
     const fill = document.getElementById('auto-progress-fill');
     const text = document.getElementById('auto-progress-text');
+    const stage = levels > 1 ? ` (${holding ? m.legsDone : 0}/${levels})` : '';
     if (!holding && m.move === null) {
-      // السعر فوق المرساة بعد الحفظ: النسبة متوقفة لحد ما يرجع لسعر المرساة (انتظار الصعود فقط)
+      // السعر فوق المرساة بعد الحفظ: النسبة متوقفة لحد ما يرجع لسعر المرساة (انتظار الصعود فقط — للمرحلة الأولى فقط)
       box.classList.add('waiting-anchor');
       fill.style.width = '0%';
       text.textContent = `⏳ ينتظر الرجوع لـ ${fmt(m.anchor)}`;
@@ -2524,10 +2543,15 @@
       box.classList.toggle('down', !holding);
       fill.style.width = (ratio * 100).toFixed(0) + '%';
       const sign = m.move < 0 ? '-' : '';
-      text.textContent = `${holding ? '⬆ بيع' : '⬇ شراء'}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+      const label = holding
+        ? (m.legsDone < levels ? '⬆ بيع / ⬇ شراء جديد' : '⬆ بيع')
+        : '⬇ شراء';
+      text.textContent = `${label}${stage}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
     }
     const chip = document.getElementById('auto-anchor-chip');
-    if (m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
+    if (!holding && m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
+    else if (holding && m.avgBuyPrice > 0) { chip.style.display = ''; chip.textContent = 'Ø ' + fmt(m.avgBuyPrice); }
+    else chip.style.display = 'none';
   }
   document.getElementById('auto-symbol-chip').addEventListener('click', function () {
     if (this.dataset.symbol) switchToSymbol(this.dataset.symbol);
@@ -2545,7 +2569,8 @@
     if (sellV > 0) ws.send(JSON.stringify({ type: 'bot_set_sell_amount', sellAmountUsdt: sellV }));
     // النسبة: فاضية = يدوي (يوقف التلقائي)، موجودة = تشغيل التلقائي على العملة المعروضة حاليًا
     const pctRaw = document.getElementById('auto-pct-input').value.trim();
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, symbol: currentSymbol }));
+    const levelsRaw = document.getElementById('auto-levels-input').value.trim();
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
