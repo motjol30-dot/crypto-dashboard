@@ -176,6 +176,28 @@
   }
   #auto-levels-input::placeholder { color: rgba(255,214,10,0.7); font-weight: 800; font-size: 0.68rem; }
   #auto-levels-input.active { background: rgba(255,214,10,0.25); box-shadow: 0 0 8px rgba(255,214,10,0.6); }
+  #auto-anchor-chip { cursor: pointer; }
+  #auto-levelpct-gear {
+    width: 30px; height: 30px; border-radius: 7px; background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45);
+    color: #ffd60a; font-size: 15px; line-height: 1; cursor: pointer;
+  }
+  #auto-levelpct-gear:active { transform: scale(0.94); }
+  #auto-levelpct-panel {
+    position: fixed; left: 10px; right: 10px; bottom: 90px; z-index: 400; max-height: 60vh; overflow-y: auto;
+    background: #141414; border: 1px solid rgba(255,214,10,0.5); border-radius: 12px; padding: 12px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  }
+  #auto-levelpct-title { color: #ffd60a; font-size: 0.78rem; font-weight: 800; margin-bottom: 8px; text-align: center; }
+  .auto-levelpct-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 2px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .auto-levelpct-row label { font-size: 0.8rem; color: var(--text); font-weight: 700; }
+  .auto-levelpct-row input {
+    width: 64px; border-radius: 7px; padding: 4px 6px; font-size: 15px; text-align: center; outline: none;
+    background: rgba(255,214,10,0.08); border: 1px solid rgba(255,214,10,0.35); color: #ffd60a;
+  }
+  .auto-levelpct-row input::placeholder { color: rgba(255,214,10,0.55); font-size: 0.7rem; }
+  #auto-levelpct-close {
+    width: 100%; margin-top: 10px; padding: 9px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; cursor: pointer;
+  }
   #auto-pct-input {
     width: 74px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
     background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
@@ -555,8 +577,14 @@
     <input type="number" id="chart-amount-sell-input" min="1" step="1" value="50" placeholder="بيع" title="مبلغ البيع (USDT)">
     <input type="number" id="auto-pct-input" min="0.1" max="50" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
     <input type="number" id="auto-levels-input" min="1" max="10" step="1" placeholder="عدد" title="عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة. مثال 3 = يشتري 3 مرات، كل مرة عند نزول النسبة من آخر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع النسبة فوق متوسط سعر الشراء">
+    <button type="button" id="auto-levelpct-gear" title="تخصيص نسبة كل مرحلة شراء على حدة">⚙</button>
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
+  <div id="auto-levelpct-panel" style="display:none;">
+    <div id="auto-levelpct-title">نسبة كل مرحلة شراء — فاضي = تلقائي (يستخدم النسبة الرئيسية)</div>
+    <div id="auto-levelpct-rows"></div>
+    <button type="button" id="auto-levelpct-close">تم ✓</button>
+  </div>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
   <span id="ultra-short-trend-badge" title="طبقة الفريمات فائقة القصر: 1ث/3ث/5ث/1د/3د/5د">—</span>
@@ -2493,10 +2521,11 @@
     const inp = document.getElementById('auto-pct-input');
     const levelsInp = document.getElementById('auto-levels-input');
     if (!inp) return;
-    const sig = a ? `${a.pct}|${a.levels}|${a.symbol}` : 'off';
+    const mainPct = a ? (a.mainPct != null ? a.mainPct : a.pct) : null; // مربع النسبة نفسه يعرض دائمًا نسبة المرحلة الأولى الثابتة، مو نسبة البيع المتغيّرة
+    const sig = a ? `${mainPct}|${a.levels}|${a.symbol}` : 'off';
     if (sig !== lastAutoSig) {
       lastAutoSig = sig;
-      if (document.activeElement !== inp) inp.value = a ? a.pct : '';
+      if (document.activeElement !== inp) inp.value = a ? mainPct : '';
       if (document.activeElement !== levelsInp) levelsInp.value = a && a.levels > 1 ? a.levels : '';
     }
     inp.classList.toggle('active', !!a);
@@ -2512,12 +2541,14 @@
     const levels = a ? (a.levels || 1) : 1;
     inp.title = a
       ? (a.state === 'holding'
-          ? `🤖 تلقائي ${a.symbol} ${a.pct}% — مرحلة شراء ${a.legsDone}/${levels}، متوسط الشراء ${a.avgBuyPrice ? a.avgBuyPrice.toFixed(4) : ''}، يبيع الكل عند ${a.avgBuyPrice ? (a.avgBuyPrice * (1 + a.pct / 100)).toFixed(4) : ''}`
-          : `🤖 تلقائي ${a.symbol} ${a.pct}% — ينتظر نزول ${a.pct}% من أعلى سعر ${a.peak ? a.peak.toFixed(4) : ''}`)
+          // a.pct هنا نسبة البيع الفعلية (نسبة آخر مرحلة اشتريناها، مو دائمًا الرئيسية)
+          ? `🤖 تلقائي ${a.symbol} — مرحلة شراء ${a.legsDone}/${levels}، متوسط الشراء ${a.avgBuyPrice ? a.avgBuyPrice.toFixed(4) : ''}، يبيع الكل عند ارتفاع ${a.pct}% → ${a.avgBuyPrice ? (a.avgBuyPrice * (1 + a.pct / 100)).toFixed(4) : ''}`
+          : `🤖 تلقائي ${a.symbol} ${mainPct}% — ينتظر نزول ${mainPct}% من أعلى سعر ${a.peak ? a.peak.toFixed(4) : ''}`)
       : 'نسبة التداول التلقائي: فاضي = يدوي';
     levelsInp.title = levels > 1
-      ? `يشتري بالتدرّج ${levels} مرات، كل مرة عند نزول ${a ? a.pct : ''}% من آخر سعر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع ${a ? a.pct : ''}% فوق متوسط الشراء`
+      ? `يشتري بالتدرّج ${levels} مرات، كل مرة عند نزول نسبتها (المخصّصة لها لو محدّدة وإلا الرئيسية). البيع يستخدم نسبة *آخر مرحلة اشتريناها فعليًا* فوق متوسط الشراء — مو ثابتة على النسبة الرئيسية دائمًا`
       : 'عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة';
+    syncLevelPctRows(a);
   }
 
   function renderAutoProgress(m) {
@@ -2544,9 +2575,16 @@
       fill.style.width = (ratio * 100).toFixed(0) + '%';
       const sign = m.move < 0 ? '-' : '';
       const label = holding
-        ? (m.legsDone < levels ? '⬆ بيع / ⬇ شراء جديد' : '⬆ بيع')
+        ? (m.legsDone < levels ? '⬆ بيع' : '⬆ بيع')
         : '⬇ شراء';
-      text.textContent = `${label}${stage}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+      let line = `${label}${stage}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+      // لما في مرحلة شراء قادمة (عدد > 1 وما اكتمل بعد): نضيف سطر يبيّن تقدّمها بنسبتها الخاصة (أو الرئيسية لو ما حدّدها المستخدم)
+      if (holding && m.nextPct != null && m.buyMove != null) {
+        const bSign = m.buyMove < 0 ? '-' : '';
+        line += `\n⬇ شراء #${m.nextLevel}  ${bSign}${Math.abs(m.buyMove).toFixed(2)}% / ${m.nextPct}%`;
+      }
+      text.textContent = line;
+      text.style.whiteSpace = 'pre-line';
     }
     const chip = document.getElementById('auto-anchor-chip');
     if (!holding && m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
@@ -2556,6 +2594,47 @@
   document.getElementById('auto-symbol-chip').addEventListener('click', function () {
     if (this.dataset.symbol) switchToSymbol(this.dataset.symbol);
   });
+
+  // 🎯 تعديل يدوي لسعر المرساة: يشتغل فقط قبل أول شراء (المربع وقتها يعرض المرساة مو المتوسط).
+  // ما لمسته = يضل زي ما كان بدون أي تغيير (مجرد إلغاء الـ prompt).
+  document.getElementById('auto-anchor-chip').addEventListener('click', function () {
+    const a = lastBotStatus && lastBotStatus.autoTrade;
+    if (!a || a.state !== 'waiting_buy') return; // أثناء الإمساك بصفقة المربع يعرض متوسط الشراء، مو قابل للتعديل
+    const current = a.anchor != null ? a.anchor : '';
+    const input = prompt('عدّل سعر المرساة (ارفعه أو خفّضه) — اتركه بدون تغيير وألغِ لو ما تبي تعدّل:', current);
+    if (input === null) return; // إلغاء = بدون أي تغيير
+    const v = parseFloat(input);
+    if (!(v > 0) || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'auto_anchor_set', anchor: v, symbol: a.symbol }));
+  });
+
+  // ⚙ قائمة نسبة كل مرحلة شراء على حدة (من المرحلة 2 للمرحلة 10 — المرحلة 1 دائمًا من مربع النسبة الرئيسي)
+  const levelPctRowsEl = document.getElementById('auto-levelpct-rows');
+  for (let lvl = 2; lvl <= 10; lvl++) {
+    const row = document.createElement('div');
+    row.className = 'auto-levelpct-row';
+    row.innerHTML = `<label>المرحلة ${lvl}</label><input type="number" min="0.1" max="50" step="0.1" placeholder="تلقائي" data-level="${lvl}">`;
+    levelPctRowsEl.appendChild(row);
+  }
+  document.getElementById('auto-levelpct-gear').addEventListener('click', () => {
+    const panel = document.getElementById('auto-levelpct-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  });
+  document.getElementById('auto-levelpct-close').addEventListener('click', () => {
+    document.getElementById('auto-levelpct-panel').style.display = 'none';
+  });
+  let lastLevelPctSig = null;
+  function syncLevelPctRows(a) {
+    const sig = a ? JSON.stringify(a.levelPct || {}) : '{}';
+    if (sig === lastLevelPctSig) return;
+    lastLevelPctSig = sig;
+    const lp = (a && a.levelPct) || {};
+    levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => {
+      if (document.activeElement === inp) return; // لا نلمس اللي قاعد يكتب فيه الآن
+      const v = lp[inp.dataset.level];
+      inp.value = v != null ? v : '';
+    });
+  }
 
   function handleBotError(msg) {
     alert('⚠️ ' + msg.message);
@@ -2570,7 +2649,12 @@
     // النسبة: فاضية = يدوي (يوقف التلقائي)، موجودة = تشغيل التلقائي على العملة المعروضة حاليًا
     const pctRaw = document.getElementById('auto-pct-input').value.trim();
     const levelsRaw = document.getElementById('auto-levels-input').value.trim();
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, symbol: currentSymbol }));
+    const levelPct = {};
+    levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => {
+      const v = inp.value.trim();
+      if (v !== '') levelPct[inp.dataset.level] = v;
+    });
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, levelPct, symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════

@@ -467,23 +467,56 @@ wss.on('connection', (ws, req) => {
           return;
         }
       }
+      // نسبة مخصّصة لكل مرحلة شراء (اختياري) — المرحلة 1 دائمًا تستخدم مربع النسبة الرئيسي فقط، وتبدأ القائمة من المرحلة 2.
+      // أي مرحلة ما لها نسبة مخصّصة هنا تستخدم النسبة الرئيسية تلقائيًا.
+      let levelPct = {};
+      if (msg.levelPct && typeof msg.levelPct === 'object') {
+        for (const [k, v] of Object.entries(msg.levelPct)) {
+          const lvl = parseInt(k, 10);
+          if (!Number.isInteger(lvl) || lvl < 2 || lvl > 10) continue; // المرحلة 1 أو أرقام غير صالحة — نتجاهلها بصمت
+          if (v === null || v === undefined || v === '') continue; // فاضي = تلقائي، ما نخزّن شي
+          const vv = parseFloat(v);
+          if (!(vv >= 0.1 && vv <= 50)) {
+            ws.send(JSON.stringify({ type: 'error', message: `نسبة المرحلة ${lvl} لازم تكون بين 0.1 و 50` }));
+            return;
+          }
+          levelPct[lvl] = vv;
+        }
+      }
       if (cur && cur.state === 'holding' && cur.symbol !== symbol) {
         ws.send(JSON.stringify({ type: 'error', message: `عندك صفقة تلقائية مفتوحة على ${cur.symbol} — بعها أولًا (زر بيع) قبل تغيير العملة` }));
         return;
       }
       if (cur && cur.symbol === symbol) {
-        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; // نفس العملة: نحدّث النسبة والمبلغ والعدد فقط بدون تصفير الحالة
+        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; // نفس العملة: نحدّث النسبة والمبلغ والعدد ونسب المراحل فقط بدون تصفير الحالة
       } else {
         let price = 0;
         try { price = await getCurrentPrice(symbol); } catch {}
         // عند الحفظ: نسجّل سعر الحفظ كـ"مرساة" — إذا ارتفع السعر بعدها نتجاهل حساب النسبة تماماً حتى يرجع السعر لهذه المرساة
         // (حتى لا يشتري البوت في منتصف صعود قوي)، وإذا نزل مباشرة بعد الحفظ تعمل النسبة عادي من أول لحظة.
         autoTradeByAccount[accountKey] = {
-          pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, state: 'waiting_buy',
+          pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, state: 'waiting_buy',
           peak: price, anchor: price, armed: false, legs: [], lastBuyPrice: null,
           fails: 0, pausedUntil: 0, busy: false,
         };
       }
+      saveAutoTrade();
+      broadcastBotStatus();
+    }
+    else if (msg.type === 'auto_anchor_set') {
+      // تعديل يدوي لسعر المرساة 🎯 (المربع الأصفر فوق): يُسمح فقط قبل أول شراء (انتظار النزول)، لأنه بعد
+      // أول شراء المربع يعرض متوسط الشراء مو المرساة. لو ما لمسه المستخدم يضل زي ما كان بدون أي تغيير.
+      const accountKey = getAccountKeyForWs(ws);
+      const a = autoTradeByAccount[accountKey];
+      if (!a) { ws.send(JSON.stringify({ type: 'error', message: 'ما فيه تداول تلقائي شغال حاليًا' })); return; }
+      if (msg.symbol && a.symbol !== msg.symbol.toString().trim().toUpperCase()) { ws.send(JSON.stringify({ type: 'error', message: 'العملة تغيّرت — حدّث الصفحة وحاول مرة ثانية' })); return; }
+      if (a.state !== 'waiting_buy') { ws.send(JSON.stringify({ type: 'error', message: 'ما تقدر تعدّل المرساة أثناء إمساك صفقة مفتوحة' })); return; }
+      const anchor = parseFloat(msg.anchor);
+      if (!(anchor > 0)) { ws.send(JSON.stringify({ type: 'error', message: 'سعر المرساة غير صحيح' })); return; }
+      a.anchor = anchor;
+      let price = anchor;
+      try { price = await getCurrentPrice(a.symbol); } catch {}
+      if (price <= anchor) { a.armed = true; a.peak = anchor; } else { a.armed = false; a.peak = anchor; }
       saveAutoTrade();
       broadcastBotStatus();
     }
@@ -2048,9 +2081,11 @@ function botStatusPayload(ws) {
       const legs = a.legs || [];
       const totalQty = legs.reduce((s, l) => s + l.qty, 0);
       const avgBuyPrice = totalQty > 0 ? legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty : null;
+      // نسبة البيع الفعلية = نسبة آخر مرحلة اشترينا فيها (مو دائمًا الرئيسية) — نفس حساب دورة التداول تمامًا
+      const sellPct = legs.length <= 1 ? a.pct : ((a.levelPct && a.levelPct[legs.length]) || a.pct);
       return {
-        pct: a.pct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
-        amountUsdt: a.amountUsdt, levels: a.levels || 1, legsDone: legs.length,
+        pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
+        amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
       };
     })(),
@@ -2236,7 +2271,7 @@ function saveAutoTrade() {
 function loadAutoTrade() {
   try { autoTradeByAccount = JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')) || {}; } catch (err) { autoTradeByAccount = {}; }
   for (const [k, a] of Object.entries(autoTradeByAccount)) {
-    a.busy = false; a.fails = 0; a.pausedUntil = 0; a.levels = a.levels || 1;
+    a.busy = false; a.fails = 0; a.pausedUntil = 0; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
     if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
     // توافق الصفقات القديمة (قبل مرحلة الشراء المتدرّج): كانت تخزّن position مفردة بدل legs — نحوّلها
     if (a.position && !a.legs) { a.legs = [a.position]; a.lastBuyPrice = a.position.buyPrice; delete a.position; }
@@ -2316,11 +2351,20 @@ async function runAutoTradeCycle() {
       const totalQty = a.legs.reduce((s, l) => s + l.qty, 0);
       const avgBuyPrice = a.legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty;
       const sellMove = (price - avgBuyPrice) / avgBuyPrice * 100;
+      // نسبة البيع = نسبة *آخر مرحلة اشترينا فيها فعليًا* (المرحلة 1 دائمًا النسبة الرئيسية، ومن 2 لـ10 نسبتها
+      // المخصّصة لها لو محدّدة وإلا الرئيسية تلقائيًا) — مو ثابتة دائمًا على النسبة الرئيسية، تتغيّر كل ما نشتري مرحلة جديدة.
+      const lastLevel = a.legs.length;
+      const sellPct = lastLevel <= 1 ? a.pct : ((a.levelPct && a.levelPct[lastLevel]) || a.pct);
+      // نسبة المرحلة القادمة (لو باقي نشتري أكثر): من مربع نسبتها الخاص وإلا الرئيسية تلقائيًا
+      const nextLevel = a.legs.length + 1;
+      const nextPct = (a.levelPct && a.levelPct[nextLevel]) || a.pct;
+      const buyMove = a.legs.length < (a.levels || 1) ? (a.lastBuyPrice - price) / a.lastBuyPrice * 100 : null;
       notifyAccount(accountKey, {
-        type: 'auto_progress', symbol: a.symbol, state: 'holding', pct: a.pct, move: sellMove, price,
+        type: 'auto_progress', symbol: a.symbol, state: 'holding', pct: sellPct, move: sellMove, price,
         anchor: a.anchor, armed: true, legsDone: a.legs.length, levels: a.levels, avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
+        nextLevel, nextPct: a.legs.length < (a.levels || 1) ? nextPct : null, buyMove,
       });
-      if (price >= avgBuyPrice * (1 + a.pct / 100)) {
+      if (price >= avgBuyPrice * (1 + sellPct / 100)) {
         // وصل للنسبة فوق متوسط سعر كل المراحل المشتراة → يبيعها كلها بأمر واحد
         try {
           const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true);
@@ -2341,9 +2385,9 @@ async function runAutoTradeCycle() {
           }
         }
       } else if (a.legs.length < (a.levels || 1)) {
-        // ما وصلنا عدد مرات الشراء المطلوب بعد → ننتظر نزول النسبة *من آخر سعر اشترينا فيه* عشان نشتري مرحلة جديدة
-        const dropFromLast = (a.lastBuyPrice - price) / a.lastBuyPrice * 100;
-        if (dropFromLast >= a.pct) {
+        // ما وصلنا عدد مرات الشراء المطلوب بعد → ننتظر نزول نسبة *هذي المرحلة تحديدًا* (مخصّصة لها أو الرئيسية تلقائيًا)
+        // من آخر سعر اشترينا فيه عشان نشتري مرحلة جديدة
+        if (buyMove >= nextPct) {
           try {
             const trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true);
             a.legs.push({ id: trade.id, qty: trade.qty, price: trade.buyPrice, time: trade.time });
