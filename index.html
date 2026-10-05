@@ -176,6 +176,12 @@
   }
   #auto-levels-input::placeholder { color: rgba(255,214,10,0.7); font-weight: 800; font-size: 0.68rem; }
   #auto-levels-input.active { background: rgba(255,214,10,0.25); box-shadow: 0 0 8px rgba(255,214,10,0.6); }
+  #auto-sellpct-input {
+    width: 60px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
+    background: rgba(63,185,80,0.10); border: 1px solid rgba(63,185,80,0.45); color: var(--green);
+  }
+  #auto-sellpct-input::placeholder { color: rgba(63,185,80,0.7); font-weight: 800; font-size: 0.68rem; }
+  #auto-sellpct-input.active { background: rgba(63,185,80,0.25); box-shadow: 0 0 8px rgba(63,185,80,0.5); }
   #auto-anchor-chip { cursor: pointer; }
   #auto-levelpct-gear {
     width: 30px; height: 30px; border-radius: 7px; background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45);
@@ -578,6 +584,7 @@
     <input type="number" id="auto-pct-input" min="0.1" max="50" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
     <input type="number" id="auto-levels-input" min="1" max="10" step="1" placeholder="عدد" title="عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة. مثال 3 = يشتري 3 مرات، كل مرة عند نزول النسبة من آخر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع النسبة فوق متوسط سعر الشراء">
     <button type="button" id="auto-levelpct-gear" title="تخصيص نسبة كل مرحلة شراء على حدة">⚙</button>
+    <input type="number" id="auto-sellpct-input" min="0.1" max="50" step="0.1" placeholder="% بيع" title="نسبة البيع الثابتة فوق متوسط سعر الشراء — فاضي = تلقائي (يستخدم نسبة آخر مرحلة شراء)">
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <div id="auto-levelpct-panel" style="display:none;">
@@ -2520,16 +2527,19 @@
   function syncAutoPctInput(a) {
     const inp = document.getElementById('auto-pct-input');
     const levelsInp = document.getElementById('auto-levels-input');
+    const sellPctInp = document.getElementById('auto-sellpct-input');
     if (!inp) return;
     const mainPct = a ? (a.mainPct != null ? a.mainPct : a.pct) : null; // مربع النسبة نفسه يعرض دائمًا نسبة المرحلة الأولى الثابتة، مو نسبة البيع المتغيّرة
-    const sig = a ? `${mainPct}|${a.levels}|${a.symbol}` : 'off';
+    const sig = a ? `${mainPct}|${a.levels}|${a.sellPct}|${a.symbol}` : 'off';
     if (sig !== lastAutoSig) {
       lastAutoSig = sig;
       if (document.activeElement !== inp) inp.value = a ? mainPct : '';
       if (document.activeElement !== levelsInp) levelsInp.value = a && a.levels > 1 ? a.levels : '';
+      if (document.activeElement !== sellPctInp) sellPctInp.value = a && a.sellPct != null ? a.sellPct : '';
     }
     inp.classList.toggle('active', !!a);
     levelsInp.classList.toggle('active', !!a);
+    sellPctInp.classList.toggle('active', !!(a && a.sellPct != null));
     const chip = document.getElementById('auto-symbol-chip');
     const box = document.getElementById('auto-progress-box');
     chip.style.display = a ? '' : 'none';
@@ -2546,8 +2556,11 @@
           : `🤖 تلقائي ${a.symbol} ${mainPct}% — ينتظر نزول ${mainPct}% من أعلى سعر ${a.peak ? a.peak.toFixed(4) : ''}`)
       : 'نسبة التداول التلقائي: فاضي = يدوي';
     levelsInp.title = levels > 1
-      ? `يشتري بالتدرّج ${levels} مرات، كل مرة عند نزول نسبتها (المخصّصة لها لو محدّدة وإلا الرئيسية). البيع يستخدم نسبة *آخر مرحلة اشتريناها فعليًا* فوق متوسط الشراء — مو ثابتة على النسبة الرئيسية دائمًا`
+      ? `يشتري بالتدرّج ${levels} مرات، كل مرة عند نزول نسبتها (المخصّصة لها لو محدّدة وإلا الرئيسية).`
       : 'عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة';
+    sellPctInp.title = (a && a.sellPct != null)
+      ? `نسبة بيع ثابتة: يبيع دائمًا عند ارتفاع ${a.sellPct}% فوق متوسط سعر الشراء، مهما كانت آخر مرحلة اشترى فيها`
+      : 'نسبة البيع: فاضي = تلقائي (يستخدم نسبة آخر مرحلة شراء). حدّد رقم هنا لتثبيت نسبة البيع دائمًا على هذا الرقم';
     syncLevelPctRows(a);
   }
 
@@ -2649,12 +2662,13 @@
     // النسبة: فاضية = يدوي (يوقف التلقائي)، موجودة = تشغيل التلقائي على العملة المعروضة حاليًا
     const pctRaw = document.getElementById('auto-pct-input').value.trim();
     const levelsRaw = document.getElementById('auto-levels-input').value.trim();
+    const sellPctRaw = document.getElementById('auto-sellpct-input').value.trim();
     const levelPct = {};
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => {
       const v = inp.value.trim();
       if (v !== '') levelPct[inp.dataset.level] = v;
     });
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, levelPct, symbol: currentSymbol }));
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════

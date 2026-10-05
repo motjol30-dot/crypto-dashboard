@@ -9,6 +9,16 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { RSI, MACD, BollingerBands, EMA, CCI, ATR } = require('technicalindicators');
 
+// 🛡️ شبكة أمان عامة — Node (نسخة 15 فما فوق) توقف السيرفر بالكامل افتراضيًا لو صار أي خطأ غير معالج
+// (مثلاً Binance ما استجاب لثانيتين بنص الليل). بدون هذا، أي خطأ بسيط بأي مكان بالملف ممكن يطفّي البوت بالكامل
+// ونلقاه متوقف الصبح. هذا يمنع الإغلاق المفاجئ ويسجّل الخطأ بس يخلي السيرفر شغال.
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ خطأ غير متوقع (uncaughtException) — السيرفر يستمر بالعمل:', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ خطأ Promise غير معالج (unhandledRejection) — السيرفر يستمر بالعمل:', reason);
+});
+
 const PORT = process.env.PORT || 3000;
 
 // قائمة العملات (40 عملة)
@@ -306,7 +316,19 @@ wss.on('connection', (ws, req) => {
   ws.on('message', async (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-
+    try { // 🛡️ أي خطأ برسالة وحدة ما يوقف الاتصال ولا السيرفر — بس يتسجّل ونكمل عادي
+    // 🔒 حماية: أي أمر يحرّك فلوس أو يتحكّم بالبوت (شراء/بيع يدوي أو تلقائي، تشغيل/إيقاف، تغيير نسب) ممنوع
+    // إلا لمن ربط حسابه بالإيميل والرمز ومفتاح Binance API الخاص فيه. هذا يمنع أي شخص ثاني يدخل اللوحة
+    // (حتى لو يعرف كلمة مرور الدخول العامة) من لمس حسابك الافتراضي أو يغيّر نسبك بدون ما يربط حسابه هو.
+    const ACCOUNT_REQUIRED_TYPES = new Set([
+      'bot_toggle', 'bot_set_trade_size', 'bot_set_sell_amount', 'bot_set_take_profit', 'bot_set_max_positions',
+      'bot_set_manual_symbol', 'manual_buy_now', 'manual_sell_now', 'auto_trade_set', 'auto_anchor_set',
+      'manual_bot_toggle', 'bot_manual_close', 'bot_cancel_pending',
+    ]);
+    if (ACCOUNT_REQUIRED_TYPES.has(msg.type) && getAccountKeyForWs(ws) === '__default__') {
+      ws.send(JSON.stringify({ type: 'error', message: '🔒 لازم تربط حسابك (إيميل + رمز + مفتاح Binance API الخاص فيك) من أعلى اللوحة أول — قبل ما تقدر تشغّل البوت أو تغيّر أي إعداد. هذا يحمي حسابك من أي شخص ثاني يدخل اللوحة.' }));
+      return;
+    }
     if (msg.type === 'subscribe') {
       const { symbol, interval } = msg;
       const validSymbol = typeof symbol === 'string' && /^[A-Z0-9]{2,20}USDT$/.test(symbol);
@@ -467,6 +489,17 @@ wss.on('connection', (ws, req) => {
           return;
         }
       }
+      // نسبة بيع ثابتة ومنفصلة (اختياري) — لو المستخدم حددها، تُستخدم دائمًا لحساب نقطة البيع فوق متوسط الشراء
+      // (مو نسبة آخر مرحلة اشترى فيها). فاضية = يرجع للسلوك التلقائي (نسبة آخر مرحلة اشترى فيها فعليًا).
+      let sellPctOverride = null;
+      if (msg.sellPct !== null && msg.sellPct !== undefined && msg.sellPct !== '') {
+        const sp = parseFloat(msg.sellPct);
+        if (!(sp >= 0.1 && sp <= 50)) {
+          ws.send(JSON.stringify({ type: 'error', message: 'نسبة البيع لازم تكون بين 0.1 و 50' }));
+          return;
+        }
+        sellPctOverride = sp;
+      }
       // نسبة مخصّصة لكل مرحلة شراء (اختياري) — المرحلة 1 دائمًا تستخدم مربع النسبة الرئيسي فقط، وتبدأ القائمة من المرحلة 2.
       // أي مرحلة ما لها نسبة مخصّصة هنا تستخدم النسبة الرئيسية تلقائيًا.
       let levelPct = {};
@@ -488,14 +521,14 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (cur && cur.symbol === symbol) {
-        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; // نفس العملة: نحدّث النسبة والمبلغ والعدد ونسب المراحل فقط بدون تصفير الحالة
+        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.sellPct = sellPctOverride; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
       } else {
         let price = 0;
         try { price = await getCurrentPrice(symbol); } catch {}
         // عند الحفظ: نسجّل سعر الحفظ كـ"مرساة" — إذا ارتفع السعر بعدها نتجاهل حساب النسبة تماماً حتى يرجع السعر لهذه المرساة
         // (حتى لا يشتري البوت في منتصف صعود قوي)، وإذا نزل مباشرة بعد الحفظ تعمل النسبة عادي من أول لحظة.
         autoTradeByAccount[accountKey] = {
-          pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, state: 'waiting_buy',
+          pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, sellPct: sellPctOverride, state: 'waiting_buy',
           peak: price, anchor: price, armed: false, legs: [], lastBuyPrice: null,
           fails: 0, pausedUntil: 0, busy: false,
         };
@@ -568,6 +601,10 @@ wss.on('connection', (ws, req) => {
     else if (msg.type === 'account_unlink') {
       wsAccount.delete(ws);
       ws.send(JSON.stringify({ type: 'account_status', email: null, linked: false }));
+    }
+    } catch (err) {
+      console.error('⚠️ خطأ أثناء معالجة رسالة من العميل — تجاهلناها واستمرينا:', err && err.stack ? err.stack : err);
+      try { ws.send(JSON.stringify({ type: 'error', message: 'صار خطأ بمعالجة الطلب، حاول مرة ثانية' })); } catch {}
     }
   });
 
@@ -2081,10 +2118,10 @@ function botStatusPayload(ws) {
       const legs = a.legs || [];
       const totalQty = legs.reduce((s, l) => s + l.qty, 0);
       const avgBuyPrice = totalQty > 0 ? legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty : null;
-      // نسبة البيع الفعلية = نسبة آخر مرحلة اشترينا فيها (مو دائمًا الرئيسية) — نفس حساب دورة التداول تمامًا
-      const sellPct = legs.length <= 1 ? a.pct : ((a.levelPct && a.levelPct[legs.length]) || a.pct);
+      // نسبة البيع الفعلية: نسبة ثابتة مخصّصة لو موجودة، وإلا نسبة آخر مرحلة اشترينا فيها (مو دائمًا الرئيسية) — نفس حساب دورة التداول تمامًا
+      const sellPct = (a.sellPct != null) ? a.sellPct : (legs.length <= 1 ? a.pct : ((a.levelPct && a.levelPct[legs.length]) || a.pct));
       return {
-        pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
+        pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, sellPct: a.sellPct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
         amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
       };
@@ -2272,6 +2309,7 @@ function loadAutoTrade() {
   try { autoTradeByAccount = JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')) || {}; } catch (err) { autoTradeByAccount = {}; }
   for (const [k, a] of Object.entries(autoTradeByAccount)) {
     a.busy = false; a.fails = 0; a.pausedUntil = 0; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
+    if (a.sellPct === undefined) a.sellPct = null;
     if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
     // توافق الصفقات القديمة (قبل مرحلة الشراء المتدرّج): كانت تخزّن position مفردة بدل legs — نحوّلها
     if (a.position && !a.legs) { a.legs = [a.position]; a.lastBuyPrice = a.position.buyPrice; delete a.position; }
@@ -2351,10 +2389,10 @@ async function runAutoTradeCycle() {
       const totalQty = a.legs.reduce((s, l) => s + l.qty, 0);
       const avgBuyPrice = a.legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty;
       const sellMove = (price - avgBuyPrice) / avgBuyPrice * 100;
-      // نسبة البيع = نسبة *آخر مرحلة اشترينا فيها فعليًا* (المرحلة 1 دائمًا النسبة الرئيسية، ومن 2 لـ10 نسبتها
-      // المخصّصة لها لو محدّدة وإلا الرئيسية تلقائيًا) — مو ثابتة دائمًا على النسبة الرئيسية، تتغيّر كل ما نشتري مرحلة جديدة.
+      // نسبة البيع: لو المستخدم حدّد نسبة بيع ثابتة بمربعها الخاص تُستخدم هي دائمًا. وإلا تلقائيًا = نسبة *آخر
+      // مرحلة اشترينا فيها فعليًا* (المرحلة 1 النسبة الرئيسية، ومن 2 لـ10 نسبتها المخصّصة لها وإلا الرئيسية).
       const lastLevel = a.legs.length;
-      const sellPct = lastLevel <= 1 ? a.pct : ((a.levelPct && a.levelPct[lastLevel]) || a.pct);
+      const sellPct = (a.sellPct != null) ? a.sellPct : (lastLevel <= 1 ? a.pct : ((a.levelPct && a.levelPct[lastLevel]) || a.pct));
       // نسبة المرحلة القادمة (لو باقي نشتري أكثر): من مربع نسبتها الخاص وإلا الرئيسية تلقائيًا
       const nextLevel = a.legs.length + 1;
       const nextPct = (a.levelPct && a.levelPct[nextLevel]) || a.pct;
