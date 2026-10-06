@@ -1992,6 +1992,19 @@ function binanceSignedQuery(params, secret = BINANCE_API_SECRET) {
   const sig = crypto.createHmac('sha256', secret).update(qs).digest('hex');
   return `${qs}&signature=${sig}`;
 }
+// ⏱️ مزامنة الوقت مع سيرفر Binance — ساعة السيرفر عندنا ممكن تنحرف شوي عن Binance (خصوصًا على استضافات
+// مشتركة)، وأي انحراف فوق recvWindow يخلي كل الأوامر الموقّعة تُرفض بخطأ "Timestamp for this request...".
+// نحسب الفرق مرة كل نصف ساعة + فورًا لما نكتشف خطأ توقيت فعلي، ونضيفه لكل Date.now() نرسله لـ Binance.
+let binanceTimeOffsetMs = 0;
+async function syncBinanceTime() {
+  try {
+    const { data } = await axios.get('https://api.binance.com/api/v3/time', { timeout: 8000 });
+    if (data && data.serverTime) binanceTimeOffsetMs = data.serverTime - Date.now();
+  } catch (err) { console.warn('[binance-time] فشل مزامنة الوقت مع Binance:', err.message); }
+}
+function bTimestamp() { return Date.now() + binanceTimeOffsetMs; }
+syncBinanceTime();
+setInterval(syncBinanceTime, 30 * 60 * 1000);
 function roundQty(qty, price) {
   let decimals;
   if (price >= 1000) decimals = 5;
@@ -2009,17 +2022,17 @@ function roundPrice(price) {
 }
 
 async function placeLimitOrder(symbol, side, price, quantity, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, null, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function cancelOrder(symbol, orderId, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, orderId, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function getOpenOrders(symbol, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.get(`https://api.binance.com/api/v3/openOrders?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
@@ -2124,6 +2137,7 @@ function botStatusPayload(ws) {
         pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, sellPct: a.sellPct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
         amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
+        problem: a.problem || null, // مشكلة حالية (إن وجدت) — تبقى هنا لحد ما تُحل، حتى لو المستخدم كان بعيد عن الصفحة وقت حدوثها
       };
     })(),
   });
@@ -2159,12 +2173,12 @@ function getCredsForAccountKey(accountKey) {
 }
 
 async function placeMarketOrder(symbol, side, quantity, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, side, type: 'MARKET', quantity, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, side, type: 'MARKET', quantity, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, null, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function queryOrderStatus(symbol, orderId, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, orderId, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
@@ -2308,7 +2322,7 @@ function saveAutoTrade() {
 function loadAutoTrade() {
   try { autoTradeByAccount = JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')) || {}; } catch (err) { autoTradeByAccount = {}; }
   for (const [k, a] of Object.entries(autoTradeByAccount)) {
-    a.busy = false; a.fails = 0; a.pausedUntil = 0; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
+    a.busy = false; a.fails = 0; a.pausedUntil = 0; a.problem = null; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
     if (a.sellPct === undefined) a.sellPct = null;
     if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
     // توافق الصفقات القديمة (قبل مرحلة الشراء المتدرّج): كانت تخزّن position مفردة بدل legs — نحوّلها
@@ -2327,6 +2341,58 @@ function loadAutoTrade() {
 function notifyAccount(accountKey, payload) {
   const str = JSON.stringify(payload);
   for (const c of wss.clients) if (c.readyState === WebSocket.OPEN && getAccountKeyForWs(c) === accountKey) c.send(str);
+}
+// 🩺 تصنيف أخطاء Binance المعروفة أثناء التداول التلقائي — نحدد هل المشكلة مؤقتة تُصلح نفسها
+// (شبكة/توقيت/تجاوز حد طلبات) أو تحتاج تدخل المستخدم (رصيد/مفتاح API/كمية أقل من الحد الأدنى) —
+// بكل الحالات البوت يستمر يحاول من جديد، بس بفواصل زمنية متدرّجة بدل ما يوقف نفسه نهائيًا.
+function classifyTradeError(err) {
+  const raw = String(err.response?.data?.msg || err.message || 'خطأ غير معروف');
+  const apiCode = err.response?.data?.code;
+  const low = raw.toLowerCase();
+  if (low.includes('insufficient balance'))
+    return { kind: 'balance', needsAction: true, arabic: 'الرصيد غير كافٍ بمحفظة Spot — عبّئ رصيدك أو قلّل مبلغ الصفقة', raw };
+  if (low.includes('invalid api-key') || low.includes('ip, or permissions'))
+    return { kind: 'api_key', needsAction: true, arabic: 'مفتاح API غير صالح، أو الـ IP غير مسموح، أو صلاحيات المفتاح ناقصة', raw };
+  if (low.includes('timestamp') && (low.includes('recvwindow') || low.includes('ahead of') || low.includes('outside')))
+    return { kind: 'timestamp', needsAction: false, autoFix: 'resync_time', arabic: 'فرق توقيت مؤقت مع سيرفر Binance — يُصلح تلقائيًا الآن', raw };
+  if (apiCode === -1003 || low.includes('too many requests') || low.includes('way too much request weight') || low.includes('banned until'))
+    return { kind: 'rate_limit', needsAction: false, autoFix: 'extra_backoff', arabic: 'تجاوزنا الحد المسموح من الطلبات مؤقتًا — ننتظر أكثر ثم نكمل', raw };
+  if (low.includes('min_notional') || low.includes('notional') || low.includes('lot_size') || low.includes('filter failure'))
+    return { kind: 'filter', needsAction: true, arabic: 'مبلغ/كمية الصفقة أقل من الحد الأدنى المسموح على Binance لهذه العملة — كبّر مبلغ الشراء', raw };
+  if (low.includes('invalid symbol'))
+    return { kind: 'symbol', needsAction: true, arabic: 'هذا الرمز غير متاح للتداول الفوري على Binance حاليًا', raw };
+  if (low.includes('econnreset') || low.includes('etimedout') || low.includes('enotfound') || low.includes('timeout') || low.includes('network'))
+    return { kind: 'network', needsAction: false, autoFix: 'retry', arabic: 'مشكلة اتصال مؤقتة بالشبكة — سنعيد المحاولة', raw };
+  return { kind: 'unknown', needsAction: false, arabic: 'خطأ غير معروف من Binance', raw };
+}
+// فاصل الانتظار قبل إعادة المحاولة: يتضاعف مع تكرار نفس المشكلة (حتى لا نكرر نفس الطلب المرفوض كل 3 ثوانٍ
+// ونخاطر بحظر مؤقت من Binance)، بسقف أعلى. أخطاء تجاوز حد الطلبات تاخذ انتظار أطول من البداية.
+function nextAutoTradeBackoffMs(fails, autoFix) {
+  if (autoFix === 'extra_backoff') return Math.min(60000 * fails, 10 * 60 * 1000); // 1 دقيقة × عدد المحاولات، سقف 10 دقائق
+  const base = 20000; // يبدأ 20 ثانية
+  return Math.min(base * Math.pow(2, Math.max(0, fails - 1)), 5 * 60 * 1000); // يتضاعف، سقف 5 دقائق
+}
+// يُستدعى عند أي فشل شراء/بيع بالتداول التلقائي — بدل ما يوقف البوت نهائيًا (كان القديم يحذف الإعداد كامل)،
+// نسجّل المشكلة بوضوح (تظهر بلوحة التنبيهات الدائمة بالواجهة، وتبقى بـ bot_status لحد ما تنحل حتى لو
+// المستخدم رجع بعد ساعات)، ونجدول إعادة محاولة تلقائية بفاصل متدرّج. الإعدادات نفسها (% والمراحل) ما تنمسح أبدًا.
+function handleAutoTradeFailure(a, accountKey, err, context) {
+  const cls = classifyTradeError(err);
+  a.fails = (a.fails || 0) + 1;
+  if (cls.autoFix === 'resync_time') { syncBinanceTime(); a.pausedUntil = Date.now() + 5000; }
+  else a.pausedUntil = Date.now() + nextAutoTradeBackoffMs(a.fails, cls.autoFix);
+  a.problem = {
+    kind: cls.kind, needsAction: !!cls.needsAction, message: cls.arabic, detail: cls.raw, context,
+    fails: a.fails, since: (a.problem && a.problem.since) || Date.now(), lastAt: Date.now(), retryAt: a.pausedUntil,
+  };
+  saveAutoTrade();
+  notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: true, ...a.problem });
+  logBotError(a.symbol, err);
+}
+// يُستدعى عند أي نجاح (شراء أو بيع) — يصفّر عدّاد الفشل ويعلم الواجهة إن المشكلة السابقة (إن وجدت) انحلّت.
+function clearAutoTradeProblem(a, accountKey) {
+  const hadProblem = !!a.problem;
+  a.fails = 0; a.problem = null;
+  if (hadProblem) notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: false });
 }
 async function runAutoTradeCycle() {
   const keys = Object.keys(autoTradeByAccount);
@@ -2360,17 +2426,15 @@ async function runAutoTradeCycle() {
             let trade;
             try { trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true); }
             catch (err) {
-              // فشل الشراء: نوقف التلقائي بدل التكرار (احتمال أن الأمر نُفذ رغم انتهاء المهلة → منع شراء مزدوج)
-              const detail = err.response?.data?.msg || err.message;
-              delete autoTradeByAccount[accountKey]; saveAutoTrade();
-              notifyAccount(accountKey, { type: 'error', message: `⛔ أُوقف التداول التلقائي — فشل الشراء: ${detail}. تحقق من رصيدك/سجل Binance ثم فعّله من جديد.` });
+              // فشل الشراء: لا نوقف التداول التلقائي أبدًا — نسجّل المشكلة ونعيد المحاولة تلقائيًا بفاصل متدرّج
+              handleAutoTradeFailure(a, accountKey, err, 'buy');
               broadcastBotStatus();
               continue;
             }
             a.state = 'holding';
             a.legs = [{ id: trade.id, qty: trade.qty, price: trade.buyPrice, time: trade.time }];
             a.lastBuyPrice = trade.buyPrice;
-            a.fails = 0;
+            clearAutoTradeProblem(a, accountKey);
             saveAutoTrade();
             notifyAccount(accountKey, { type: 'trade_result', side: 'BUY', symbol: a.symbol });
             broadcastBotStatus();
@@ -2407,20 +2471,16 @@ async function runAutoTradeCycle() {
         try {
           const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true);
           a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null;
-          a.peak = sold.sellPrice || price; a.anchor = a.peak; a.armed = false; a.fails = 0;
+          a.peak = sold.sellPrice || price; a.anchor = a.peak; a.armed = false;
+          clearAutoTradeProblem(a, accountKey);
           saveAutoTrade();
           notifyAccount(accountKey, { type: 'trade_result', side: 'SELL', symbol: a.symbol });
           broadcastBotStatus();
         } catch (err) {
-          const detail = err.response?.data?.msg || err.message;
-          a.fails = (a.fails || 0) + 1; a.pausedUntil = Date.now() + 30000;
-          if (a.fails >= 3) {
-            delete autoTradeByAccount[accountKey]; saveAutoTrade();
-            notifyAccount(accountKey, { type: 'error', message: `⛔ أُوقف التداول التلقائي — فشل البيع 3 مرات: ${detail}. الصفقة ما زالت مفتوحة، بعها يدويًا بالزر الأحمر.` });
-            broadcastBotStatus();
-          } else {
-            notifyAccount(accountKey, { type: 'error', message: `⚠️ فشل البيع التلقائي (${a.fails}/3): ${detail} — سأعيد المحاولة بعد 30 ثانية` });
-          }
+          // فشل البيع: الصفقة تضل مفتوحة (تقدر تبيعها يدويًا بالزر الأحمر بأي وقت) والتداول التلقائي
+          // ما يتوقف أبدًا — يسجّل المشكلة ويعيد المحاولة تلقائيًا بفاصل متدرّج لحد ما تُحل
+          handleAutoTradeFailure(a, accountKey, err, 'sell');
+          broadcastBotStatus();
         }
       } else if (a.legs.length < (a.levels || 1)) {
         // ما وصلنا عدد مرات الشراء المطلوب بعد → ننتظر نزول نسبة *هذي المرحلة تحديدًا* (مخصّصة لها أو الرئيسية تلقائيًا)
@@ -2430,15 +2490,14 @@ async function runAutoTradeCycle() {
             const trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true);
             a.legs.push({ id: trade.id, qty: trade.qty, price: trade.buyPrice, time: trade.time });
             a.lastBuyPrice = trade.buyPrice;
-            a.fails = 0;
+            clearAutoTradeProblem(a, accountKey);
             saveAutoTrade();
             notifyAccount(accountKey, { type: 'trade_result', side: 'BUY', symbol: a.symbol });
             broadcastBotStatus();
           } catch (err) {
-            // فشل شراء مرحلة إضافية: نوقف التلقائي، والمراحل السابقة تضل مفتوحة يبيعها المستخدم يدويًا لو احتاج
-            const detail = err.response?.data?.msg || err.message;
-            delete autoTradeByAccount[accountKey]; saveAutoTrade();
-            notifyAccount(accountKey, { type: 'error', message: `⛔ أُوقف التداول التلقائي — فشل شراء مرحلة ${a.legs.length + 1}/${a.levels}: ${detail}. صفقاتك المفتوحة باقية، بعها يدويًا لو احتجت.` });
+            // فشل شراء مرحلة إضافية: المراحل السابقة تضل مفتوحة (تقدر تبيعها يدويًا لو احتجت)، والتداول
+            // التلقائي يستمر يحاول من جديد تلقائيًا بفاصل متدرّج بدل ما يتوقف
+            handleAutoTradeFailure(a, accountKey, err, `buy_level_${a.legs.length + 1}`);
             broadcastBotStatus();
           }
         }
