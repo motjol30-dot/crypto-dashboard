@@ -136,7 +136,9 @@
   #manual-sell-btn { background: var(--red); color: #1a0505; }
   #chart-amount-wrap {
     display: flex; align-items: center; gap: 6px; font-size: 0.66rem; color: var(--muted);
+    flex-wrap: wrap; max-width: 100%; min-width: 0;
   }
+  #chart-tools-row { max-width: 100vw; box-sizing: border-box; }
   #chart-amount-buy-input, #chart-amount-sell-input {
     width: 62px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
   }
@@ -221,7 +223,7 @@
   }
   #auto-levelpct-gear:active { transform: scale(0.94); }
   #auto-levelpct-panel {
-    position: fixed; left: 10px; right: 10px; bottom: 90px; z-index: 400; max-height: 60vh; overflow-y: auto;
+    position: fixed; left: 8px; right: 8px; bottom: 70px; z-index: 400; max-height: 55vh; overflow-y: auto; box-sizing: border-box; max-width: calc(100vw - 16px);
     background: #141414; border: 1px solid rgba(255,214,10,0.5); border-radius: 12px; padding: 12px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.55);
   }
@@ -251,25 +253,26 @@
   #auto-stoploss-btn.active { background: rgba(248,81,73,0.28); box-shadow: 0 0 8px rgba(248,81,73,0.55); }
   #auto-stoploss-btn:active { transform: scale(0.94); }
   #auto-stoploss-panel {
-    position: fixed; left: 10px; right: 10px; bottom: 90px; z-index: 400; max-height: 70vh; overflow-y: auto;
-    background: #141414; border: 1px solid rgba(248,81,73,0.5); border-radius: 12px; padding: 12px;
+    position: fixed; left: 8px; right: 8px; bottom: 70px; z-index: 400; max-height: 55vh; overflow-y: auto; box-sizing: border-box;
+    width: auto; max-width: calc(100vw - 16px);
+    background: #141414; border: 1px solid rgba(248,81,73,0.5); border-radius: 12px; padding: 8px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.55);
   }
-  .sl-box { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .sl-box { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 7px 8px; margin-bottom: 7px; }
   .sl-box.stop { border-color: rgba(248,81,73,0.5); }
   .sl-box.reset { border-color: rgba(88,166,255,0.5); }
   .sl-box-title { font-size: 0.8rem; font-weight: 800; margin-bottom: 3px; }
   .sl-box.stop .sl-box-title { color: var(--red); }
   .sl-box.reset .sl-box-title { color: #58a6ff; }
-  .sl-box-desc { font-size: 0.68rem; color: var(--muted); line-height: 1.5; margin-bottom: 8px; }
+  .sl-box-desc { font-size: 0.62rem; color: var(--muted); line-height: 1.4; margin-bottom: 5px; }
   .sl-box-row { display: flex; gap: 8px; }
-  .sl-box-row label { flex: 1; font-size: 0.7rem; color: var(--text); font-weight: 700; display: flex; flex-direction: column; gap: 3px; }
+  .sl-box-row label { flex: 1; min-width: 0; font-size: 0.7rem; color: var(--text); font-weight: 700; display: flex; flex-direction: column; gap: 3px; }
   .sl-box-row input {
-    width: 100%; box-sizing: border-box; border-radius: 7px; padding: 6px; font-size: 16px; text-align: center; outline: none;
+    width: 100%; min-width: 0; box-sizing: border-box; border-radius: 7px; padding: 4px; font-size: 16px; text-align: center; outline: none;
     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.22); color: var(--text);
   }
   #auto-stoploss-close {
-    width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; cursor: pointer;
+    width: 100%; padding: 7px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; font-size: 0.8rem; cursor: pointer;
   }
   .bot-alert-row.info { background: rgba(88,166,255,0.07); }
   .bot-alert-row.info .bot-alert-msg { color: #58a6ff; }
@@ -666,7 +669,7 @@
   <div id="auto-stoploss-panel" style="display:none;">
     <div class="sl-box stop">
       <div class="sl-box-title">🛑 وقف الخسارة (يبيع)</div>
-      <div class="sl-box-desc">لما ينزل السعر تحت متوسط الشراء بهذه النسبة، ما يبيع فورًا: يراقب هذه المدة ويبيع قرب أفضل ارتداد. الخانتين معًا، أو اتركهما فاضيتين لتعطيله.</div>
+      <div class="sl-box-desc">ينزل تحت المتوسط بهذه النسبة ← يراقب المدة ويبيع قرب أفضل ارتداد. الخانتين معًا.</div>
       <div class="sl-box-row">
         <label>النسبة %<input type="number" id="sl-stop-pct" min="0.1" max="90" step="0.1" placeholder="مثال 10"></label>
         <label>الوقت (دقيقة)<input type="number" id="sl-stop-min" min="1" max="720" step="1" placeholder="مثال 30"></label>
@@ -674,13 +677,13 @@
     </div>
     <div class="sl-box reset">
       <div class="sl-box-title">🔄 إعادة ضبط (بدون بيع)</div>
-      <div class="sl-box-desc">لما ينزل السعر تحت المتوسط بهذه النسبة، أو يمرّ هذا الوقت من آخر شراء وأنت بخسارة (أيهما أولًا): لا يبيع ولا يشتري، يعتبر الصفقة كأنها اشتريت الآن بالسعر الحالي ويرجع يعمل من النسبة الأولى. تكفي خانة وحدة.</div>
+      <div class="sl-box-desc">عند النسبة أو الوقت (أيهما أولًا) بدون بيع: يعتبرها اشتريت الآن بالسعر الحالي ويبدأ من النسبة الأولى. تكفي خانة.</div>
       <div class="sl-box-row">
         <label>النسبة %<input type="number" id="sl-reset-pct" min="0.1" max="90" step="0.1" placeholder="مثال 5"></label>
         <label>الوقت (دقيقة)<input type="number" id="sl-reset-min" min="1" max="1440" step="1" placeholder="مثال 60"></label>
       </div>
     </div>
-    <button type="button" id="auto-stoploss-close">تم ✓ (ثم اضغط 💾 حفظ)</button>
+    <button type="button" id="auto-stoploss-close">تم ✓ ثم 💾 حفظ</button>
   </div>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
