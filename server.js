@@ -516,12 +516,34 @@ wss.on('connection', (ws, req) => {
           levelPct[lvl] = vv;
         }
       }
+      // 🛑 وقف الخسارة (مربع واحد): { pct, minutes } — النسبة = النزول تحت متوسط الشراء، الدقائق = مدة مراقبة الارتداد قبل البيع.
+      // 🔄 إعادة الضبط بدون بيع (مربع ثاني): { pct, minutes } — أي واحد منهما كافٍ (النسبة أو الوقت، أيهما أولًا).
+      // الخانتين فاضيتين = الميزة معطّلة. لو الواجهة ما أرسلت الحقل أصلًا (صفحة قديمة بالكاش) نترك المحفوظ كما هو.
+      const isEmptyV = (x) => x === null || x === undefined || x === '';
+      const hasShape = (o) => o && typeof o === 'object' && ('pct' in o || 'minutes' in o);
+      const stopLossProvided = hasShape(msg.stopLoss);
+      const softResetProvided = hasShape(msg.softReset);
+      let stopLoss = null, softReset = null;
+      if (stopLossProvided && !(isEmptyV(msg.stopLoss.pct) && isEmptyV(msg.stopLoss.minutes))) {
+        const sp = parseFloat(msg.stopLoss.pct), sm = parseInt(msg.stopLoss.minutes, 10);
+        if (!(sp >= 0.1 && sp <= 90) || !(sm >= 1 && sm <= 720)) {
+          ws.send(JSON.stringify({ type: 'error', message: 'وقف الخسارة: النسبة بين 0.1 و 90، والدقائق بين 1 و 720 — وعبّئ الخانتين معًا' }));
+          return;
+        }
+        stopLoss = { pct: sp, minutes: sm };
+      }
+      if (softResetProvided && !(isEmptyV(msg.softReset.pct) && isEmptyV(msg.softReset.minutes))) {
+        let rp = null, rm = null;
+        if (!isEmptyV(msg.softReset.pct)) { rp = parseFloat(msg.softReset.pct); if (!(rp >= 0.1 && rp <= 90)) { ws.send(JSON.stringify({ type: 'error', message: 'إعادة الضبط: النسبة لازم تكون بين 0.1 و 90' })); return; } }
+        if (!isEmptyV(msg.softReset.minutes)) { rm = parseInt(msg.softReset.minutes, 10); if (!(rm >= 1 && rm <= 1440)) { ws.send(JSON.stringify({ type: 'error', message: 'إعادة الضبط: الدقائق لازم تكون بين 1 و 1440' })); return; } }
+        softReset = { pct: rp, minutes: rm };
+      }
       if (cur && cur.state === 'holding' && cur.symbol !== symbol) {
         ws.send(JSON.stringify({ type: 'error', message: `عندك صفقة تلقائية مفتوحة على ${cur.symbol} — بعها أولًا (زر بيع) قبل تغيير العملة` }));
         return;
       }
       if (cur && cur.symbol === symbol) {
-        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.sellPct = sellPctOverride; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
+        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.sellPct = sellPctOverride; if (stopLossProvided) cur.stopLoss = stopLoss; if (softResetProvided) cur.softReset = softReset; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
       } else {
         let price = 0;
         try { price = await getCurrentPrice(symbol); } catch {}
@@ -530,6 +552,8 @@ wss.on('connection', (ws, req) => {
         autoTradeByAccount[accountKey] = {
           pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, sellPct: sellPctOverride, state: 'waiting_buy',
           peak: price, anchor: price, armed: false, legs: [], lastBuyPrice: null,
+          stopLoss: stopLossProvided ? stopLoss : null, softReset: softResetProvided ? softReset : null, stopLossWatch: null,
+          resetBase: null, resetCount: 0, holdSince: null,
           fails: 0, pausedUntil: 0, busy: false,
         };
       }
@@ -1992,6 +2016,19 @@ function binanceSignedQuery(params, secret = BINANCE_API_SECRET) {
   const sig = crypto.createHmac('sha256', secret).update(qs).digest('hex');
   return `${qs}&signature=${sig}`;
 }
+// ⏱️ مزامنة الوقت مع سيرفر Binance — ساعة السيرفر عندنا ممكن تنحرف شوي عن Binance (خصوصًا على استضافات
+// مشتركة)، وأي انحراف فوق recvWindow يخلي كل الأوامر الموقّعة تُرفض بخطأ "Timestamp for this request...".
+// نحسب الفرق مرة كل نصف ساعة + فورًا لما نكتشف خطأ توقيت فعلي، ونضيفه لكل Date.now() نرسله لـ Binance.
+let binanceTimeOffsetMs = 0;
+async function syncBinanceTime() {
+  try {
+    const { data } = await axios.get('https://api.binance.com/api/v3/time', { timeout: 8000 });
+    if (data && data.serverTime) binanceTimeOffsetMs = data.serverTime - Date.now();
+  } catch (err) { console.warn('[binance-time] فشل مزامنة الوقت مع Binance:', err.message); }
+}
+function bTimestamp() { return Date.now() + binanceTimeOffsetMs; }
+syncBinanceTime();
+setInterval(syncBinanceTime, 30 * 60 * 1000);
 function roundQty(qty, price) {
   let decimals;
   if (price >= 1000) decimals = 5;
@@ -2009,17 +2046,17 @@ function roundPrice(price) {
 }
 
 async function placeLimitOrder(symbol, side, price, quantity, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, side, type: 'LIMIT', timeInForce: 'GTC', quantity, price, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, null, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function cancelOrder(symbol, orderId, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, orderId, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.delete(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function getOpenOrders(symbol, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.get(`https://api.binance.com/api/v3/openOrders?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
@@ -2115,7 +2152,7 @@ function botStatusPayload(ws) {
     autoTrade: (() => {
       const a = autoTradeByAccount[accountKey];
       if (!a) return null;
-      const legs = a.legs || [];
+      const legs = effectiveLegs(a);
       const totalQty = legs.reduce((s, l) => s + l.qty, 0);
       const avgBuyPrice = totalQty > 0 ? legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty : null;
       // نسبة البيع الفعلية: نسبة ثابتة مخصّصة لو موجودة، وإلا نسبة آخر مرحلة اشترينا فيها (مو دائمًا الرئيسية) — نفس حساب دورة التداول تمامًا
@@ -2124,6 +2161,9 @@ function botStatusPayload(ws) {
         pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, sellPct: a.sellPct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
         amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
+        stopLoss: a.stopLoss || null, softReset: a.softReset || null, stopLossWatch: a.stopLossWatch || null,
+        totalCost: a.state === 'holding' ? legsTotalCost(a) : 0, resetCount: a.resetCount || 0,
+        problem: a.problem || null, // مشكلة حالية (إن وجدت) — تبقى هنا لحد ما تُحل، حتى لو المستخدم كان بعيد عن الصفحة وقت حدوثها
       };
     })(),
   });
@@ -2159,12 +2199,12 @@ function getCredsForAccountKey(accountKey) {
 }
 
 async function placeMarketOrder(symbol, side, quantity, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, side, type: 'MARKET', quantity, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, side, type: 'MARKET', quantity, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.post(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, null, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
 async function queryOrderStatus(symbol, orderId, creds = { apiKey: BINANCE_API_KEY, apiSecret: BINANCE_API_SECRET }) {
-  const params = { symbol, orderId, timestamp: Date.now(), recvWindow: 5000 };
+  const params = { symbol, orderId, timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.get(`https://api.binance.com/api/v3/order?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   return data;
 }
@@ -2194,6 +2234,7 @@ async function executeManualBuy(symbol, accountKey, creds, amountUsdt, isAuto) {
   const trade = {
     id: `${symbol}_${Date.now()}`, symbol, qty: safeQty, buyPrice: roundPrice(fillPrice),
     buyOrderId: data.orderId, sellOrderId: null, sellPrice: null, status: 'open', time: Date.now(), auto: !!isAuto,
+    cost: (parseFloat(data.cummulativeQuoteQty) > 0) ? parseFloat(data.cummulativeQuoteQty) : (actualQty ? actualQty * fillPrice : safeQty * fillPrice),
   };
   const trades = manualBotState.tradesByAccount[accountKey] || (manualBotState.tradesByAccount[accountKey] = []);
   trades.unshift(trade);
@@ -2229,7 +2270,7 @@ async function executeManualSell(symbol, accountKey, creds, tradeId, isAuto) {
 
 // 🔴 بيع كل مراحل الشراء المتدرّج (DCA) بأمر Market واحد — يُستخدم من محرك التداول التلقائي فقط لما
 // يكون عنده أكثر من صفقة مفتوحة على نفس العملة (مربع العدد أكبر من 1): يجمع كمياتها كلها ويبيعها دفعة وحدة.
-async function executeManualSellAll(symbol, accountKey, creds, tradeIds, isAuto) {
+async function executeManualSellAll(symbol, accountKey, creds, tradeIds, isAuto, label) {
   const trades = manualBotState.tradesByAccount[accountKey] || [];
   const legs = tradeIds.map(id => trades.find(t => t.id === id && t.status !== 'sold')).filter(Boolean);
   if (!legs.length) throw new Error(`لا توجد صفقات مفتوحة على ${symbol} حاليًا`);
@@ -2249,7 +2290,7 @@ async function executeManualSellAll(symbol, accountKey, creds, tradeIds, isAuto)
   const avgBuy = legs.reduce((s, t) => s + t.qty * t.buyPrice, 0) / legs.reduce((s, t) => s + t.qty, 0);
   botState.tradeLog.unshift({
     time: Date.now(), symbol, type: 'order', side: 'SELL', price: sellPrice, qty,
-    reason: `${isAuto ? '🤖 بيع تلقائي (ارتفاع)' : '🔴 بيع'} ${legs.length} مرحلة شراء مجمّعة — متوسط الشراء ${roundPrice(avgBuy)} → بيع عند ${sellPrice}`,
+    reason: `${label || (isAuto ? '🤖 بيع تلقائي (ارتفاع)' : '🔴 بيع')} ${legs.length} مرحلة شراء مجمّعة — متوسط الشراء ${roundPrice(avgBuy)} → بيع عند ${sellPrice}`,
   });
   botState.tradeLog = botState.tradeLog.slice(0, 50);
   return { sellPrice, qty, legsSold: legs.length };
@@ -2286,7 +2327,11 @@ async function runManualSellCycle() {
       } catch (err) { logBotError(trade.symbol, err); }
     }
     // نحتفظ بسجل الصفقات المباعة آخر 6 ساعات بس، بعدها تُحذف من القائمة (تبقى بسجل الأحداث النصي)
-    manualBotState.tradesByAccount[accountKey] = trades.filter(t => t.status !== 'sold' || (Date.now() - t.time) < 6 * 60 * 60 * 1000);
+    // نفلتر المصفوفة *الحالية* (مو النسخة القديمة اللي التقطناها بأول الدورة): أثناء انتظار Binance قد يشتري التداول
+    // التلقائي مرحلة جديدة وتُضاف لمصفوفة جديدة، والكتابة فوقها بالنسخة القديمة كانت تمسح تلك المرحلة من السجل
+    // فيظن المحرك أنها اتباعت ويتغيّر العدّاد.
+    const liveTrades = manualBotState.tradesByAccount[accountKey] || trades;
+    manualBotState.tradesByAccount[accountKey] = liveTrades.filter(t => t.status !== 'sold' || (Date.now() - t.time) < 6 * 60 * 60 * 1000);
   }
   botState.tradeLog = botState.tradeLog.slice(0, 50);
   broadcastBotStatus();
@@ -2305,28 +2350,109 @@ function saveAutoTrade() {
   try { fs.writeFileSync(AUTO_FILE, JSON.stringify(out, null, 2), { mode: 0o600 }); }
   catch (err) { console.error('⚠️ فشل حفظ auto-trade.json:', err.message); }
 }
+// 🔄 الصفقة "الفعلية" للحسابات: المراحل الحقيقية (a.legs) تبقى كما هي لأجل البيع الفعلي، لكن بعد "إعادة ضبط بدون بيع"
+// نطوي كل المراحل التي كانت موجودة وقتها بمرحلة افتراضية واحدة بسعر إعادة الضبط (resetBase) — فيحسب البوت المتوسط والمرحلة
+// ونسبة البيع كأنه اشترى للتو بذلك السعر. أي مراحل جديدة تُشترى بعدها تُضاف فوقها طبيعيًا.
+function effectiveLegs(a) {
+  const legs = a.legs || [];
+  const rb = a.resetBase;
+  if (!rb || !Array.isArray(rb.ids) || !(rb.price > 0)) return legs;
+  const folded = legs.filter(l => rb.ids.includes(l.id));
+  if (!folded.length) return legs;
+  const rest = legs.filter(l => !rb.ids.includes(l.id));
+  const qty = folded.reduce((s, l) => s + l.qty, 0);
+  return [{ id: folded[0].id, qty, price: rb.price, time: rb.time || folded[0].time, virtual: true }, ...rest];
+}
+// إجمالي التكلفة الحقيقية (USDT) لكل ما اشتراه البوت في الصفقة الحالية — لا يتأثر بإعادة الضبط
+function legsTotalCost(a) {
+  return (a.legs || []).reduce((s, l) => s + (l.cost > 0 ? l.cost : l.qty * l.price), 0);
+}
 function loadAutoTrade() {
   try { autoTradeByAccount = JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')) || {}; } catch (err) { autoTradeByAccount = {}; }
   for (const [k, a] of Object.entries(autoTradeByAccount)) {
-    a.busy = false; a.fails = 0; a.pausedUntil = 0; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
+    a.busy = false; a.fails = 0; a.pausedUntil = 0; a.problem = null; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
     if (a.sellPct === undefined) a.sellPct = null;
+    // توافق مع التصميم القديم (5 صفوف حسب المرحلة): نأخذ صف مرحلة العدد الحالي أو أول صف موجود كوقف خسارة واحد
+    if (a.stopLoss && typeof a.stopLoss === 'object' && a.stopLoss.pct === undefined) {
+      const ks = Object.keys(a.stopLoss);
+      a.stopLoss = ks.length ? (a.stopLoss[a.levels] || a.stopLoss[ks[0]] || null) : null;
+    }
+    if (!a.stopLoss || !(a.stopLoss.pct > 0)) a.stopLoss = null;
+    if (!a.softReset || typeof a.softReset !== 'object') a.softReset = null;
+    if (a.resetCount === undefined) a.resetCount = 0;
+    if (a.holdSince === undefined) a.holdSince = null;
+    if (a.resetBase === undefined) a.resetBase = null;
+    if (a.stopLossWatch === undefined) a.stopLossWatch = null;
     if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
     // توافق الصفقات القديمة (قبل مرحلة الشراء المتدرّج): كانت تخزّن position مفردة بدل legs — نحوّلها
     if (a.position && !a.legs) { a.legs = [a.position]; a.lastBuyPrice = a.position.buyPrice; delete a.position; }
     if (!a.legs) a.legs = [];
     if (a.legs.length && a.state === 'holding') {
+      if (!a.holdSince) a.holdSince = Date.now();
       const trades = manualBotState.tradesByAccount[k] || (manualBotState.tradesByAccount[k] = []);
       for (const leg of a.legs) {
         if (!trades.some(t => t.id === leg.id)) {
           trades.unshift({ id: leg.id, symbol: a.symbol, qty: leg.qty, buyPrice: leg.price, buyOrderId: null, sellOrderId: null, sellPrice: null, status: 'open', time: leg.time, auto: true });
         }
       }
-    } else { a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null; }
+    } else { a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null; a.stopLossWatch = null; a.resetBase = null; a.resetCount = 0; a.holdSince = null; }
   }
 }
 function notifyAccount(accountKey, payload) {
   const str = JSON.stringify(payload);
   for (const c of wss.clients) if (c.readyState === WebSocket.OPEN && getAccountKeyForWs(c) === accountKey) c.send(str);
+}
+// 🩺 تصنيف أخطاء Binance المعروفة أثناء التداول التلقائي — نحدد هل المشكلة مؤقتة تُصلح نفسها
+// (شبكة/توقيت/تجاوز حد طلبات) أو تحتاج تدخل المستخدم (رصيد/مفتاح API/كمية أقل من الحد الأدنى) —
+// بكل الحالات البوت يستمر يحاول من جديد، بس بفواصل زمنية متدرّجة بدل ما يوقف نفسه نهائيًا.
+function classifyTradeError(err) {
+  const raw = String(err.response?.data?.msg || err.message || 'خطأ غير معروف');
+  const apiCode = err.response?.data?.code;
+  const low = raw.toLowerCase();
+  if (low.includes('insufficient balance'))
+    return { kind: 'balance', needsAction: true, arabic: 'الرصيد غير كافٍ بمحفظة Spot — عبّئ رصيدك أو قلّل مبلغ الصفقة', raw };
+  if (low.includes('invalid api-key') || low.includes('ip, or permissions'))
+    return { kind: 'api_key', needsAction: true, arabic: 'مفتاح API غير صالح، أو الـ IP غير مسموح، أو صلاحيات المفتاح ناقصة', raw };
+  if (low.includes('timestamp') && (low.includes('recvwindow') || low.includes('ahead of') || low.includes('outside')))
+    return { kind: 'timestamp', needsAction: false, autoFix: 'resync_time', arabic: 'فرق توقيت مؤقت مع سيرفر Binance — يُصلح تلقائيًا الآن', raw };
+  if (apiCode === -1003 || low.includes('too many requests') || low.includes('way too much request weight') || low.includes('banned until'))
+    return { kind: 'rate_limit', needsAction: false, autoFix: 'extra_backoff', arabic: 'تجاوزنا الحد المسموح من الطلبات مؤقتًا — ننتظر أكثر ثم نكمل', raw };
+  if (low.includes('min_notional') || low.includes('notional') || low.includes('lot_size') || low.includes('filter failure'))
+    return { kind: 'filter', needsAction: true, arabic: 'مبلغ/كمية الصفقة أقل من الحد الأدنى المسموح على Binance لهذه العملة — كبّر مبلغ الشراء', raw };
+  if (low.includes('invalid symbol'))
+    return { kind: 'symbol', needsAction: true, arabic: 'هذا الرمز غير متاح للتداول الفوري على Binance حاليًا', raw };
+  if (low.includes('econnreset') || low.includes('etimedout') || low.includes('enotfound') || low.includes('timeout') || low.includes('network'))
+    return { kind: 'network', needsAction: false, autoFix: 'retry', arabic: 'مشكلة اتصال مؤقتة بالشبكة — سنعيد المحاولة', raw };
+  return { kind: 'unknown', needsAction: false, arabic: 'خطأ غير معروف من Binance', raw };
+}
+// فاصل الانتظار قبل إعادة المحاولة: يتضاعف مع تكرار نفس المشكلة (حتى لا نكرر نفس الطلب المرفوض كل 3 ثوانٍ
+// ونخاطر بحظر مؤقت من Binance)، بسقف أعلى. أخطاء تجاوز حد الطلبات تاخذ انتظار أطول من البداية.
+function nextAutoTradeBackoffMs(fails, autoFix) {
+  if (autoFix === 'extra_backoff') return Math.min(60000 * fails, 10 * 60 * 1000); // 1 دقيقة × عدد المحاولات، سقف 10 دقائق
+  const base = 20000; // يبدأ 20 ثانية
+  return Math.min(base * Math.pow(2, Math.max(0, fails - 1)), 5 * 60 * 1000); // يتضاعف، سقف 5 دقائق
+}
+// يُستدعى عند أي فشل شراء/بيع بالتداول التلقائي — بدل ما يوقف البوت نهائيًا (كان القديم يحذف الإعداد كامل)،
+// نسجّل المشكلة بوضوح (تظهر بلوحة التنبيهات الدائمة بالواجهة، وتبقى بـ bot_status لحد ما تنحل حتى لو
+// المستخدم رجع بعد ساعات)، ونجدول إعادة محاولة تلقائية بفاصل متدرّج. الإعدادات نفسها (% والمراحل) ما تنمسح أبدًا.
+function handleAutoTradeFailure(a, accountKey, err, context) {
+  const cls = classifyTradeError(err);
+  a.fails = (a.fails || 0) + 1;
+  if (cls.autoFix === 'resync_time') { syncBinanceTime(); a.pausedUntil = Date.now() + 5000; }
+  else a.pausedUntil = Date.now() + nextAutoTradeBackoffMs(a.fails, cls.autoFix);
+  a.problem = {
+    kind: cls.kind, needsAction: !!cls.needsAction, message: cls.arabic, detail: cls.raw, context,
+    fails: a.fails, since: (a.problem && a.problem.since) || Date.now(), lastAt: Date.now(), retryAt: a.pausedUntil,
+  };
+  saveAutoTrade();
+  notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: true, ...a.problem });
+  logBotError(a.symbol, err);
+}
+// يُستدعى عند أي نجاح (شراء أو بيع) — يصفّر عدّاد الفشل ويعلم الواجهة إن المشكلة السابقة (إن وجدت) انحلّت.
+function clearAutoTradeProblem(a, accountKey) {
+  const hadProblem = !!a.problem;
+  a.fails = 0; a.problem = null;
+  if (hadProblem) notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: false });
 }
 async function runAutoTradeCycle() {
   const keys = Object.keys(autoTradeByAccount);
@@ -2360,17 +2486,15 @@ async function runAutoTradeCycle() {
             let trade;
             try { trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true); }
             catch (err) {
-              // فشل الشراء: نوقف التلقائي بدل التكرار (احتمال أن الأمر نُفذ رغم انتهاء المهلة → منع شراء مزدوج)
-              const detail = err.response?.data?.msg || err.message;
-              delete autoTradeByAccount[accountKey]; saveAutoTrade();
-              notifyAccount(accountKey, { type: 'error', message: `⛔ أُوقف التداول التلقائي — فشل الشراء: ${detail}. تحقق من رصيدك/سجل Binance ثم فعّله من جديد.` });
+              // فشل الشراء: لا نوقف التداول التلقائي أبدًا — نسجّل المشكلة ونعيد المحاولة تلقائيًا بفاصل متدرّج
+              handleAutoTradeFailure(a, accountKey, err, 'buy');
               broadcastBotStatus();
               continue;
             }
             a.state = 'holding';
-            a.legs = [{ id: trade.id, qty: trade.qty, price: trade.buyPrice, time: trade.time }];
-            a.lastBuyPrice = trade.buyPrice;
-            a.fails = 0;
+            a.legs = [{ id: trade.id, qty: trade.qty, price: trade.buyPrice, cost: trade.cost, time: trade.time }];
+            a.lastBuyPrice = trade.buyPrice; a.resetBase = null; a.resetCount = 0; a.holdSince = Date.now();
+            clearAutoTradeProblem(a, accountKey);
             saveAutoTrade();
             notifyAccount(accountKey, { type: 'trade_result', side: 'BUY', symbol: a.symbol });
             broadcastBotStatus();
@@ -2381,64 +2505,130 @@ async function runAutoTradeCycle() {
       // ── حالة الإمساك بصفقة (مرحلة شراء واحدة أو أكثر مفتوحة) ──────────────────────
       // نتأكد أولًا إن كل المراحل المسجّلة ما زالت مفتوحة فعليًا (لو المستخدم باع يدويًا بالزر الأحمر، تنحذف من هنا)
       const openTrades = manualBotState.tradesByAccount[accountKey] || [];
+      const legsBefore = a.legs.length;
       a.legs = a.legs.filter(leg => { const t = openTrades.find(x => x.id === leg.id); return t && t.status !== 'sold'; });
+      if (a.resetBase && !a.legs.some(l => a.resetBase.ids.includes(l.id))) a.resetBase = null; // كل المراحل المطويّة انباعت يدويًا
+      if (a.legs.length && a.legs.length !== legsBefore) {
+        // بيعت مرحلة يدويًا (زر بيع): آخر سعر شراء يصير سعر أحدث مرحلة باقية، وإلا تُحسب المرحلة القادمة من سعر صفقة انباعت
+        const lastReal = a.legs[a.legs.length - 1];
+        a.lastBuyPrice = (a.resetBase && a.resetBase.ids.includes(lastReal.id)) ? a.resetBase.price : lastReal.price;
+        saveAutoTrade(); broadcastBotStatus();
+      }
       if (!a.legs.length) { // كل المراحل اتباعت يدويًا → نرجع ننتظر النزول من جديد
         a.state = 'waiting_buy'; a.lastBuyPrice = null; a.peak = price; a.anchor = price; a.armed = false;
+        a.resetBase = null; a.resetCount = 0; a.holdSince = null; a.stopLossWatch = null;
         saveAutoTrade(); broadcastBotStatus(); continue;
       }
-      const totalQty = a.legs.reduce((s, l) => s + l.qty, 0);
-      const avgBuyPrice = a.legs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty;
+      // المراحل "الفعلية" للحساب: بعد إعادة ضبط بدون بيع تُطوى المراحل القديمة بمرحلة واحدة بسعر إعادة الضبط
+      const vLegs = effectiveLegs(a);
+      const totalQty = vLegs.reduce((s, l) => s + l.qty, 0);
+      const avgBuyPrice = vLegs.reduce((s, l) => s + l.qty * l.price, 0) / totalQty;
       const sellMove = (price - avgBuyPrice) / avgBuyPrice * 100;
       // نسبة البيع: لو المستخدم حدّد نسبة بيع ثابتة بمربعها الخاص تُستخدم هي دائمًا. وإلا تلقائيًا = نسبة *آخر
       // مرحلة اشترينا فيها فعليًا* (المرحلة 1 النسبة الرئيسية، ومن 2 لـ10 نسبتها المخصّصة لها وإلا الرئيسية).
-      const lastLevel = a.legs.length;
+      const lastLevel = vLegs.length;
       const sellPct = (a.sellPct != null) ? a.sellPct : (lastLevel <= 1 ? a.pct : ((a.levelPct && a.levelPct[lastLevel]) || a.pct));
       // نسبة المرحلة القادمة (لو باقي نشتري أكثر): من مربع نسبتها الخاص وإلا الرئيسية تلقائيًا
-      const nextLevel = a.legs.length + 1;
+      const nextLevel = vLegs.length + 1;
       const nextPct = (a.levelPct && a.levelPct[nextLevel]) || a.pct;
-      const buyMove = a.legs.length < (a.levels || 1) ? (a.lastBuyPrice - price) / a.lastBuyPrice * 100 : null;
+      const buyMove = vLegs.length < (a.levels || 1) ? (a.lastBuyPrice - price) / a.lastBuyPrice * 100 : null;
       notifyAccount(accountKey, {
         type: 'auto_progress', symbol: a.symbol, state: 'holding', pct: sellPct, move: sellMove, price,
-        anchor: a.anchor, armed: true, legsDone: a.legs.length, levels: a.levels, avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
-        nextLevel, nextPct: a.legs.length < (a.levels || 1) ? nextPct : null, buyMove,
+        anchor: a.anchor, armed: true, legsDone: vLegs.length, levels: a.levels, avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
+        nextLevel, nextPct: vLegs.length < (a.levels || 1) ? nextPct : null, buyMove,
+        totalCost: legsTotalCost(a), resetCount: a.resetCount || 0,
       });
+      // 🛑 وقف الخسارة و🔄 إعادة الضبط يعملان فقط على الصفقة المكتملة (كل مراحل الشراء المطلوبة تمت).
+      const full = vLegs.length >= (a.levels || 1);
+      const slRow = (full && a.stopLoss && a.stopLoss.pct > 0) ? a.stopLoss : null;
+      const rsRow = (full && a.softReset && (a.softReset.pct > 0 || a.softReset.minutes > 0)) ? a.softReset : null;
+      if (a.stopLossWatch && !slRow) { // ألغيت المراقبة (حذف الإعداد أو تغيّرت المراحل) — نوقفها
+        a.stopLossWatch = null; saveAutoTrade();
+        notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false });
+      }
       if (price >= avgBuyPrice * (1 + sellPct / 100)) {
         // وصل للنسبة فوق متوسط سعر كل المراحل المشتراة → يبيعها كلها بأمر واحد
         try {
           const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true);
           a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null;
-          a.peak = sold.sellPrice || price; a.anchor = a.peak; a.armed = false; a.fails = 0;
+          a.peak = sold.sellPrice || price; a.anchor = a.peak; a.armed = false;
+          a.resetBase = null; a.resetCount = 0; a.holdSince = null;
+          if (a.stopLossWatch) { a.stopLossWatch = null; notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false }); }
+          clearAutoTradeProblem(a, accountKey);
           saveAutoTrade();
           notifyAccount(accountKey, { type: 'trade_result', side: 'SELL', symbol: a.symbol });
           broadcastBotStatus();
         } catch (err) {
-          const detail = err.response?.data?.msg || err.message;
-          a.fails = (a.fails || 0) + 1; a.pausedUntil = Date.now() + 30000;
-          if (a.fails >= 3) {
-            delete autoTradeByAccount[accountKey]; saveAutoTrade();
-            notifyAccount(accountKey, { type: 'error', message: `⛔ أُوقف التداول التلقائي — فشل البيع 3 مرات: ${detail}. الصفقة ما زالت مفتوحة، بعها يدويًا بالزر الأحمر.` });
+          // فشل البيع: الصفقة تضل مفتوحة (تقدر تبيعها يدويًا بالزر الأحمر بأي وقت) والتداول التلقائي
+          // ما يتوقف أبدًا — يسجّل المشكلة ويعيد المحاولة تلقائيًا بفاصل متدرّج لحد ما تُحل
+          handleAutoTradeFailure(a, accountKey, err, 'sell');
+          broadcastBotStatus();
+        }
+      } else if (a.stopLossWatch) {
+        // مراقبة وقف الخسارة شغّالة: نتتبع القاع والارتداد، ونبيع قرب أفضل ارتداد بدل أسوأ سعر
+        const w = a.stopLossWatch;
+        if (price < w.low) { w.low = price; w.peak = price; } else if (price > w.peak) w.peak = price; // قاع جديد = نبدأ تتبع الارتداد من جديد
+        const rebounded = w.peak >= w.low * 1.003;               // حصل ارتداد فعلي (0.3% فوق القاع على الأقل)
+        const pulledBack = rebounded && price <= w.peak * (1 - 0.003); // ثم تراجع 0.3% عن قمة الارتداد = وقت الخروج
+        const timeUp = Date.now() >= w.endsAt;                    // انتهت مدة المراقبة
+        if (timeUp || pulledBack) {
+          try {
+            const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true, '🛑 وقف خسارة تلقائي (بعد مراقبة الارتداد)');
+            const sellPrice = sold.sellPrice || price;
+            const lossPct = (sellPrice - avgBuyPrice) / avgBuyPrice * 100;
+            a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null;
+            a.peak = sellPrice; a.anchor = a.peak; a.armed = false; a.stopLossWatch = null;
+            a.resetBase = null; a.resetCount = 0; a.holdSince = null;
+            clearAutoTradeProblem(a, accountKey);
+            saveAutoTrade();
+            notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false, sold: true, sellPrice, avgBuyPrice, lossPct, reason: pulledBack ? 'rebound' : 'time' });
+            notifyAccount(accountKey, { type: 'trade_result', side: 'SELL', symbol: a.symbol, stopLoss: true, lossPct });
             broadcastBotStatus();
-          } else {
-            notifyAccount(accountKey, { type: 'error', message: `⚠️ فشل البيع التلقائي (${a.fails}/3): ${detail} — سأعيد المحاولة بعد 30 ثانية` });
+          } catch (err) {
+            handleAutoTradeFailure(a, accountKey, err, 'stop_loss_sell');
+            broadcastBotStatus();
           }
         }
-      } else if (a.legs.length < (a.levels || 1)) {
+      } else if (slRow || rsRow) {
+        const stopPrice = slRow ? avgBuyPrice * (1 - slRow.pct / 100) : null;
+        const stopHit = !!slRow && price <= stopPrice;
+        const resetByPct = !!(rsRow && rsRow.pct > 0) && price <= avgBuyPrice * (1 - rsRow.pct / 100);
+        // الوقت يُحسب من آخر شراء/إعادة ضبط، ولا يُفعَّل إلا والسعر تحت متوسط الشراء (حتى لا نرفع نقطة البيع وإحنا برابحين)
+        const resetByTime = !!(rsRow && rsRow.minutes > 0) && price < avgBuyPrice && a.holdSince > 0 && (Date.now() - a.holdSince) >= rsRow.minutes * 60000;
+        const resetHit = resetByPct || resetByTime;
+        // لو الاثنين انكسرا بنفس الدورة: وقف الخسارة (بيع) يغلب، إلا لو نسبة إعادة الضبط أصغر من نسبة وقف الخسارة (يعني كانت تسبقه)
+        const stopWins = stopHit && !(resetByPct && slRow && rsRow.pct < slRow.pct);
+        if (stopWins) {
+          // السعر كسر وقف الخسارة: ما نبيع فورًا بأسوأ سعر — نبدأ مراقبة لمدة محدّدة بانتظار أفضل ارتداد
+          a.stopLossWatch = { pct: slRow.pct, minutes: slRow.minutes, stopPrice, startedAt: Date.now(), endsAt: Date.now() + slRow.minutes * 60000, low: price, peak: price };
+          saveAutoTrade();
+          notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: true, price, ...a.stopLossWatch });
+          broadcastBotStatus();
+        } else if (resetHit) {
+          // 🔄 إعادة ضبط بدون بيع: ما يصير أي أمر على Binance. نطوي كل المراحل الحالية بمرحلة واحدة بالسعر الحالي،
+          // فيرجع البوت يشتغل كأنه اشترى للتو بهذا السعر: نسبة البيع الأولى من السعر الحالي، والمراحل تبدأ من 2 من جديد.
+          a.resetBase = { price, ids: a.legs.map(l => l.id), time: Date.now() };
+          a.lastBuyPrice = price; a.holdSince = Date.now(); a.resetCount = (a.resetCount || 0) + 1;
+          saveAutoTrade();
+          notifyAccount(accountKey, { type: 'soft_reset', symbol: a.symbol, price, oldAvg: avgBuyPrice, reason: resetByPct ? 'pct' : 'time', resetCount: a.resetCount, totalCost: legsTotalCost(a) });
+          broadcastBotStatus();
+        }
+      } else if (vLegs.length < (a.levels || 1)) {
         // ما وصلنا عدد مرات الشراء المطلوب بعد → ننتظر نزول نسبة *هذي المرحلة تحديدًا* (مخصّصة لها أو الرئيسية تلقائيًا)
         // من آخر سعر اشترينا فيه عشان نشتري مرحلة جديدة
         if (buyMove >= nextPct) {
           try {
             const trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true);
-            a.legs.push({ id: trade.id, qty: trade.qty, price: trade.buyPrice, time: trade.time });
-            a.lastBuyPrice = trade.buyPrice;
-            a.fails = 0;
+            a.legs.push({ id: trade.id, qty: trade.qty, price: trade.buyPrice, cost: trade.cost, time: trade.time });
+            a.lastBuyPrice = trade.buyPrice; a.holdSince = Date.now();
+            clearAutoTradeProblem(a, accountKey);
             saveAutoTrade();
             notifyAccount(accountKey, { type: 'trade_result', side: 'BUY', symbol: a.symbol });
             broadcastBotStatus();
           } catch (err) {
-            // فشل شراء مرحلة إضافية: نوقف التلقائي، والمراحل السابقة تضل مفتوحة يبيعها المستخدم يدويًا لو احتاج
-            const detail = err.response?.data?.msg || err.message;
-            delete autoTradeByAccount[accountKey]; saveAutoTrade();
-            notifyAccount(accountKey, { type: 'error', message: `⛔ أُوقف التداول التلقائي — فشل شراء مرحلة ${a.legs.length + 1}/${a.levels}: ${detail}. صفقاتك المفتوحة باقية، بعها يدويًا لو احتجت.` });
+            // فشل شراء مرحلة إضافية: المراحل السابقة تضل مفتوحة (تقدر تبيعها يدويًا لو احتجت)، والتداول
+            // التلقائي يستمر يحاول من جديد تلقائيًا بفاصل متدرّج بدل ما يتوقف
+            handleAutoTradeFailure(a, accountKey, err, `buy_level_${vLegs.length + 1}`);
             broadcastBotStatus();
           }
         }

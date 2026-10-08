@@ -183,6 +183,38 @@
   #auto-sellpct-input::placeholder { color: rgba(63,185,80,0.7); font-weight: 800; font-size: 0.68rem; }
   #auto-sellpct-input.active { background: rgba(63,185,80,0.25); box-shadow: 0 0 8px rgba(63,185,80,0.5); }
   #auto-anchor-chip { cursor: pointer; }
+  /* 🔔 لوحة تنبيهات التداول التلقائي — مربع طويل يبقى ظاهر بدل نوافذ alert() اللي تحجب الصفحة
+     ولازم تُغلق يدويًا (وممكن تضيّع التنبيه كامل لو ما كان أحد قاعد يشوف الشاشة وقتها). */
+  #bot-alerts-panel {
+    margin: 10px 14px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    overflow: hidden;
+  }
+  #bot-alerts-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
+    background: var(--surface2); border-bottom: 1px solid var(--border);
+  }
+  #bot-alerts-title { font-size: 0.8rem; font-weight: 800; color: var(--text); }
+  #bot-alerts-clear {
+    background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 6px;
+    padding: 3px 9px; font-size: 0.68rem; cursor: pointer;
+  }
+  #bot-alerts-clear:active { transform: scale(0.95); }
+  #bot-alerts-list { max-height: 260px; overflow-y: auto; }
+  .bot-alert-row {
+    display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border-bottom: 1px solid var(--border);
+    font-size: 0.76rem; line-height: 1.5;
+  }
+  .bot-alert-row:last-child { border-bottom: none; }
+  .bot-alert-icon { flex-shrink: 0; font-size: 0.95rem; }
+  .bot-alert-body { flex: 1; min-width: 0; }
+  .bot-alert-msg { color: var(--text); font-weight: 700; }
+  .bot-alert-meta { color: var(--muted); font-size: 0.68rem; margin-top: 2px; }
+  .bot-alert-row.needs-action { background: rgba(248,81,73,0.07); }
+  .bot-alert-row.needs-action .bot-alert-msg { color: var(--red); }
+  .bot-alert-row.retrying { background: rgba(227,179,65,0.06); }
+  .bot-alert-row.retrying .bot-alert-msg { color: var(--yellow); }
+  .bot-alert-row.resolved { opacity: 0.6; }
+  .bot-alert-row.resolved .bot-alert-msg { color: var(--green); text-decoration: line-through; }
   #auto-levelpct-gear {
     width: 30px; height: 30px; border-radius: 7px; background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45);
     color: #ffd60a; font-size: 15px; line-height: 1; cursor: pointer;
@@ -204,6 +236,43 @@
   #auto-levelpct-close {
     width: 100%; margin-top: 10px; padding: 9px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; cursor: pointer;
   }
+  /* 💰 إجمالي تكلفة ما اشتراه البوت — أعلى يسار الشريط */
+  #auto-cost-chip {
+    margin-inline-start: auto; direction: ltr; white-space: nowrap; cursor: default;
+    background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.5); color: #58a6ff;
+    border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 800;
+  }
+  html[dir="ltr"] #auto-cost-chip { order: -1; margin-inline-start: 0; margin-inline-end: auto; }
+  /* 🛑 زر وقف الخسارة + لوحته (مربعين) */
+  #auto-stoploss-btn {
+    width: 30px; height: 30px; border-radius: 7px; background: rgba(248,81,73,0.10); border: 1px solid rgba(248,81,73,0.5);
+    font-size: 14px; line-height: 1; cursor: pointer;
+  }
+  #auto-stoploss-btn.active { background: rgba(248,81,73,0.28); box-shadow: 0 0 8px rgba(248,81,73,0.55); }
+  #auto-stoploss-btn:active { transform: scale(0.94); }
+  #auto-stoploss-panel {
+    position: fixed; left: 10px; right: 10px; bottom: 90px; z-index: 400; max-height: 70vh; overflow-y: auto;
+    background: #141414; border: 1px solid rgba(248,81,73,0.5); border-radius: 12px; padding: 12px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  }
+  .sl-box { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .sl-box.stop { border-color: rgba(248,81,73,0.5); }
+  .sl-box.reset { border-color: rgba(88,166,255,0.5); }
+  .sl-box-title { font-size: 0.8rem; font-weight: 800; margin-bottom: 3px; }
+  .sl-box.stop .sl-box-title { color: var(--red); }
+  .sl-box.reset .sl-box-title { color: #58a6ff; }
+  .sl-box-desc { font-size: 0.68rem; color: var(--muted); line-height: 1.5; margin-bottom: 8px; }
+  .sl-box-row { display: flex; gap: 8px; }
+  .sl-box-row label { flex: 1; font-size: 0.7rem; color: var(--text); font-weight: 700; display: flex; flex-direction: column; gap: 3px; }
+  .sl-box-row input {
+    width: 100%; box-sizing: border-box; border-radius: 7px; padding: 6px; font-size: 16px; text-align: center; outline: none;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.22); color: var(--text);
+  }
+  #auto-stoploss-close {
+    width: 100%; padding: 9px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; cursor: pointer;
+  }
+  .bot-alert-row.info { background: rgba(88,166,255,0.07); }
+  .bot-alert-row.info .bot-alert-msg { color: #58a6ff; }
   #auto-pct-input {
     width: 74px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
     background: rgba(255,214,10,0.10); border: 1px solid rgba(255,214,10,0.45); color: #ffd60a;
@@ -572,6 +641,7 @@
     <span id="trade-pnl-pct"></span>
   </span>
   <span id="candle-countdown" title="الوقت المتبقي لإغلاق الشمعة الحالية">⏱ —</span>
+  <span id="auto-cost-chip" style="display:none;" title="إجمالي ما اشتراه البوت في الصفقة الحالية (USDT) ورقم آخر مرحلة شراء">—</span>
 </div>
 <div id="chart-tools-row">
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
@@ -584,6 +654,7 @@
     <input type="number" id="auto-pct-input" min="0.1" max="50" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
     <input type="number" id="auto-levels-input" min="1" max="10" step="1" placeholder="عدد" title="عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة. مثال 3 = يشتري 3 مرات، كل مرة عند نزول النسبة من آخر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع النسبة فوق متوسط سعر الشراء">
     <button type="button" id="auto-levelpct-gear" title="تخصيص نسبة كل مرحلة شراء على حدة">⚙</button>
+    <button type="button" id="auto-stoploss-btn" title="وقف الخسارة وإعادة الضبط بدون بيع">🛑</button>
     <input type="number" id="auto-sellpct-input" min="0.1" max="50" step="0.1" placeholder="% بيع" title="نسبة البيع الثابتة فوق متوسط سعر الشراء — فاضي = تلقائي (يستخدم نسبة آخر مرحلة شراء)">
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
@@ -591,6 +662,25 @@
     <div id="auto-levelpct-title">نسبة كل مرحلة شراء — فاضي = تلقائي (يستخدم النسبة الرئيسية)</div>
     <div id="auto-levelpct-rows"></div>
     <button type="button" id="auto-levelpct-close">تم ✓</button>
+  </div>
+  <div id="auto-stoploss-panel" style="display:none;">
+    <div class="sl-box stop">
+      <div class="sl-box-title">🛑 وقف الخسارة (يبيع)</div>
+      <div class="sl-box-desc">لما ينزل السعر تحت متوسط الشراء بهذه النسبة، ما يبيع فورًا: يراقب هذه المدة ويبيع قرب أفضل ارتداد. الخانتين معًا، أو اتركهما فاضيتين لتعطيله.</div>
+      <div class="sl-box-row">
+        <label>النسبة %<input type="number" id="sl-stop-pct" min="0.1" max="90" step="0.1" placeholder="مثال 10"></label>
+        <label>الوقت (دقيقة)<input type="number" id="sl-stop-min" min="1" max="720" step="1" placeholder="مثال 30"></label>
+      </div>
+    </div>
+    <div class="sl-box reset">
+      <div class="sl-box-title">🔄 إعادة ضبط (بدون بيع)</div>
+      <div class="sl-box-desc">لما ينزل السعر تحت المتوسط بهذه النسبة، أو يمرّ هذا الوقت من آخر شراء وأنت بخسارة (أيهما أولًا): لا يبيع ولا يشتري، يعتبر الصفقة كأنها اشتريت الآن بالسعر الحالي ويرجع يعمل من النسبة الأولى. تكفي خانة وحدة.</div>
+      <div class="sl-box-row">
+        <label>النسبة %<input type="number" id="sl-reset-pct" min="0.1" max="90" step="0.1" placeholder="مثال 5"></label>
+        <label>الوقت (دقيقة)<input type="number" id="sl-reset-min" min="1" max="1440" step="1" placeholder="مثال 60"></label>
+      </div>
+    </div>
+    <button type="button" id="auto-stoploss-close">تم ✓ (ثم اضغط 💾 حفظ)</button>
   </div>
   <button type="button" class="chart-tool-btn" id="chart-indicators-btn">📊 مؤشرات</button>
   <button type="button" class="chart-tool-btn" id="chart-expand-btn">⛶ تكبير</button>
@@ -606,6 +696,13 @@
     <label><input type="checkbox" id="ind-toggle-rsi6"> RSI(6)</label>
     <label><input type="checkbox" id="ind-toggle-obv"> OBV</label>
   </div>
+</div>
+<div id="bot-alerts-panel" style="display:none;">
+  <div id="bot-alerts-header">
+    <span id="bot-alerts-title">🔔 تنبيهات التداول التلقائي</span>
+    <button type="button" id="bot-alerts-clear">مسح الكل</button>
+  </div>
+  <div id="bot-alerts-list"></div>
 </div>
 <div id="chart-container">
   <div id="loading"><div class="spinner"></div><p>جاري تحميل البيانات...</p></div>
@@ -1397,8 +1494,11 @@
       else if (msg.type === 'mtf_update') handleMtfUpdate(msg);
       else if (msg.type === 'bot_status') handleBotStatus(msg);
       else if (msg.type === 'error') handleBotError(msg);
+      else if (msg.type === 'auto_problem') handleAutoProblem(msg);
       else if (msg.type === 'trade_result') flashTradeStatusDot(msg.side);
       else if (msg.type === 'auto_progress') renderAutoProgress(msg);
+      else if (msg.type === 'soft_reset') handleSoftReset(msg);
+      else if (msg.type === 'stop_loss_watch') handleStopLossWatch(msg);
       else if (msg.type === 'account_status') handleAccountStatus(msg);
     };
     ws.onclose = (ev) => {
@@ -2498,6 +2598,9 @@
     document.getElementById('chart-amount-buy-input').value = msg.tradeSizeUsdt;
     document.getElementById('chart-amount-sell-input').value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
     syncAutoPctInput(msg.autoTrade);
+    syncStopLossInputs(msg.autoTrade);
+    renderCostChip(msg.autoTrade);
+    syncBotAlertFromStatus(msg.autoTrade);
     document.querySelectorAll('.explosion-box').forEach(box => {
       box.classList.toggle('selected-manual', !!msg.manualSymbol && box.dataset.symbol === msg.manualSymbol);
     });
@@ -2599,6 +2702,7 @@
       text.textContent = line;
       text.style.whiteSpace = 'pre-line';
     }
+    renderCostChip(holding ? { state: 'holding', totalCost: m.totalCost, legsDone: m.legsDone, levels: m.levels, resetCount: m.resetCount } : null);
     const chip = document.getElementById('auto-anchor-chip');
     if (!holding && m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
     else if (holding && m.avgBuyPrice > 0) { chip.style.display = ''; chip.textContent = 'Ø ' + fmt(m.avgBuyPrice); }
@@ -2649,9 +2753,119 @@
     });
   }
 
-  function handleBotError(msg) {
-    alert('⚠️ ' + msg.message);
+  // 💰 إجمالي التكلفة (أعلى اليسار): مجموع ما اشتراه البوت فعليًا بالصفقة الحالية + رقم آخر مرحلة (من 1 إلى 10)
+  function renderCostChip(a) {
+    const chip = document.getElementById('auto-cost-chip');
+    if (!chip) return;
+    if (!a || a.state !== 'holding' || !(a.totalCost > 0)) { chip.style.display = 'none'; return; }
+    const lvl = a.legsDone || 1;
+    chip.textContent = `💰 ${a.totalCost.toFixed(2)}$ · م${lvl}` + (a.resetCount ? ` · 🔄${a.resetCount}` : '');
+    chip.title = `إجمالي ما اشتراه البوت: ${a.totalCost.toFixed(2)} USDT — آخر مرحلة شراء: ${lvl}` + (a.resetCount ? ` — أعاد الضبط ${a.resetCount} مرة بدون بيع` : '');
+    chip.style.display = '';
   }
+
+  // 🛑 زر وقف الخسارة: مربعين (وقف خسارة يبيع / إعادة ضبط بدون بيع) — تُحفظ مع زر 💾 حفظ
+  const slPanel = document.getElementById('auto-stoploss-panel');
+  const slInputs = {
+    stopPct: document.getElementById('sl-stop-pct'), stopMin: document.getElementById('sl-stop-min'),
+    resetPct: document.getElementById('sl-reset-pct'), resetMin: document.getElementById('sl-reset-min'),
+  };
+  document.getElementById('auto-stoploss-btn').addEventListener('click', () => {
+    slPanel.style.display = slPanel.style.display === 'none' ? '' : 'none';
+  });
+  document.getElementById('auto-stoploss-close').addEventListener('click', () => { slPanel.style.display = 'none'; });
+  let lastStopLossSig = null;
+  function syncStopLossInputs(a) {
+    const sl = a && a.stopLoss, rs = a && a.softReset;
+    document.getElementById('auto-stoploss-btn').classList.toggle('active', !!(sl || rs));
+    const sig = JSON.stringify([sl || null, rs || null, a ? a.symbol : null]);
+    if (sig === lastStopLossSig) return;
+    lastStopLossSig = sig;
+    const put = (el, v) => { if (document.activeElement !== el) el.value = v != null ? v : ''; };
+    put(slInputs.stopPct, sl && sl.pct); put(slInputs.stopMin, sl && sl.minutes);
+    put(slInputs.resetPct, rs && rs.pct); put(slInputs.resetMin, rs && rs.minutes);
+  }
+  function addInfoAlert(symbol, icon, msg, sub) {
+    botAlertEntries.unshift({ id: `info_${Date.now()}`, symbol, msg, sub, icon, info: true, active: false, time: Date.now() });
+    botAlertEntries = botAlertEntries.slice(0, BOT_ALERTS_MAX);
+    renderBotAlerts();
+  }
+  function handleSoftReset(m) {
+    addInfoAlert(m.symbol, '🔄', `أعاد البوت الضبط بدون بيع (المرة ${m.resetCount}) — صار يعتبر الشراء بسعر ${fmt(m.price)} (المتوسط السابق ${fmt(m.oldAvg)})`,
+      m.reason === 'time' ? 'السبب: انتهى الوقت المحدّد وأنت بخسارة — يعمل الآن من النسبة الأولى' : 'السبب: وصل النسبة المحدّدة — يعمل الآن من النسبة الأولى');
+    renderCostChip({ state: 'holding', totalCost: m.totalCost, legsDone: 1, resetCount: m.resetCount });
+  }
+  function handleStopLossWatch(m) {
+    if (m.active) addInfoAlert(m.symbol, '🛑', `كسر السعر وقف الخسارة (${m.pct}%) — يراقب الارتداد حتى ${m.minutes} دقيقة ثم يبيع`, `سعر الوقف: ${fmt(m.stopPrice)}`);
+    else if (m.sold) addInfoAlert(m.symbol, '✅', `تم البيع بوقف الخسارة عند ${fmt(m.sellPrice)} (${m.lossPct.toFixed(2)}%)`, m.reason === 'rebound' ? 'بيع قرب أفضل ارتداد' : 'انتهت مدة المراقبة');
+  }
+
+  // ═══════════════════ 🔔 لوحة تنبيهات التداول التلقائي (بدل alert() اللي يحجب الصفحة ويحتاج ضغط OK) ═══════════════════
+  // كل مشاكل الشراء/البيع التلقائي (رصيد، مفتاح API، اتصال، إلخ) تظهر هنا كصف دائم بدل نافذة منبثقة
+  // لازم تُغلق يدويًا — والبوت نفسه ما يتوقف أبدًا، بس يستمر يعيد المحاولة بفواصل متدرّجة بالخلفية.
+  let botAlertEntries = []; // {id, symbol, msg, detail, needsAction, active, fails, time} — الأحدث أولًا
+  const BOT_ALERTS_MAX = 40;
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function renderBotAlerts() {
+    const panel = document.getElementById('bot-alerts-panel');
+    const list = document.getElementById('bot-alerts-list');
+    if (!botAlertEntries.length) { panel.style.display = 'none'; list.innerHTML = ''; return; }
+    panel.style.display = '';
+    list.innerHTML = botAlertEntries.map(e => {
+      if (e.info) {
+        const t = new Date(e.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+        return `<div class="bot-alert-row info"><span class="bot-alert-icon">${e.icon}</span><div class="bot-alert-body"><div class="bot-alert-msg">${escapeHtml(e.symbol)} — ${escapeHtml(e.msg)}</div><div class="bot-alert-meta">${escapeHtml(e.sub || '')} · ${t}</div></div></div>`;
+      }
+      const cls = !e.active ? 'resolved' : (e.needsAction ? 'needs-action' : 'retrying');
+      const icon = !e.active ? '✅' : (e.needsAction ? '🛑' : '⏳');
+      const timeStr = new Date(e.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+      const sub = !e.active
+        ? 'تم الحل — البوت يعمل طبيعي الآن'
+        : (e.needsAction ? 'يحتاج تدخلك — البوت يستمر بإعادة المحاولة تلقائيًا' : `البوت يعيد المحاولة تلقائيًا (محاولة ${e.fails || 1})`);
+      const symPrefix = e.symbol ? `${escapeHtml(e.symbol)} — ` : '';
+      return `<div class="bot-alert-row ${cls}"><span class="bot-alert-icon">${icon}</span>` +
+        `<div class="bot-alert-body"><div class="bot-alert-msg">${symPrefix}${escapeHtml(e.msg)}</div>` +
+        `<div class="bot-alert-meta">${sub} · ${timeStr}</div></div></div>`;
+    }).join('');
+  }
+  // مشكلة جديدة أو تحديث لمشكلة قائمة بنفس العملة (نفس الصف يتحدّث بمكانه بدل ما يتكرر كل محاولة)
+  function upsertBotAlert(symbol, data) {
+    let entry = botAlertEntries.find(e => e.symbol === symbol && e.active);
+    if (!entry) {
+      entry = { id: `${symbol}_${Date.now()}`, symbol, active: true };
+      botAlertEntries.unshift(entry);
+    }
+    Object.assign(entry, data, { time: Date.now() });
+    botAlertEntries = botAlertEntries.slice(0, BOT_ALERTS_MAX);
+    renderBotAlerts();
+  }
+  function resolveBotAlert(symbol) {
+    const entry = botAlertEntries.find(e => e.symbol === symbol && e.active);
+    if (entry) { entry.active = false; entry.time = Date.now(); renderBotAlerts(); }
+  }
+  // رسائل الخطأ القديمة (غير مرتبطة بتداول تلقائي معيّن، مثل رفض أمر يدوي) تضل تظهر بنفس اللوحة بدل alert()
+  function handleBotError(msg) {
+    botAlertEntries.unshift({ id: `generic_${Date.now()}`, symbol: '', msg: msg.message, active: true, needsAction: true, time: Date.now() });
+    botAlertEntries = botAlertEntries.slice(0, BOT_ALERTS_MAX);
+    renderBotAlerts();
+  }
+  function handleAutoProblem(m) {
+    if (m.active) upsertBotAlert(m.symbol, { msg: m.message, detail: m.detail, needsAction: m.needsAction, fails: m.fails });
+    else resolveBotAlert(m.symbol);
+  }
+  // عند أي bot_status (أول اتصال أو إعادة اتصال بعد غياب) — لو فيه مشكلة تلقائي قائمة حاليًا ما وصلتنا
+  // كرسالة حية (مثلًا كانت الصفحة مقفولة وقت حصولها)، نعرضها فورًا بدل ما تضيع.
+  function syncBotAlertFromStatus(autoTrade) {
+    if (!autoTrade) return;
+    if (autoTrade.problem) upsertBotAlert(autoTrade.symbol, { msg: autoTrade.problem.message, detail: autoTrade.problem.detail, needsAction: autoTrade.problem.needsAction, fails: autoTrade.problem.fails });
+    else resolveBotAlert(autoTrade.symbol);
+  }
+  document.getElementById('bot-alerts-clear').addEventListener('click', () => {
+    botAlertEntries = botAlertEntries.filter(e => e.active); // يمسح المحلولة بس — المشاكل القائمة فعليًا تضل ظاهرة
+    renderBotAlerts();
+  });
 
   document.getElementById('chart-amount-save-btn').addEventListener('click', () => {
     const buyV = parseFloat(document.getElementById('chart-amount-buy-input').value);
@@ -2668,7 +2882,9 @@
       const v = inp.value.trim();
       if (v !== '') levelPct[inp.dataset.level] = v;
     });
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, symbol: currentSymbol }));
+    const stopLoss = { pct: slInputs.stopPct.value.trim(), minutes: slInputs.stopMin.value.trim() };
+    const softReset = { pct: slInputs.resetPct.value.trim(), minutes: slInputs.resetMin.value.trim() };
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, stopLoss, softReset, symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
