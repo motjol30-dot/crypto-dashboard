@@ -322,7 +322,7 @@ wss.on('connection', (ws, req) => {
     // (حتى لو يعرف كلمة مرور الدخول العامة) من لمس حسابك الافتراضي أو يغيّر نسبك بدون ما يربط حسابه هو.
     const ACCOUNT_REQUIRED_TYPES = new Set([
       'bot_toggle', 'bot_set_trade_size', 'bot_set_sell_amount', 'bot_set_take_profit', 'bot_set_max_positions',
-      'bot_set_manual_symbol', 'manual_buy_now', 'manual_sell_now', 'auto_trade_set', 'auto_anchor_set',
+      'bot_set_manual_symbol', 'manual_buy_now', 'manual_sell_now', 'auto_trade_set', 'auto_anchor_set', 'auto_problem_clear',
       'manual_bot_toggle', 'bot_manual_close', 'bot_cancel_pending',
     ]);
     if (ACCOUNT_REQUIRED_TYPES.has(msg.type) && getAccountKeyForWs(ws) === '__default__') {
@@ -521,6 +521,12 @@ wss.on('connection', (ws, req) => {
       // الخانتين فاضيتين = الميزة معطّلة. لو الواجهة ما أرسلت الحقل أصلًا (صفحة قديمة بالكاش) نترك المحفوظ كما هو.
       const isEmptyV = (x) => x === null || x === undefined || x === '';
       const hasShape = (o) => o && typeof o === 'object' && ('pct' in o || 'minutes' in o);
+      const anchorTolProvided = 'anchorTol' in msg;
+      let anchorTol = 0;
+      if (anchorTolProvided && !isEmptyV(msg.anchorTol)) {
+        anchorTol = parseFloat(msg.anchorTol);
+        if (!(anchorTol >= 0 && anchorTol <= 50)) { ws.send(JSON.stringify({ type: 'error', message: 'سماحية المرساة: لازم بين 0 و 50%' })); return; }
+      }
       const stopLossProvided = hasShape(msg.stopLoss);
       const softResetProvided = hasShape(msg.softReset);
       let stopLoss = null, softReset = null;
@@ -543,7 +549,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (cur && cur.symbol === symbol) {
-        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.sellPct = sellPctOverride; if (stopLossProvided) cur.stopLoss = stopLoss; if (softResetProvided) cur.softReset = softReset; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
+        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.sellPct = sellPctOverride; if (stopLossProvided) cur.stopLoss = stopLoss; if (softResetProvided) cur.softReset = softReset; if (anchorTolProvided) cur.anchorTol = anchorTol; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
       } else {
         let price = 0;
         try { price = await getCurrentPrice(symbol); } catch {}
@@ -553,12 +559,24 @@ wss.on('connection', (ws, req) => {
           pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, sellPct: sellPctOverride, state: 'waiting_buy',
           peak: price, anchor: price, armed: false, legs: [], lastBuyPrice: null,
           stopLoss: stopLossProvided ? stopLoss : null, softReset: softResetProvided ? softReset : null, stopLossWatch: null,
-          resetBase: null, resetCount: 0, holdSince: null,
+          resetBase: null, resetCount: 0, holdSince: null, anchorTol: anchorTolProvided ? anchorTol : 0, overshot: false, buyRetryAt: 0,
           fails: 0, pausedUntil: 0, busy: false,
         };
       }
       saveAutoTrade();
       broadcastBotStatus();
+    }
+    else if (msg.type === 'auto_problem_clear') {
+      // المستخدم مسح التنبيه من اللوحة: نصفّر المشكلة وعدّاد الفشل والانتظار، فيرجع البوت يشتغل ويحاول مباشرة بدون أي تأخير
+      const accountKey = getAccountKeyForWs(ws);
+      const a = autoTradeByAccount[accountKey];
+      if (a) {
+        const had = !!a.problem;
+        a.problem = null; a.fails = 0; a.pausedUntil = 0; a.buyRetryAt = 0;
+        saveAutoTrade();
+        if (had) notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: false });
+        broadcastBotStatus();
+      }
     }
     else if (msg.type === 'auto_anchor_set') {
       // تعديل يدوي لسعر المرساة 🎯 (المربع الأصفر فوق): يُسمح فقط قبل أول شراء (انتظار النزول)، لأنه بعد
@@ -573,7 +591,8 @@ wss.on('connection', (ws, req) => {
       a.anchor = anchor;
       let price = anchor;
       try { price = await getCurrentPrice(a.symbol); } catch {}
-      if (price <= anchor) { a.armed = true; a.peak = anchor; } else { a.armed = false; a.peak = anchor; }
+      const limitM = anchor * (1 + (a.anchorTol > 0 ? a.anchorTol : 0) / 100);
+      if (price <= limitM) { a.armed = true; a.peak = Math.max(anchor, price); a.overshot = false; } else { a.armed = false; a.peak = anchor; a.overshot = true; }
       saveAutoTrade();
       broadcastBotStatus();
     }
@@ -2162,7 +2181,8 @@ function botStatusPayload(ws) {
         amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
         stopLoss: a.stopLoss || null, softReset: a.softReset || null, stopLossWatch: a.stopLossWatch || null,
-        totalCost: a.state === 'holding' ? legsTotalCost(a) : 0, resetCount: a.resetCount || 0,
+        totalCost: a.state === 'holding' ? legsTotalCost(a) : 0, resetCount: a.resetCount || 0, buysCount: (a.legs || []).length,
+        anchorTol: a.anchorTol || 0, anchorLimit: a.anchor > 0 ? a.anchor * (1 + (a.anchorTol > 0 ? a.anchorTol : 0) / 100) : null,
         problem: a.problem || null, // مشكلة حالية (إن وجدت) — تبقى هنا لحد ما تُحل، حتى لو المستخدم كان بعيد عن الصفحة وقت حدوثها
       };
     })(),
@@ -2381,6 +2401,8 @@ function loadAutoTrade() {
     if (!a.softReset || typeof a.softReset !== 'object') a.softReset = null;
     if (a.resetCount === undefined) a.resetCount = 0;
     if (a.holdSince === undefined) a.holdSince = null;
+    if (!(a.anchorTol > 0)) a.anchorTol = 0;
+    a.overshot = !!a.overshot; a.buyRetryAt = 0;
     if (a.resetBase === undefined) a.resetBase = null;
     if (a.stopLossWatch === undefined) a.stopLossWatch = null;
     if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
@@ -2438,11 +2460,20 @@ function nextAutoTradeBackoffMs(fails, autoFix) {
 function handleAutoTradeFailure(a, accountKey, err, context) {
   const cls = classifyTradeError(err);
   a.fails = (a.fails || 0) + 1;
-  if (cls.autoFix === 'resync_time') { syncBinanceTime(); a.pausedUntil = Date.now() + 5000; }
-  else a.pausedUntil = Date.now() + nextAutoTradeBackoffMs(a.fails, cls.autoFix);
+  // فشل شراء مرحلة إضافية (مثلًا الرصيد خلص): الصفقة الحالية سليمة، فلا نوقف الدورة — نؤجّل محاولات الشراء فقط،
+  // ويستمر العداد وفحص البيع/وقف الخسارة/إعادة الضبط كل ثانية بدون أي تأخير.
+  const levelBuy = typeof context === 'string' && context.startsWith('buy_level_');
+  let retryAt;
+  if (cls.autoFix === 'resync_time') { syncBinanceTime(); retryAt = Date.now() + 5000; }
+  else retryAt = Date.now() + nextAutoTradeBackoffMs(a.fails, cls.autoFix);
+  if (levelBuy) { retryAt = Math.min(retryAt, Date.now() + 60000); a.buyRetryAt = retryAt; }
+  else a.pausedUntil = retryAt;
+  const message = (levelBuy && cls.kind === 'balance')
+    ? 'لا يوجد رصيد USDT كافٍ لشراء المرحلة التالية — صفقتك الحالية سليمة والبوت يواصل مراقبة البيع، ويعيد محاولة الشراء كل دقيقة'
+    : cls.arabic;
   a.problem = {
-    kind: cls.kind, needsAction: !!cls.needsAction, message: cls.arabic, detail: cls.raw, context,
-    fails: a.fails, since: (a.problem && a.problem.since) || Date.now(), lastAt: Date.now(), retryAt: a.pausedUntil,
+    kind: cls.kind, needsAction: levelBuy && cls.kind === 'balance' ? false : !!cls.needsAction, message, detail: cls.raw, context,
+    fails: a.fails, since: (a.problem && a.problem.since) || Date.now(), lastAt: Date.now(), retryAt,
   };
   saveAutoTrade();
   notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: true, ...a.problem });
@@ -2451,7 +2482,7 @@ function handleAutoTradeFailure(a, accountKey, err, context) {
 // يُستدعى عند أي نجاح (شراء أو بيع) — يصفّر عدّاد الفشل ويعلم الواجهة إن المشكلة السابقة (إن وجدت) انحلّت.
 function clearAutoTradeProblem(a, accountKey) {
   const hadProblem = !!a.problem;
-  a.fails = 0; a.problem = null;
+  a.fails = 0; a.problem = null; a.buyRetryAt = 0;
   if (hadProblem) notifyAccount(accountKey, { type: 'auto_problem', symbol: a.symbol, active: false });
 }
 async function runAutoTradeCycle() {
@@ -2472,14 +2503,17 @@ async function runAutoTradeCycle() {
       if (a.state === 'waiting_buy') {
         if (!(a.anchor > 0)) { a.anchor = price; a.armed = true; a.peak = price; } // توافق صفقات قديمة بدون مرساة محفوظة
         else if (!a.armed) {
-          if (price <= a.anchor) { a.armed = true; a.peak = a.anchor; } // رجع للمرساة (أو نزل مباشرة بدون ما يرتفع): نبدأ حساب النسبة من مستوى المرساة
-          // لسه فوق المرساة: ما نحسب شي، فقط ننتظر رجوعه — هذا يمنع الشراء في منتصف صعود قوي (يطبّق فقط على المرحلة الأولى من الشراء)
+          // سماحية الصعود فوق المرساة (مربع المستخدم): تحتها يعمل عادي من أول لحظة، وفوقها ينتظر الرجوع لحدّها.
+          // السماحية 0 (الافتراضي) = السلوك السابق تمامًا (ينتظر الرجوع للمرساة نفسها).
+          const limit = a.anchor * (1 + (a.anchorTol > 0 ? a.anchorTol : 0) / 100);
+          if (price <= limit) { a.armed = true; a.peak = a.overshot ? limit : Math.max(a.anchor, price); a.overshot = false; }
+          else a.overshot = true; // فوق الحد: ما نحسب شي، فقط ننتظر رجوعه — يمنع الشراء في منتصف صعود قوي (للمرحلة الأولى فقط)
         } else if (price > a.peak) a.peak = price;
       }
       // ── حالة الانتظار قبل أول شراء ──────────────────────────────────────────────
       if (a.state === 'waiting_buy') {
         const move = a.armed ? (a.peak - price) / a.peak * 100 : null;
-        notifyAccount(accountKey, { type: 'auto_progress', symbol: a.symbol, state: 'waiting_buy', pct: a.pct, move, price, anchor: a.anchor, armed: a.armed, legsDone: 0, levels: a.levels });
+        notifyAccount(accountKey, { type: 'auto_progress', symbol: a.symbol, state: 'waiting_buy', pct: a.pct, move, price, anchor: a.anchor, anchorLimit: a.anchor * (1 + (a.anchorTol > 0 ? a.anchorTol : 0) / 100), armed: a.armed, legsDone: 0, levels: a.levels });
         if (a.armed) {
           const dropPct = (a.peak - price) / a.peak * 100;
           if (dropPct >= a.pct) {
@@ -2536,7 +2570,7 @@ async function runAutoTradeCycle() {
         type: 'auto_progress', symbol: a.symbol, state: 'holding', pct: sellPct, move: sellMove, price,
         anchor: a.anchor, armed: true, legsDone: vLegs.length, levels: a.levels, avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
         nextLevel, nextPct: vLegs.length < (a.levels || 1) ? nextPct : null, buyMove,
-        totalCost: legsTotalCost(a), resetCount: a.resetCount || 0,
+        totalCost: legsTotalCost(a), resetCount: a.resetCount || 0, buysCount: a.legs.length,
       });
       // 🛑 وقف الخسارة و🔄 إعادة الضبط يعملان فقط على الصفقة المكتملة (كل مراحل الشراء المطلوبة تمت).
       const full = vLegs.length >= (a.levels || 1);
@@ -2613,7 +2647,7 @@ async function runAutoTradeCycle() {
           notifyAccount(accountKey, { type: 'soft_reset', symbol: a.symbol, price, oldAvg: avgBuyPrice, reason: resetByPct ? 'pct' : 'time', resetCount: a.resetCount, totalCost: legsTotalCost(a) });
           broadcastBotStatus();
         }
-      } else if (vLegs.length < (a.levels || 1)) {
+      } else if (vLegs.length < (a.levels || 1) && Date.now() >= (a.buyRetryAt || 0)) {
         // ما وصلنا عدد مرات الشراء المطلوب بعد → ننتظر نزول نسبة *هذي المرحلة تحديدًا* (مخصّصة لها أو الرئيسية تلقائيًا)
         // من آخر سعر اشترينا فيه عشان نشتري مرحلة جديدة
         if (buyMove >= nextPct) {

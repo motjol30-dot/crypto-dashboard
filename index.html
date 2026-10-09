@@ -240,11 +240,11 @@
   }
   /* 💰 إجمالي تكلفة ما اشتراه البوت — أعلى يسار الشريط */
   #auto-cost-chip {
-    margin-inline-start: auto; direction: ltr; white-space: nowrap; cursor: default;
+    margin-left: auto !important; margin-right: 0 !important; direction: ltr; white-space: nowrap; cursor: default;
     background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.5); color: #58a6ff;
     border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 800;
   }
-  html[dir="ltr"] #auto-cost-chip { order: -1; margin-inline-start: 0; margin-inline-end: auto; }
+  html[dir="ltr"] #auto-cost-chip { order: -1; margin-left: 0 !important; margin-right: auto !important; }
   /* 🛑 زر وقف الخسارة + لوحته (مربعين) */
   #auto-stoploss-btn {
     width: 30px; height: 30px; border-radius: 7px; background: rgba(248,81,73,0.10); border: 1px solid rgba(248,81,73,0.5);
@@ -261,6 +261,8 @@
   .sl-box { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 7px 8px; margin-bottom: 7px; }
   .sl-box.stop { border-color: rgba(248,81,73,0.5); }
   .sl-box.reset { border-color: rgba(88,166,255,0.5); }
+  .sl-box.anchor { border-color: rgba(255,214,10,0.5); }
+  .sl-box.anchor .sl-box-title { color: #ffd60a; }
   .sl-box-title { font-size: 0.8rem; font-weight: 800; margin-bottom: 3px; }
   .sl-box.stop .sl-box-title { color: var(--red); }
   .sl-box.reset .sl-box-title { color: #58a6ff; }
@@ -274,6 +276,7 @@
   #auto-stoploss-close {
     width: 100%; padding: 7px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; font-size: 0.8rem; cursor: pointer;
   }
+  .bot-alert-row { cursor: pointer; }
   .bot-alert-row.info { background: rgba(88,166,255,0.07); }
   .bot-alert-row.info .bot-alert-msg { color: #58a6ff; }
   #auto-pct-input {
@@ -681,6 +684,13 @@
       <div class="sl-box-row">
         <label>النسبة %<input type="number" id="sl-reset-pct" min="0.1" max="90" step="0.1" placeholder="مثال 5"></label>
         <label>الوقت (دقيقة)<input type="number" id="sl-reset-min" min="1" max="1440" step="1" placeholder="مثال 60"></label>
+      </div>
+    </div>
+    <div class="sl-box anchor">
+      <div class="sl-box-title">🎯 سماحية الصعود عن المرساة</div>
+      <div class="sl-box-desc">لو صعد السعر بعد الحفظ أقل من هذه النسبة فوق المرساة يعمل عادي. أكثر منها ينتظر الرجوع لها. فاضية = ينتظر الرجوع للمرساة نفسها.</div>
+      <div class="sl-box-row">
+        <label>النسبة %<input type="number" id="sl-anchor-tol" min="0" max="50" step="0.1" placeholder="مثال 3"></label>
       </div>
     </div>
     <button type="button" id="auto-stoploss-close">تم ✓ ثم 💾 حفظ</button>
@@ -1340,6 +1350,9 @@
   function loadAccountLocal() {
     try { return JSON.parse(localStorage.getItem('linkedAccount') || 'null'); } catch (e) { return null; }
   }
+  let pendingAccount = null;
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {} // يطلب من المتصفح عدم حذف بياناتك تلقائيًا
+  (function prefillEmail() { const sv = loadAccountLocal(); const el = document.getElementById('account-email-input'); if (sv && sv.email && el && !el.value) el.value = sv.email; })();
   function clearAccountLocal() {
     try { localStorage.removeItem('linkedAccount'); } catch (e) {}
   }
@@ -1359,7 +1372,7 @@
     const payload = { type: 'account_connect', email, pin };
     if (apiKey && apiSecret) { payload.apiKey = apiKey; payload.apiSecret = apiSecret; }
     ws.send(JSON.stringify(payload));
-    saveAccountLocal(email, pin);
+    pendingAccount = { email, pin }; // نحفظهم على هاتفك فقط بعد ما السيرفر يؤكد الربط (حتى لا يُحفظ رمز خاطئ)
   });
   document.getElementById('account-unlink-btn').addEventListener('click', () => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'account_unlink' }));
@@ -1370,6 +1383,7 @@
     const formView = document.getElementById('account-form-view');
     if (msg.linked && msg.email) {
       document.getElementById('account-linked-email').textContent = msg.email;
+      if (pendingAccount && String(msg.email).toLowerCase() === pendingAccount.email.toLowerCase()) { saveAccountLocal(pendingAccount.email, pendingAccount.pin); pendingAccount = null; }
       linkedView.style.display = 'block';
       formView.style.display = 'none';
       // نفضّي خانات المفتاح من المتصفح فور ما تُحفظ — ما ترجع تُعرض مرة ثانية
@@ -2602,6 +2616,7 @@
     document.getElementById('chart-amount-sell-input').value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
     syncAutoPctInput(msg.autoTrade);
     syncStopLossInputs(msg.autoTrade);
+    restorePrefsOnce(msg.autoTrade);
     renderCostChip(msg.autoTrade);
     syncBotAlertFromStatus(msg.autoTrade);
     document.querySelectorAll('.explosion-box').forEach(box => {
@@ -2685,7 +2700,7 @@
       // السعر فوق المرساة بعد الحفظ: النسبة متوقفة لحد ما يرجع لسعر المرساة (انتظار الصعود فقط — للمرحلة الأولى فقط)
       box.classList.add('waiting-anchor');
       fill.style.width = '0%';
-      text.textContent = `⏳ ينتظر الرجوع لـ ${fmt(m.anchor)}`;
+      text.textContent = `⏳ ينتظر الرجوع لـ ${fmt(m.anchorLimit > 0 ? m.anchorLimit : m.anchor)}`;
     } else {
       const move = Math.max(0, m.move);
       const ratio = Math.min(1, move / m.pct);
@@ -2705,7 +2720,7 @@
       text.textContent = line;
       text.style.whiteSpace = 'pre-line';
     }
-    renderCostChip(holding ? { state: 'holding', totalCost: m.totalCost, legsDone: m.legsDone, levels: m.levels, resetCount: m.resetCount } : null);
+    renderCostChip(holding ? { state: 'holding', totalCost: m.totalCost, legsDone: m.legsDone, levels: m.levels, resetCount: m.resetCount, buysCount: m.buysCount } : null);
     const chip = document.getElementById('auto-anchor-chip');
     if (!holding && m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
     else if (holding && m.avgBuyPrice > 0) { chip.style.display = ''; chip.textContent = 'Ø ' + fmt(m.avgBuyPrice); }
@@ -2761,9 +2776,9 @@
     const chip = document.getElementById('auto-cost-chip');
     if (!chip) return;
     if (!a || a.state !== 'holding' || !(a.totalCost > 0)) { chip.style.display = 'none'; return; }
-    const lvl = a.legsDone || 1;
-    chip.textContent = `💰 ${a.totalCost.toFixed(2)}$ · م${lvl}` + (a.resetCount ? ` · 🔄${a.resetCount}` : '');
-    chip.title = `إجمالي ما اشتراه البوت: ${a.totalCost.toFixed(2)} USDT — آخر مرحلة شراء: ${lvl}` + (a.resetCount ? ` — أعاد الضبط ${a.resetCount} مرة بدون بيع` : '');
+    const lvl = a.legsDone || 1, buys = a.buysCount || lvl;
+    chip.textContent = `💰 ${a.totalCost.toFixed(2)}$ · ${buys} شراء` + (a.resetCount ? ` · 🔄${a.resetCount} (الآن م${lvl})` : '');
+    chip.title = `إجمالي ما اشتراه البوت: ${a.totalCost.toFixed(2)} USDT في ${buys} عمليات شراء` + (a.resetCount ? ` — أعاد الضبط ${a.resetCount} مرة بدون بيع، وهو الآن يعمل من المرحلة ${lvl}` : '');
     chip.style.display = '';
   }
 
@@ -2772,21 +2787,48 @@
   const slInputs = {
     stopPct: document.getElementById('sl-stop-pct'), stopMin: document.getElementById('sl-stop-min'),
     resetPct: document.getElementById('sl-reset-pct'), resetMin: document.getElementById('sl-reset-min'),
+    anchorTol: document.getElementById('sl-anchor-tol'),
   };
   document.getElementById('auto-stoploss-btn').addEventListener('click', () => {
     slPanel.style.display = slPanel.style.display === 'none' ? '' : 'none';
   });
   document.getElementById('auto-stoploss-close').addEventListener('click', () => { slPanel.style.display = 'none'; });
+  // 💾 حفظ أرقامك على هاتفك أنت (localStorage): المبالغ والنسب والعدد ووقف الخسارة وإعادة الضبط والسماحية.
+  // لو السيرفر ما عنده تداول تلقائي شغّال (أول فتح/بعد تحديث الملفات) تُعبَّأ الخانات الفاضية منها — لا تتشغّل وحدها، تضغط 💾 حفظ.
+  const PREFS_KEY = 'botInputPrefs';
+  const prefInputIds = ['chart-amount-buy-input', 'chart-amount-sell-input', 'auto-pct-input', 'auto-levels-input', 'auto-sellpct-input',
+    'sl-stop-pct', 'sl-stop-min', 'sl-reset-pct', 'sl-reset-min', 'sl-anchor-tol'];
+  function collectPrefs() {
+    const p = {};
+    prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) p[id] = el.value.trim(); });
+    p.levelPct = {};
+    levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => { if (inp.value.trim() !== '') p.levelPct[inp.dataset.level] = inp.value.trim(); });
+    return p;
+  }
+  function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(collectPrefs())); } catch (e) {} }
+  let prefsRestored = false;
+  function restorePrefsOnce(a) {
+    if (prefsRestored) return;
+    prefsRestored = true;
+    if (a) return; // السيرفر عنده إعدادات شغّالة — هي الأصل
+    let p = null; try { p = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null'); } catch (e) {}
+    if (!p) return;
+    prefInputIds.forEach(id => { const el = document.getElementById(id); if (el && !el.value && p[id] && document.activeElement !== el) el.value = p[id]; });
+    levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => { if (!inp.value && p.levelPct && p.levelPct[inp.dataset.level]) inp.value = p.levelPct[inp.dataset.level]; });
+  }
+  prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', savePrefs); });
+  levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => inp.addEventListener('change', savePrefs));
   let lastStopLossSig = null;
   function syncStopLossInputs(a) {
     const sl = a && a.stopLoss, rs = a && a.softReset;
-    document.getElementById('auto-stoploss-btn').classList.toggle('active', !!(sl || rs));
-    const sig = JSON.stringify([sl || null, rs || null, a ? a.symbol : null]);
+    document.getElementById('auto-stoploss-btn').classList.toggle('active', !!(sl || rs || (a && a.anchorTol > 0)));
+    const sig = JSON.stringify([sl || null, rs || null, a ? a.symbol : null, a ? a.anchorTol : 0]);
     if (sig === lastStopLossSig) return;
     lastStopLossSig = sig;
     const put = (el, v) => { if (document.activeElement !== el) el.value = v != null ? v : ''; };
     put(slInputs.stopPct, sl && sl.pct); put(slInputs.stopMin, sl && sl.minutes);
     put(slInputs.resetPct, rs && rs.pct); put(slInputs.resetMin, rs && rs.minutes);
+    put(slInputs.anchorTol, a && a.anchorTol > 0 ? a.anchorTol : '');
   }
   function addInfoAlert(symbol, icon, msg, sub) {
     botAlertEntries.unshift({ id: `info_${Date.now()}`, symbol, msg, sub, icon, info: true, active: false, time: Date.now() });
@@ -2796,7 +2838,7 @@
   function handleSoftReset(m) {
     addInfoAlert(m.symbol, '🔄', `أعاد البوت الضبط بدون بيع (المرة ${m.resetCount}) — صار يعتبر الشراء بسعر ${fmt(m.price)} (المتوسط السابق ${fmt(m.oldAvg)})`,
       m.reason === 'time' ? 'السبب: انتهى الوقت المحدّد وأنت بخسارة — يعمل الآن من النسبة الأولى' : 'السبب: وصل النسبة المحدّدة — يعمل الآن من النسبة الأولى');
-    renderCostChip({ state: 'holding', totalCost: m.totalCost, legsDone: 1, resetCount: m.resetCount });
+    renderCostChip({ state: 'holding', totalCost: m.totalCost, legsDone: 1, resetCount: m.resetCount, buysCount: m.buysCount });
   }
   function handleStopLossWatch(m) {
     if (m.active) addInfoAlert(m.symbol, '🛑', `كسر السعر وقف الخسارة (${m.pct}%) — يراقب الارتداد حتى ${m.minutes} دقيقة ثم يبيع`, `سعر الوقف: ${fmt(m.stopPrice)}`);
@@ -2819,7 +2861,7 @@
     list.innerHTML = botAlertEntries.map(e => {
       if (e.info) {
         const t = new Date(e.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-        return `<div class="bot-alert-row info"><span class="bot-alert-icon">${e.icon}</span><div class="bot-alert-body"><div class="bot-alert-msg">${escapeHtml(e.symbol)} — ${escapeHtml(e.msg)}</div><div class="bot-alert-meta">${escapeHtml(e.sub || '')} · ${t}</div></div></div>`;
+        return `<div class="bot-alert-row info" data-id="${e.id}"><span class="bot-alert-icon">${e.icon}</span><div class="bot-alert-body"><div class="bot-alert-msg">${escapeHtml(e.symbol)} — ${escapeHtml(e.msg)}</div><div class="bot-alert-meta">${escapeHtml(e.sub || '')} · ${t}</div></div></div>`;
       }
       const cls = !e.active ? 'resolved' : (e.needsAction ? 'needs-action' : 'retrying');
       const icon = !e.active ? '✅' : (e.needsAction ? '🛑' : '⏳');
@@ -2828,7 +2870,7 @@
         ? 'تم الحل — البوت يعمل طبيعي الآن'
         : (e.needsAction ? 'يحتاج تدخلك — البوت يستمر بإعادة المحاولة تلقائيًا' : `البوت يعيد المحاولة تلقائيًا (محاولة ${e.fails || 1})`);
       const symPrefix = e.symbol ? `${escapeHtml(e.symbol)} — ` : '';
-      return `<div class="bot-alert-row ${cls}"><span class="bot-alert-icon">${icon}</span>` +
+      return `<div class="bot-alert-row ${cls}" data-id="${e.id}"><span class="bot-alert-icon">${icon}</span>` +
         `<div class="bot-alert-body"><div class="bot-alert-msg">${symPrefix}${escapeHtml(e.msg)}</div>` +
         `<div class="bot-alert-meta">${sub} · ${timeStr}</div></div></div>`;
     }).join('');
@@ -2865,9 +2907,25 @@
     if (autoTrade.problem) upsertBotAlert(autoTrade.symbol, { msg: autoTrade.problem.message, detail: autoTrade.problem.detail, needsAction: autoTrade.problem.needsAction, fails: autoTrade.problem.fails });
     else resolveBotAlert(autoTrade.symbol);
   }
+  // مسح تنبيه (بلمسه) أو مسح الكل: يختفي من اللوحة ويُصفَّر على السيرفر أيضًا (المشكلة + الانتظار) فيرجع البوت يعمل ويحاول فورًا.
+  // لو المشكلة ما زالت قائمة فعلًا (مثلًا الرصيد) تظهر من جديد عند الفشل التالي — وهذا طبيعي.
+  function clearAlertsOnServer(symbols) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    new Set(symbols.filter(Boolean)).forEach(sym => ws.send(JSON.stringify({ type: 'auto_problem_clear', symbol: sym })));
+  }
   document.getElementById('bot-alerts-clear').addEventListener('click', () => {
-    botAlertEntries = botAlertEntries.filter(e => e.active); // يمسح المحلولة بس — المشاكل القائمة فعليًا تضل ظاهرة
+    const syms = botAlertEntries.filter(e => e.active && !e.info).map(e => e.symbol);
+    botAlertEntries = [];
     renderBotAlerts();
+    clearAlertsOnServer(syms);
+  });
+  document.getElementById('bot-alerts-list').addEventListener('click', (ev) => {
+    const row = ev.target.closest('.bot-alert-row');
+    if (!row) return;
+    const e = botAlertEntries.find(x => x.id === row.dataset.id);
+    botAlertEntries = botAlertEntries.filter(x => x.id !== row.dataset.id);
+    renderBotAlerts();
+    if (e && e.active && !e.info) clearAlertsOnServer([e.symbol]);
   });
 
   document.getElementById('chart-amount-save-btn').addEventListener('click', () => {
@@ -2885,9 +2943,10 @@
       const v = inp.value.trim();
       if (v !== '') levelPct[inp.dataset.level] = v;
     });
+    savePrefs();
     const stopLoss = { pct: slInputs.stopPct.value.trim(), minutes: slInputs.stopMin.value.trim() };
     const softReset = { pct: slInputs.resetPct.value.trim(), minutes: slInputs.resetMin.value.trim() };
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, stopLoss, softReset, symbol: currentSymbol }));
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, stopLoss, softReset, anchorTol: slInputs.anchorTol.value.trim(), symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
