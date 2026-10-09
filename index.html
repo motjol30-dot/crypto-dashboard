@@ -1515,6 +1515,7 @@
       else if (msg.type === 'trade_result') flashTradeStatusDot(msg.side);
       else if (msg.type === 'auto_progress') renderAutoProgress(msg);
       else if (msg.type === 'soft_reset') handleSoftReset(msg);
+      else if (msg.type === 'auto_audit_result') handleAuditResult(msg);
       else if (msg.type === 'stop_loss_watch') handleStopLossWatch(msg);
       else if (msg.type === 'account_status') handleAccountStatus(msg);
     };
@@ -2778,7 +2779,7 @@
     if (!a || a.state !== 'holding' || !(a.totalCost > 0)) { chip.style.display = 'none'; return; }
     const lvl = a.legsDone || 1, buys = a.buysCount || lvl;
     chip.textContent = `💰 ${a.totalCost.toFixed(2)}$ · ${buys} شراء` + (a.resetCount ? ` · 🔄${a.resetCount} (الآن م${lvl})` : '');
-    chip.title = `إجمالي ما اشتراه البوت: ${a.totalCost.toFixed(2)} USDT في ${buys} عمليات شراء` + (a.resetCount ? ` — أعاد الضبط ${a.resetCount} مرة بدون بيع، وهو الآن يعمل من المرحلة ${lvl}` : '');
+    chip.title = `(المس للتدقيق مع Binance) إجمالي ما اشتراه البوت: ${a.totalCost.toFixed(2)} USDT في ${buys} عمليات شراء` + (a.resetCount ? ` — أعاد الضبط ${a.resetCount} مرة بدون بيع، وهو الآن يعمل من المرحلة ${lvl}` : '');
     chip.style.display = '';
   }
 
@@ -2834,6 +2835,19 @@
     botAlertEntries.unshift({ id: `info_${Date.now()}`, symbol, msg, sub, icon, info: true, active: false, time: Date.now() });
     botAlertEntries = botAlertEntries.slice(0, BOT_ALERTS_MAX);
     renderBotAlerts();
+  }
+  // 🔍 لمسة على مربع 💰 = تدقيق فوري مع Binance (يقارن مراحل البوت بالأوامر الحقيقية ويصحّح الفرق)
+  document.getElementById('auto-cost-chip').style.cursor = 'pointer';
+  document.getElementById('auto-cost-chip').addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'auto_audit' })); addInfoAlert(currentSymbol, '🔍', 'جاري مطابقة مراحل البوت مع أوامر Binance…', ''); }
+  });
+  function handleAuditResult(m) {
+    if (m.empty) { addInfoAlert(m.symbol || currentSymbol, '🔍', 'لا توجد صفقة تلقائية مفتوحة للتدقيق', ''); return; }
+    const rec = (m.recordedCost || 0).toFixed(2), real = (m.binanceCost || 0).toFixed(2);
+    let msgT = `تدقيق ${m.symbol}: البوت كان مسجّلًا ${rec}$ — أوامر Binance المنفّذة ${real}$ (${m.orders.filter(o => o.cost > 0).length} أمر)`;
+    let sub = m.phantom ? `⚠️ حُذفت ${m.phantom} مرحلة وهمية لم تُنفَّذ على Binance` : (m.fixed ? `تم تصحيح ${m.fixed} مرحلة من بيانات Binance` : '✅ مطابق تمامًا');
+    if (m.unknown) sub += ` · ${m.unknown} لم يمكن التحقق منها الآن`;
+    addInfoAlert(m.symbol, m.phantom || m.fixed ? '⚠️' : '✅', msgT, sub);
   }
   function handleSoftReset(m) {
     addInfoAlert(m.symbol, '🔄', `أعاد البوت الضبط بدون بيع (المرة ${m.resetCount}) — صار يعتبر الشراء بسعر ${fmt(m.price)} (المتوسط السابق ${fmt(m.oldAvg)})`,
