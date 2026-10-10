@@ -161,6 +161,15 @@
   #auto-progress-box.down #auto-progress-fill { background: var(--red); }
   #auto-progress-box.up #auto-progress-fill { background: var(--green); }
   #auto-progress-text { position: relative; }
+  #auto-progress-wrap { display: flex; flex-direction: column; gap: 3px; }
+  #auto-sell-box {
+    position: relative; overflow: hidden; min-width: 118px; padding: 5px 10px; border-radius: 6px; text-align: center;
+    font-size: 0.74rem; font-weight: 800; border: 1px solid rgba(63,185,80,0.5); background: rgba(255,255,255,0.04); color: var(--green);
+    direction: ltr; white-space: nowrap;
+  }
+  #auto-sell-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; opacity: 0.25; transition: width 0.4s; background: var(--green); }
+  #auto-sell-text { position: relative; white-space: pre-line; }
+  #auto-sell-box.idle { opacity: 0.55; }
   #auto-symbol-chip {
     background: rgba(255,214,10,0.14); border: 1px solid rgba(255,214,10,0.5); color: #ffd60a;
     border-radius: 6px; padding: 5px 10px; font-size: 0.74rem; font-weight: 800; cursor: pointer;
@@ -652,7 +661,10 @@
 <div id="chart-tools-row">
   <button type="button" class="trade-btn" id="manual-buy-btn">شراء</button>
   <button type="button" class="trade-btn" id="manual-sell-btn">بيع</button>
-  <div id="auto-progress-box" style="display:none;" title="تقدّم النسبة الحي — عند الوصول للنسبة المطلوبة ينفّذ تلقائيًا"><span id="auto-progress-fill"></span><span id="auto-progress-text">—</span></div>
+  <div id="auto-progress-wrap">
+    <div id="auto-progress-box" style="display:none;" title="تقدّم النسبة الحي — عند الوصول للنسبة المطلوبة ينفّذ تلقائيًا"><span id="auto-progress-fill"></span><span id="auto-progress-text">—</span></div>
+    <div id="auto-sell-box" style="display:none;" title="مؤشر البيع: يجمع كل مراحل الشراء (1 إلى 10) ويبيعها معًا عند ارتفاع السعر فوق متوسط التكلفة بالنسبة المحددة"><span id="auto-sell-fill"></span><span id="auto-sell-text">--</span></div>
+  </div>
   <button type="button" id="auto-symbol-chip" style="display:none;" title="العملة المحفوظة للتداول التلقائي — اضغط للرجوع إليها">—</button>
   <div id="chart-amount-wrap">
     <input type="number" id="chart-amount-buy-input" min="1" step="1" value="50" placeholder="شراء" title="مبلغ الشراء (USDT)">
@@ -2669,7 +2681,7 @@
       chip.textContent = '🤖 ' + a.symbol.replace('USDT', '');
       chip.dataset.symbol = a.symbol;
       if (!box.dataset.live) { box.style.display = ''; document.getElementById('auto-progress-text').textContent = '…'; }
-    } else { box.style.display = 'none'; delete box.dataset.live; document.getElementById('auto-anchor-chip').style.display = 'none'; }
+    } else { box.style.display = 'none'; delete box.dataset.live; document.getElementById('auto-sell-box').style.display = 'none'; document.getElementById('auto-anchor-chip').style.display = 'none'; }
     const levels = a ? (a.levels || 1) : 1;
     inp.title = a
       ? (a.state === 'holding'
@@ -2687,40 +2699,66 @@
   }
 
   function renderAutoProgress(m) {
+    // عدّادا الشراء والبيع يبثّان بشكل مستقل (part: 'buy' | 'sell') — ندمج آخر بثّ لكل منهما في صورة واحدة
+    if (m.part) {
+      const prev = window.__autoProgLast;
+      const base = (prev && prev.symbol === m.symbol && prev.state === 'holding') ? prev : {};
+      m = Object.assign({}, base, m);
+    }
+    window.__autoProgLast = m;
     const box = document.getElementById('auto-progress-box');
     if (!lastBotStatus || !lastBotStatus.autoTrade) return; // التلقائي متوقف — تجاهل رسالة متأخرة
     const holding = m.state === 'holding';
     const levels = m.levels || 1;
     box.dataset.live = '1';
     box.style.display = '';
+    const sbox = document.getElementById('auto-sell-box');
+    sbox.style.display = '';
+
+    // ───────── 🔴 مؤشر الشراء (كل المراحل 1..N) ─────────
     box.classList.remove('up', 'down', 'waiting-anchor');
     const fill = document.getElementById('auto-progress-fill');
     const text = document.getElementById('auto-progress-text');
-    const stage = levels > 1 ? ` (${holding ? m.legsDone : 0}/${levels})` : '';
+    text.style.whiteSpace = 'pre-line';
+    const ledger = (holding && Array.isArray(m.levelPrices) && m.levelPrices.length)
+      ? '\n🧾 ' + m.levelPrices.map((p, i) => (i + 1) + ') ' + fmt(p)).join('  ') : '';
     if (!holding && m.move === null) {
       // السعر فوق المرساة بعد الحفظ: النسبة متوقفة لحد ما يرجع لسعر المرساة (انتظار الصعود فقط — للمرحلة الأولى فقط)
       box.classList.add('waiting-anchor');
       fill.style.width = '0%';
       text.textContent = `⏳ ينتظر الرجوع لـ ${fmt(m.anchorLimit > 0 ? m.anchorLimit : m.anchor)}`;
-    } else {
-      const move = Math.max(0, m.move);
-      const ratio = Math.min(1, move / m.pct);
-      box.classList.toggle('up', holding);
-      box.classList.toggle('down', !holding);
+    } else if (!holding) {
+      box.classList.add('down');
+      const ratio = Math.min(1, Math.max(0, m.move) / m.pct);
       fill.style.width = (ratio * 100).toFixed(0) + '%';
-      const sign = m.move < 0 ? '-' : '';
-      const label = holding
-        ? (m.legsDone < levels ? '⬆ بيع' : '⬆ بيع')
-        : '⬇ شراء';
-      let line = `${label}${stage}  ${sign}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
-      // لما في مرحلة شراء قادمة (عدد > 1 وما اكتمل بعد): نضيف سطر يبيّن تقدّمها بنسبتها الخاصة (أو الرئيسية لو ما حدّدها المستخدم)
-      if (holding && m.nextPct != null && m.buyMove != null) {
-        const bSign = m.buyMove < 0 ? '-' : '';
-        line += `\n⬇ شراء #${m.nextLevel}  ${bSign}${Math.abs(m.buyMove).toFixed(2)}% / ${m.nextPct}%`;
+      text.textContent = `⬇ شراء #1${levels > 1 ? ` (0/${levels})` : ''}  ${m.move < 0 ? '-' : ''}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%`;
+    } else if (m.nextLevel !== undefined) {
+      box.classList.add('down');
+      if (m.nextPct != null && m.buyMove != null) {
+        const ratio = Math.min(1, Math.max(0, m.buyMove) / m.nextPct);
+        fill.style.width = (ratio * 100).toFixed(0) + '%';
+        text.textContent = `⬇ شراء #${m.nextLevel} (${m.legsDone}/${levels})  ${m.buyMove < 0 ? '-' : ''}${Math.abs(m.buyMove).toFixed(2)}% / ${m.nextPct}%` + ledger;
+      } else {
+        fill.style.width = '100%';
+        text.textContent = `✅ اكتملت مراحل الشراء (${m.legsDone}/${levels})` + ledger;
       }
-      text.textContent = line;
-      text.style.whiteSpace = 'pre-line';
     }
+
+    // ───────── 🟢 مؤشر البيع (يجمع كل المراحل ويبيعها معًا فوق متوسط التكلفة) ─────────
+    const sfill = document.getElementById('auto-sell-fill');
+    const stext = document.getElementById('auto-sell-text');
+    if (!holding) {
+      sbox.classList.add('idle');
+      sfill.style.width = '0%';
+      stext.textContent = `⬆ بيع (0/${levels})  —`;
+    } else if (m.move !== undefined && m.pct !== undefined) {
+      sbox.classList.remove('idle');
+      const ratio = Math.min(1, Math.max(0, m.move) / m.pct);
+      sfill.style.width = (ratio * 100).toFixed(0) + '%';
+      stext.textContent = `⬆ بيع (${m.legsDone}/${levels})  ${m.move < 0 ? '-' : ''}${Math.abs(m.move).toFixed(2)}% / ${m.pct}%` +
+        (m.avgBuyPrice > 0 ? `\nØ ${fmt(m.avgBuyPrice)} → ${fmt(m.avgBuyPrice * (1 + m.pct / 100))}` : '');
+    }
+
     renderCostChip(holding ? { state: 'holding', totalCost: m.totalCost, legsDone: m.legsDone, levels: m.levels, resetCount: m.resetCount, buysCount: m.buysCount } : null);
     const chip = document.getElementById('auto-anchor-chip');
     if (!holding && m.anchor > 0) { chip.style.display = ''; chip.textContent = '🎯 ' + fmt(m.anchor); }
@@ -2856,14 +2894,10 @@
     showToast((m.phantom || m.fixed ? '⚠️ ' : '✅ ') + msgT + ' — ' + sub, 20000);
   }
   function handleSoftReset(m) {
-    addInfoAlert(m.symbol, '🔄', `أعاد البوت الضبط بدون بيع (المرة ${m.resetCount}) — صار يعتبر الشراء بسعر ${fmt(m.price)} (المتوسط السابق ${fmt(m.oldAvg)})`,
-      m.reason === 'time' ? 'السبب: انتهى الوقت المحدّد وأنت بخسارة — يعمل الآن من النسبة الأولى' : 'السبب: وصل النسبة المحدّدة — يعمل الآن من النسبة الأولى');
+    // 🔕 تنبيه إعادة الضبط ملغى — نحدّث الشريحة فقط
     renderCostChip({ state: 'holding', totalCost: m.totalCost, legsDone: 1, resetCount: m.resetCount, buysCount: m.buysCount });
   }
-  function handleStopLossWatch(m) {
-    if (m.active) addInfoAlert(m.symbol, '🛑', `كسر السعر وقف الخسارة (${m.pct}%) — يراقب الارتداد حتى ${m.minutes} دقيقة ثم يبيع`, `سعر الوقف: ${fmt(m.stopPrice)}`);
-    else if (m.sold) addInfoAlert(m.symbol, '✅', `تم البيع بوقف الخسارة عند ${fmt(m.sellPrice)} (${m.lossPct.toFixed(2)}%)`, m.reason === 'rebound' ? 'بيع قرب أفضل ارتداد' : 'انتهت مدة المراقبة');
-  }
+  function handleStopLossWatch(m) { /* 🔕 تنبيهات مراقبة وقف الخسارة ملغاة */ }
 
   // ═══════════════════ 🔔 لوحة تنبيهات التداول التلقائي (بدل alert() اللي يحجب الصفحة ويحتاج ضغط OK) ═══════════════════
   // كل مشاكل الشراء/البيع التلقائي (رصيد، مفتاح API، اتصال، إلخ) تظهر هنا كصف دائم بدل نافذة منبثقة
