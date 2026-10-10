@@ -2831,10 +2831,14 @@
     put(slInputs.resetPct, rs && rs.pct); put(slInputs.resetMin, rs && rs.minutes);
     put(slInputs.anchorTol, a && a.anchorTol > 0 ? a.anchorTol : '');
   }
-  function addInfoAlert(symbol, icon, msg, sub) {
-    botAlertEntries.unshift({ id: `info_${Date.now()}`, symbol, msg, sub, icon, info: true, active: false, time: Date.now() });
-    botAlertEntries = botAlertEntries.slice(0, BOT_ALERTS_MAX);
-    renderBotAlerts();
+  function addInfoAlert(symbol, icon, msg, sub) { showToast(`${icon} ${msg}${sub ? ' — ' + sub : ''}`, 9000); }
+  // إشعار عابر أسفل الشاشة (لا يدخل في تخطيط الصفحة ولا يمسك اللمس) بدل لوحة التنبيهات
+  let toastTimer = null;
+  function showToast(text, ms) {
+    let el = document.getElementById('bot-toast');
+    if (!el) { el = document.createElement('div'); el.id = 'bot-toast'; el.style.cssText = 'position:fixed;left:10px;right:10px;bottom:76px;z-index:9999;pointer-events:none;background:rgba(20,20,20,0.96);color:#e6edf3;border:1px solid rgba(88,166,255,0.5);border-radius:10px;padding:8px 12px;font-size:0.75rem;line-height:1.5;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,0.5);'; document.body.appendChild(el); }
+    el.textContent = text; el.style.display = 'block';
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.style.display = 'none'; }, ms || 6000);
   }
   // 🔍 لمسة على مربع 💰 = تدقيق فوري مع Binance (يقارن مراحل البوت بالأوامر الحقيقية ويصحّح الفرق)
   document.getElementById('auto-cost-chip').style.cursor = 'pointer';
@@ -2847,7 +2851,9 @@
     let msgT = `تدقيق ${m.symbol}: البوت كان مسجّلًا ${rec}$ — أوامر Binance المنفّذة ${real}$ (${m.orders.filter(o => o.cost > 0).length} أمر)`;
     let sub = m.phantom ? `⚠️ حُذفت ${m.phantom} مرحلة وهمية لم تُنفَّذ على Binance` : (m.fixed ? `تم تصحيح ${m.fixed} مرحلة من بيانات Binance` : '✅ مطابق تمامًا');
     if (m.unknown) sub += ` · ${m.unknown} لم يمكن التحقق منها الآن`;
-    addInfoAlert(m.symbol, m.phantom || m.fixed ? '⚠️' : '✅', msgT, sub);
+    sub += m.freeUsdt != null ? ` · رصيد USDT في Spot كما يراه البوت: حر ${m.freeUsdt.toFixed(2)}$` + (m.lockedUsdt > 0 ? ` + محجوز بأوامر ${m.lockedUsdt.toFixed(2)}$` : '') + ` (المرحلة التالية تحتاج ${m.nextAmount}$)` : ' · تعذّر قراءة رصيد Spot (تأكد أن مفتاح Binance يملك صلاحية القراءة)';
+    if (m.lastError && m.lastError.raw) sub += ` · آخر رد من Binance: ${String(m.lastError.raw).slice(0, 140)}`;
+    showToast((m.phantom || m.fixed ? '⚠️ ' : '✅ ') + msgT + ' — ' + sub, 20000);
   }
   function handleSoftReset(m) {
     addInfoAlert(m.symbol, '🔄', `أعاد البوت الضبط بدون بيع (المرة ${m.resetCount}) — صار يعتبر الشراء بسعر ${fmt(m.price)} (المتوسط السابق ${fmt(m.oldAvg)})`,
@@ -2870,6 +2876,7 @@
   function renderBotAlerts() {
     const panel = document.getElementById('bot-alerts-panel');
     const list = document.getElementById('bot-alerts-list');
+    panel.style.display = 'none'; list.innerHTML = ''; return; // 🔕 لوحة التنبيهات ملغاة بالكامل (لا تأخذ مكانًا ولا تؤثر على الشارت)
     if (!botAlertEntries.length) { panel.style.display = 'none'; list.innerHTML = ''; return; }
     panel.style.display = '';
     list.innerHTML = botAlertEntries.map(e => {
@@ -2905,18 +2912,16 @@
     if (entry) { entry.active = false; entry.time = Date.now(); renderBotAlerts(); }
   }
   // رسائل الخطأ القديمة (غير مرتبطة بتداول تلقائي معيّن، مثل رفض أمر يدوي) تضل تظهر بنفس اللوحة بدل alert()
-  function handleBotError(msg) {
-    botAlertEntries.unshift({ id: `generic_${Date.now()}`, symbol: '', msg: msg.message, active: true, needsAction: true, time: Date.now() });
-    botAlertEntries = botAlertEntries.slice(0, BOT_ALERTS_MAX);
-    renderBotAlerts();
-  }
+  function handleBotError(msg) { showToast('⚠️ ' + msg.message, 7000); } // رد على أمر يدوي/حفظ إعداد فقط — إشعار عابر لا يغيّر تخطيط الصفحة
   function handleAutoProblem(m) {
+    return; // 🔕 لا تنبيهات لمشاكل التداول التلقائي (الرصيد وغيره) — البوت يعيد المحاولة بصمت
     if (m.active) upsertBotAlert(m.symbol, { msg: m.message, detail: m.detail, needsAction: m.needsAction, fails: m.fails });
     else resolveBotAlert(m.symbol);
   }
   // عند أي bot_status (أول اتصال أو إعادة اتصال بعد غياب) — لو فيه مشكلة تلقائي قائمة حاليًا ما وصلتنا
   // كرسالة حية (مثلًا كانت الصفحة مقفولة وقت حصولها)، نعرضها فورًا بدل ما تضيع.
   function syncBotAlertFromStatus(autoTrade) {
+    return; // 🔕 ملغاة
     if (!autoTrade) return;
     if (autoTrade.problem) upsertBotAlert(autoTrade.symbol, { msg: autoTrade.problem.message, detail: autoTrade.problem.detail, needsAction: autoTrade.problem.needsAction, fails: autoTrade.problem.fails });
     else resolveBotAlert(autoTrade.symbol);

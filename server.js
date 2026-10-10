@@ -610,9 +610,12 @@ wss.on('connection', (ws, req) => {
       if (!a || !(a.legs || []).length || a.auditing) { ws.send(JSON.stringify({ type: 'auto_audit_result', symbol: a ? a.symbol : null, empty: true })); return; }
       a.auditing = true;
       try {
-        const rep = await auditAutoLegs(accountKey, a, getCredsForAccountKey(accountKey));
+        const credsA = getCredsForAccountKey(accountKey);
+        const rep = await auditAutoLegs(accountKey, a, credsA);
+        let freeUsdt = null, lockedUsdt = null; try { const bal = await getUsdtBalances(credsA); freeUsdt = bal.free; lockedUsdt = bal.locked; } catch (e) { /* مفتاح بلا صلاحية قراءة، أو خطأ مؤقت */ }
         saveAutoTrade(); broadcastBotStatus();
-        ws.send(JSON.stringify({ type: 'auto_audit_result', ...rep, totalCostNow: legsTotalCost(a) }));
+        ws.send(JSON.stringify({ type: 'auto_audit_result', ...rep, totalCostNow: legsTotalCost(a), freeUsdt, lockedUsdt, nextAmount: a.amountUsdt,
+          lastError: a.problem ? { kind: a.problem.kind, raw: a.problem.detail, context: a.problem.context, fails: a.problem.fails } : null }));
       } catch (err) { ws.send(JSON.stringify({ type: 'error', message: 'تعذّر التدقيق: ' + (err && err.message || err) })); }
       finally { a.auditing = false; }
     }
@@ -2280,12 +2283,13 @@ async function queryOrderStatus(symbol, orderId, creds = { apiKey: BINANCE_API_K
 }
 
 // الرصيد الحر من USDT في Spot (للشراء بما تبقّى لو الرصيد أقل بقليل من مبلغ المرحلة)
-async function getFreeUsdt(creds) {
+async function getUsdtBalances(creds) {
   const params = { timestamp: bTimestamp(), recvWindow: 5000 };
   const { data } = await axios.get(`https://api.binance.com/api/v3/account?${binanceSignedQuery(params, creds.apiSecret)}`, { headers: { 'X-MBX-APIKEY': creds.apiKey }, timeout: 10000 });
   const b = (data.balances || []).find(x => x.asset === 'USDT');
-  return b ? parseFloat(b.free) : 0;
+  return { free: b ? parseFloat(b.free) : 0, locked: b ? parseFloat(b.locked) : 0 };
 }
+async function getFreeUsdt(creds) { return (await getUsdtBalances(creds)).free; }
 
 // 🟢 تنفيذ شراء فوري (Market) — يُستدعى عند ضغط المستخدم على زر "شراء الآن". accountKey يحدد صفقات
 // مين نسجّل فيها (كل صديق يشوف صفقاته هو بس)، وcreds هي مفتاح Binance الفعلي المستخدم بالتنفيذ.
@@ -2572,7 +2576,8 @@ function handleAutoTradeFailure(a, accountKey, err, context) {
   let retryAt;
   if (cls.autoFix === 'resync_time') { syncBinanceTime(); retryAt = Date.now() + 5000; }
   else retryAt = Date.now() + nextAutoTradeBackoffMs(a.fails, cls.autoFix);
-  if (levelBuy) { retryAt = Math.min(retryAt, Date.now() + 60000); a.buyRetryAt = retryAt; }
+  if (cls.autoFix !== 'extra_backoff') retryAt = Math.min(retryAt, Date.now() + 60000); // الدورة لا تتوقف، فنعيد محاولة الأمر خلال دقيقة كحد أقصى
+  if (levelBuy) { a.buyRetryAt = retryAt; }
   else a.pausedUntil = retryAt;
   const message = (levelBuy && cls.kind === 'balance')
     ? 'لا يوجد رصيد USDT كافٍ لشراء المرحلة التالية — صفقتك الحالية سليمة والبوت يواصل مراقبة البيع، ويعيد محاولة الشراء كل دقيقة'
@@ -2597,7 +2602,9 @@ async function runAutoTradeCycle() {
   const priceCache = {};
   for (const accountKey of keys) {
     const a = autoTradeByAccount[accountKey];
-    if (!a || a.busy || Date.now() < (a.pausedUntil || 0)) continue;
+    if (!a || a.busy) continue;
+    // ⏱ فشل سابق (رصيد/اتصال…): ما نوقف الدورة أبدًا — العداد والمتابعة يستمران كل ثانية، وفقط *إرسال أمر جديد* ينتظر مؤقّت إعادة المحاولة
+    const paused = Date.now() < (a.pausedUntil || 0);
     a.busy = true; // يمنع تداخل دورتين (أمر Binance قد ياخذ عدة ثوانٍ) وبالتالي شراء مزدوج
     try {
       let price = priceCache[a.symbol];
@@ -2622,7 +2629,7 @@ async function runAutoTradeCycle() {
         notifyAccount(accountKey, { type: 'auto_progress', symbol: a.symbol, state: 'waiting_buy', pct: a.pct, move, price, anchor: a.anchor, anchorLimit: a.anchor * (1 + (a.anchorTol > 0 ? a.anchorTol : 0) / 100), armed: a.armed, legsDone: 0, levels: a.levels });
         if (a.armed) {
           const dropPct = (a.peak - price) / a.peak * 100;
-          if (dropPct >= a.pct) {
+          if (dropPct >= a.pct && !paused) {
             let trade;
             try { trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true); }
             catch (err) {
@@ -2696,7 +2703,7 @@ async function runAutoTradeCycle() {
         a.stopLossWatch = null; saveAutoTrade();
         notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false });
       }
-      if (price >= avgBuyPrice * (1 + sellPct / 100)) {
+      if (price >= avgBuyPrice * (1 + sellPct / 100) && !paused) {
         // وصل للنسبة فوق متوسط سعر كل المراحل المشتراة → يبيعها كلها بأمر واحد
         try {
           const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true);
@@ -2721,7 +2728,7 @@ async function runAutoTradeCycle() {
         const rebounded = w.peak >= w.low * 1.003;               // حصل ارتداد فعلي (0.3% فوق القاع على الأقل)
         const pulledBack = rebounded && price <= w.peak * (1 - 0.003); // ثم تراجع 0.3% عن قمة الارتداد = وقت الخروج
         const timeUp = Date.now() >= w.endsAt;                    // انتهت مدة المراقبة
-        if (timeUp || pulledBack) {
+        if ((timeUp || pulledBack) && !paused) {
           try {
             const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true, '🛑 وقف خسارة تلقائي (بعد مراقبة الارتداد)');
             const sellPrice = sold.sellPrice || price;
