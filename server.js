@@ -554,6 +554,10 @@ wss.on('connection', (ws, req) => {
           levelPct[lvl] = vv;
         }
       }
+      // 💵 مبلغ كل مرحلة شراء (2..10) بالدولار. المرحلة 1 تبقى بمبلغ خانة الشراء الرئيسية. فاضي = نفس مبلغ الشراء الرئيسي.
+      const la = parseLevelAmt(msg.levelAmt);
+      if (la.error) { ws.send(JSON.stringify({ type: 'error', message: la.error })); return; }
+      const levelAmt = la.value;
       // 🛑 وقف الخسارة (مربع واحد): { pct, minutes } — النسبة = النزول تحت متوسط الشراء، الدقائق = مدة مراقبة الارتداد قبل البيع.
       // 🔄 إعادة الضبط بدون بيع (مربع ثاني): { pct, minutes } — أي واحد منهما كافٍ (النسبة أو الوقت، أيهما أولًا).
       // الخانتين فاضيتين = الميزة معطّلة. لو الواجهة ما أرسلت الحقل أصلًا (صفحة قديمة بالكاش) نترك المحفوظ كما هو.
@@ -587,14 +591,14 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (cur && cur.symbol === symbol) {
-        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.sellPct = sellPctOverride; if (stopLossProvided) cur.stopLoss = stopLoss; if (softResetProvided) cur.softReset = softReset; if (anchorTolProvided) cur.anchorTol = anchorTol; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
+        cur.pct = pct; cur.amountUsdt = botState.tradeSizeUsdt; cur.levels = levels; cur.levelPct = levelPct; cur.levelAmt = levelAmt; cur.sellPct = sellPctOverride; if (stopLossProvided) cur.stopLoss = stopLoss; if (softResetProvided) cur.softReset = softReset; if (anchorTolProvided) cur.anchorTol = anchorTol; // نفس العملة: نحدّث الإعدادات فقط بدون تصفير الحالة
       } else {
         let price = 0;
         try { price = await getCurrentPrice(symbol); } catch {}
         // عند الحفظ: نسجّل سعر الحفظ كـ"مرساة" — إذا ارتفع السعر بعدها نتجاهل حساب النسبة تماماً حتى يرجع السعر لهذه المرساة
         // (حتى لا يشتري البوت في منتصف صعود قوي)، وإذا نزل مباشرة بعد الحفظ تعمل النسبة عادي من أول لحظة.
         autoTradeByAccount[accountKey] = {
-          pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, sellPct: sellPctOverride, state: 'waiting_buy',
+          pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, levelAmt, sellPct: sellPctOverride, state: 'waiting_buy',
           peak: price, anchor: price, armed: false, legs: [], lastBuyPrice: null,
           stopLoss: stopLossProvided ? stopLoss : null, softReset: softResetProvided ? softReset : null, stopLossWatch: null,
           resetBase: null, resetCount: 0, holdSince: null, anchorTol: anchorTolProvided ? anchorTol : 0, overshot: false, buyRetryAt: 0,
@@ -2231,7 +2235,7 @@ function botStatusPayload(ws) {
       const sellPct = (a.sellPct != null) ? a.sellPct : (legs.length <= 1 ? a.pct : ((a.levelPct && a.levelPct[legs.length]) || a.pct));
       return {
         pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, sellPct: a.sellPct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
-        amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
+        amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, levelAmt: a.levelAmt || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
         stopLoss: a.stopLoss || null, softReset: a.softReset || null, stopLossWatch: a.stopLossWatch || null,
         totalCost: a.state === 'holding' ? legsTotalCost(a) : 0, resetCount: a.resetCount || 0, buysCount: (a.legs || []).length,
@@ -2540,7 +2544,7 @@ function loadAutoTrade() {
   if (typeof mirrorRestore === 'function') mirrorRestore(AUTO_FILE);
   try { autoTradeByAccount = JSON.parse(fs.readFileSync(AUTO_FILE, 'utf8')) || {}; } catch (err) { autoTradeByAccount = {}; }
   for (const [k, a] of Object.entries(autoTradeByAccount)) {
-    a.busy = false; a.sellBusy = false; a.orderBusy = false; a.failsBuy = 0; a.failsSell = 0; a.sellRetryAt = 0; a.fails = 0; a.pausedUntil = 0; a.problem = null; a.levels = a.levels || 1; a.levelPct = a.levelPct || {};
+    a.busy = false; a.sellBusy = false; a.orderBusy = false; a.failsBuy = 0; a.failsSell = 0; a.sellRetryAt = 0; a.fails = 0; a.pausedUntil = 0; a.problem = null; a.levels = a.levels || 1; a.levelPct = a.levelPct || {}; a.levelAmt = a.levelAmt || {};
     if (a.sellPct === undefined) a.sellPct = null;
     // توافق مع التصميم القديم (5 صفوف حسب المرحلة): نأخذ صف مرحلة العدد الحالي أو أول صف موجود كوقف خسارة واحد
     if (a.stopLoss && typeof a.stopLoss === 'object' && a.stopLoss.pct === undefined) {
@@ -2608,10 +2612,28 @@ function nextAutoTradeBackoffMs(fails, autoFix) {
 // المستخدم رجع بعد ساعات)، ونجدول إعادة محاولة تلقائية بفاصل متدرّج. الإعدادات نفسها (% والمراحل) ما تنمسح أبدًا.
 // ✂️ مرحلة شراء لا يغطيها الرصيد (أو أقل من الحد الأدنى): نلغي هذه المرحلة وما بعدها مع نِسَبها ونحفظ،
 // فيستمر البوت بما اشتراه فعلًا ويبيعه مجتمعًا بنسبة البيع — بدون توقّف وبدون أي تنبيه.
+// يفحص مبالغ المراحل 2..10 القادمة من الواجهة: { "2": "7.5", "3": "" ... } — الفاضي يُهمل، والمرحلة 1 لا تدخل هنا
+function parseLevelAmt(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw)) {
+      const lvl = parseInt(k, 10);
+      if (!Number.isInteger(lvl) || lvl < 2 || lvl > 10) continue;
+      if (v === null || v === undefined || v === '') continue;
+      const vv = parseFloat(v);
+      if (!(vv >= 5 && vv <= 100000)) return { error: `مبلغ المرحلة ${lvl} لازم يكون 5$ أو أكثر` };
+      out[lvl] = vv;
+    }
+  }
+  return { value: out };
+}
+// مبلغ شراء المرحلة رقم n: مبلغها الخاص لو محدد، وإلا مبلغ الشراء الرئيسي
+function stageAmount(a, n) { return (n >= 2 && a.levelAmt && a.levelAmt[n] > 0) ? a.levelAmt[n] : a.amountUsdt; }
 function cancelUnaffordableStages(a, accountKey, keepLevels) {
   const keep = Math.max(1, keepLevels);
   a.levels = keep;
   if (a.levelPct) for (const k of Object.keys(a.levelPct)) if (Number(k) > keep) delete a.levelPct[k];
+  if (a.levelAmt) for (const k of Object.keys(a.levelAmt)) if (Number(k) > keep) delete a.levelAmt[k];
   a.failsBuy = 0; a.buyRetryAt = 0;
   if (a.problem && a.problem.side === 'buy') a.problem = null;
   saveAutoTrade();
@@ -2827,7 +2849,7 @@ async function runAutoTradeCycle() {
         if (buyMove >= nextPct && !a.orderBusy) {
           a.orderBusy = true;
           try {
-            const trade = await executeManualBuy(a.symbol, accountKey, creds, a.amountUsdt, true);
+            const trade = await executeManualBuy(a.symbol, accountKey, creds, stageAmount(a, nextLevel), true);
             a.legs.push({ id: trade.id, qty: trade.qty, price: trade.buyPrice, cost: trade.cost, orderId: trade.buyOrderId, time: trade.time });
             a.lastBuyPrice = trade.buyPrice; a.holdSince = Date.now();
             clearAutoTradeProblem(a, accountKey, 'buy');
@@ -2840,7 +2862,7 @@ async function runAutoTradeCycle() {
             if (classifyTradeError(err).kind === 'balance') {
               try {
                 const free = await getFreeUsdt(creds);
-                if (free >= 5.01 && free < a.amountUsdt) {
+                if (free >= 5.01 && free < stageAmount(a, nextLevel)) {
                   const trade = await executeManualBuy(a.symbol, accountKey, creds, Math.floor((free - 0.01) * 100) / 100, true);
                   a.legs.push({ id: trade.id, qty: trade.qty, price: trade.buyPrice, cost: trade.cost, orderId: trade.buyOrderId, time: trade.time });
                   a.lastBuyPrice = trade.buyPrice; a.holdSince = Date.now();
