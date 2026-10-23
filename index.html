@@ -238,14 +238,12 @@
   }
   #auto-levelpct-title { color: #ffd60a; font-size: 0.78rem; font-weight: 800; margin-bottom: 8px; text-align: center; }
   .auto-levelpct-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 2px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-  .auto-levelpct-row label { font-size: 0.8rem; color: var(--text); font-weight: 700; width: 86px; flex: none; }
+  .auto-levelpct-row label { font-size: 0.8rem; color: var(--text); font-weight: 700; }
   .auto-levelpct-row input {
     width: 64px; border-radius: 7px; padding: 4px 6px; font-size: 15px; text-align: center; outline: none;
     background: rgba(255,214,10,0.08); border: 1px solid rgba(255,214,10,0.35); color: #ffd60a;
   }
   .auto-levelpct-row input::placeholder { color: rgba(255,214,10,0.55); font-size: 0.7rem; }
-  .auto-levelpct-row input[data-amt] { width: 76px; background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.45); color: var(--green); }
-  .auto-levelpct-row input[data-amt]::placeholder { color: rgba(63,185,80,0.6); }
   #auto-levelpct-close {
     width: 100%; margin-top: 10px; padding: 9px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; cursor: pointer;
   }
@@ -709,7 +707,7 @@
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <div id="auto-levelpct-panel" style="display:none;">
-    <div id="auto-levelpct-title">مبلغ ونسبة كل مرحلة شراء — فاضي = تلقائي (مبلغ الشراء الرئيسي / النسبة الرئيسية)</div>
+    <div id="auto-levelpct-title">نسبة كل مرحلة شراء — فاضي = تلقائي (يستخدم النسبة الرئيسية)</div>
     <div id="auto-levelpct-rows"></div>
     <button type="button" id="auto-levelpct-close">تم ✓</button>
   </div>
@@ -2844,7 +2842,7 @@
   for (let lvl = 2; lvl <= 10; lvl++) {
     const row = document.createElement('div');
     row.className = 'auto-levelpct-row';
-    row.innerHTML = `<label>المرحلة ${lvl}</label><input type="number" min="5" step="0.1" placeholder="$ المبلغ" data-amt="${lvl}"><input type="number" min="0.1" max="50" step="0.1" placeholder="تلقائي" data-level="${lvl}">`;
+    row.innerHTML = `<label>المرحلة ${lvl}</label><input type="number" min="0.1" max="50" step="0.1" placeholder="تلقائي" data-level="${lvl}">`;
     levelPctRowsEl.appendChild(row);
   }
   document.getElementById('auto-levelpct-gear').addEventListener('click', () => {
@@ -2856,18 +2854,13 @@
   });
   let lastLevelPctSig = null;
   function syncLevelPctRows(a) {
-    const sig = a ? JSON.stringify([a.levelPct || {}, a.levelAmt || {}]) : '[{},{}]';
+    const sig = a ? JSON.stringify(a.levelPct || {}) : '{}';
     if (sig === lastLevelPctSig) return;
     lastLevelPctSig = sig;
-    const lp = (a && a.levelPct) || {}, la = (a && a.levelAmt) || {};
+    const lp = (a && a.levelPct) || {};
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => {
-      if (document.activeElement === inp) return; // لا نكتب فوق خانة المستخدم يكتب فيها
+      if (document.activeElement === inp) return; // لا نلمس اللي قاعد يكتب فيه الآن
       const v = lp[inp.dataset.level];
-      inp.value = v != null ? v : '';
-    });
-    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => {
-      if (document.activeElement === inp) return;
-      const v = la[inp.dataset.amt];
       inp.value = v != null ? v : '';
     });
   }
@@ -2904,8 +2897,6 @@
     prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) p[id] = el.value.trim(); });
     p.levelPct = {};
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => { if (inp.value.trim() !== '') p.levelPct[inp.dataset.level] = inp.value.trim(); });
-    p.levelAmt = {};
-    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => { if (inp.value.trim() !== '') p.levelAmt[inp.dataset.amt] = inp.value.trim(); });
     return p;
   }
   function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(collectPrefs())); } catch (e) {} }
@@ -2918,11 +2909,9 @@
     if (!p) return;
     prefInputIds.forEach(id => { const el = document.getElementById(id); if (el && !el.value && p[id] && document.activeElement !== el) el.value = p[id]; });
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => { if (!inp.value && p.levelPct && p.levelPct[inp.dataset.level]) inp.value = p.levelPct[inp.dataset.level]; });
-    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => { if (!inp.value && p.levelAmt && p.levelAmt[inp.dataset.amt]) inp.value = p.levelAmt[inp.dataset.amt]; });
   }
   prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', savePrefs); });
   levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => inp.addEventListener('change', savePrefs));
-  levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => inp.addEventListener('change', savePrefs));
   let lastStopLossSig = null;
   function syncStopLossInputs(a) {
     const sl = a && a.stopLoss, rs = a && a.softReset;
@@ -3063,15 +3052,10 @@
       const v = inp.value.trim();
       if (v !== '') levelPct[inp.dataset.level] = v;
     });
-    const levelAmt = {};
-    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => {
-      const v = inp.value.trim();
-      if (v !== '') levelAmt[inp.dataset.amt] = v;
-    });
     savePrefs();
     const stopLoss = { pct: slInputs.stopPct.value.trim(), minutes: slInputs.stopMin.value.trim() };
     const softReset = { pct: slInputs.resetPct.value.trim(), minutes: slInputs.resetMin.value.trim() };
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, levelAmt, stopLoss, softReset, anchorTol: slInputs.anchorTol.value.trim(), symbol: currentSymbol }));
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, stopLoss, softReset, anchorTol: slInputs.anchorTol.value.trim(), symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
