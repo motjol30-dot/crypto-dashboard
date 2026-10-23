@@ -238,12 +238,14 @@
   }
   #auto-levelpct-title { color: #ffd60a; font-size: 0.78rem; font-weight: 800; margin-bottom: 8px; text-align: center; }
   .auto-levelpct-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 2px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-  .auto-levelpct-row label { font-size: 0.8rem; color: var(--text); font-weight: 700; }
+  .auto-levelpct-row label { font-size: 0.8rem; color: var(--text); font-weight: 700; width: 86px; flex: none; }
   .auto-levelpct-row input {
     width: 64px; border-radius: 7px; padding: 4px 6px; font-size: 15px; text-align: center; outline: none;
     background: rgba(255,214,10,0.08); border: 1px solid rgba(255,214,10,0.35); color: #ffd60a;
   }
   .auto-levelpct-row input::placeholder { color: rgba(255,214,10,0.55); font-size: 0.7rem; }
+  .auto-levelpct-row input[data-amt] { width: 76px; background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.45); color: var(--green); }
+  .auto-levelpct-row input[data-amt]::placeholder { color: rgba(63,185,80,0.6); }
   #auto-levelpct-close {
     width: 100%; margin-top: 10px; padding: 9px; border-radius: 8px; border: none; background: var(--green); color: #04210f; font-weight: 800; cursor: pointer;
   }
@@ -580,6 +582,7 @@
   #auto-ledger-line { height: 14px; line-height: 14px; font-size: 0.6rem; font-weight: 700; color: #ffd60a; direction: ltr; display: flex; justify-content: center; overflow: hidden; visibility: hidden; padding: 0 3px; box-sizing: border-box; }
   #auto-ledger-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #auto-ledger-line.warn { color: var(--red); }
+  #auto-ledger-line.diag { color: var(--muted); opacity: 0.6; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -707,7 +710,7 @@
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <div id="auto-levelpct-panel" style="display:none;">
-    <div id="auto-levelpct-title">نسبة كل مرحلة شراء — فاضي = تلقائي (يستخدم النسبة الرئيسية)</div>
+    <div id="auto-levelpct-title">مبلغ ونسبة كل مرحلة شراء — فاضي = تلقائي (مبلغ الشراء الرئيسي / النسبة الرئيسية)</div>
     <div id="auto-levelpct-rows"></div>
     <button type="button" id="auto-levelpct-close">تم ✓</button>
   </div>
@@ -2658,6 +2661,7 @@
     document.getElementById('chart-amount-buy-input').value = msg.tradeSizeUsdt;
     document.getElementById('chart-amount-sell-input').value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
     syncAutoPctInput(msg.autoTrade);
+    updateNoteLine(msg);
     syncStopLossInputs(msg.autoTrade);
     restorePrefsOnce(msg.autoTrade);
     renderCostChip(msg.autoTrade);
@@ -2740,6 +2744,31 @@
     }
   }
   function pctText(v, pct) { return (v < 0 ? '-' : '') + Math.abs(v).toFixed(2) + '% / ' + pct + '%'; }
+  // ⚠️ تحذير ثابت في سطر الأسعار: نسخ سيرفر متعددة، أو تداول تلقائي آخر بنفس مفتاح Binance على نفس العملة
+  // 🔎 هوية نسخة السيرفر (خافتة، في نفس السطر الثابت لما لا يوجد غيرها): لو تغيّر الرقم بين تحديثات الصفحة فهناك أكثر من نسخة تعمل
+  window.__serverDiag = null;
+  function diagText() {
+    const d = window.__serverDiag; if (!d) return '';
+    const mins = Math.max(0, Math.round((Date.now() - d.bootAt) / 60000));
+    const up = mins >= 60 ? Math.floor(mins / 60) + 'س ' + (mins % 60) + 'د' : mins + 'د';
+    return 'سيرفر #' + d.pid + ' · يعمل منذ ' + up;
+  }
+  function showDiagLine(led, t) {
+    const txt = diagText();
+    if (txt) { t.textContent = txt; led.title = txt; led.classList.remove('warn'); led.classList.add('diag'); led.style.visibility = 'visible'; led.dataset.diag = '1'; }
+    else { led.classList.remove('diag'); led.style.visibility = 'hidden'; delete led.dataset.diag; }
+  }
+  function updateNoteLine(status) {
+    if (status && status.serverPid) window.__serverDiag = { pid: status.serverPid, bootAt: status.serverBootAt };
+    const led = document.getElementById('auto-ledger-line'), t = document.getElementById('auto-ledger-text');
+    if (!led || !t) return;
+    let msg = '';
+    if (status && status.serverInstances > 1) msg = '⚠ ' + status.serverInstances + ' نسخ سيرفر تعمل معًا (سبب الشراء المكرر) — أعد تشغيل التطبيق من الاستضافة';
+    else if (status && status.autoTrade && status.autoTrade.note) msg = '⚠ ' + status.autoTrade.note;
+    if (msg) { t.textContent = msg; led.title = msg; led.classList.remove('diag'); led.classList.add('warn'); led.style.visibility = 'visible'; led.dataset.note = '1'; delete led.dataset.diag; }
+    else if (led.dataset.note === '1') { delete led.dataset.note; led.classList.remove('warn'); showDiagLine(led, t); }
+    else if (led.dataset.diag === '1' || led.style.visibility === 'hidden') showDiagLine(led, t);
+  }
   function setIdleBoxes() {
     const bt = document.getElementById('auto-progress-text'), bs = document.getElementById('auto-progress-sub');
     const st = document.getElementById('auto-sell-text'), ss = document.getElementById('auto-sell-sub');
@@ -2805,14 +2834,16 @@
 
     // ───────── سطر ثابت تحت المؤشرين: أسعار شراء المراحل، أو سبب تعثّر البيع/الشراء (بدون أي نافذة) ─────────
     const led = document.getElementById('auto-ledger-line');
-    if (prob && prob.detail) {
+    if (led.dataset.note === '1') { /* تحذير ثابت معروض — لا نكتب فوقه */ }
+    else if (prob && prob.detail) {
       document.getElementById('auto-ledger-text').textContent = '⚠ ' + (prob.side === 'sell' ? 'بيع: ' : 'شراء: ') + String(prob.detail).slice(0, 60);
-      led.classList.add('warn'); led.style.visibility = 'visible';
+      led.classList.remove('diag'); delete led.dataset.diag; led.classList.add('warn'); led.style.visibility = 'visible';
     } else if (holding && Array.isArray(m.levelPrices) && m.levelPrices.length) {
+      led.classList.remove('diag'); delete led.dataset.diag;
       document.getElementById('auto-ledger-text').textContent = '🧾 ' + m.levelPrices.map((p, i) => (i + 1) + ') ' + fmt(p)).join('  ');
       led.title = document.getElementById('auto-ledger-text').textContent;
       led.classList.remove('warn'); led.style.visibility = 'visible';
-    } else { led.style.visibility = 'hidden'; }
+    } else { showDiagLine(led, document.getElementById('auto-ledger-text')); }
 
     renderCostChip(holding ? { state: 'holding', totalCost: m.totalCost, legsDone: m.legsDone, levels: m.levels, resetCount: m.resetCount, buysCount: m.buysCount } : null);
     const chip = document.getElementById('auto-anchor-chip');
@@ -2842,7 +2873,7 @@
   for (let lvl = 2; lvl <= 10; lvl++) {
     const row = document.createElement('div');
     row.className = 'auto-levelpct-row';
-    row.innerHTML = `<label>المرحلة ${lvl}</label><input type="number" min="0.1" max="50" step="0.1" placeholder="تلقائي" data-level="${lvl}">`;
+    row.innerHTML = `<label>المرحلة ${lvl}</label><input type="number" min="5" step="0.1" placeholder="$ المبلغ" data-amt="${lvl}"><input type="number" min="0.1" max="50" step="0.1" placeholder="تلقائي" data-level="${lvl}">`;
     levelPctRowsEl.appendChild(row);
   }
   document.getElementById('auto-levelpct-gear').addEventListener('click', () => {
@@ -2854,13 +2885,18 @@
   });
   let lastLevelPctSig = null;
   function syncLevelPctRows(a) {
-    const sig = a ? JSON.stringify(a.levelPct || {}) : '{}';
+    const sig = a ? JSON.stringify([a.levelPct || {}, a.levelAmt || {}]) : '[{},{}]';
     if (sig === lastLevelPctSig) return;
     lastLevelPctSig = sig;
-    const lp = (a && a.levelPct) || {};
+    const lp = (a && a.levelPct) || {}, la = (a && a.levelAmt) || {};
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => {
-      if (document.activeElement === inp) return; // لا نلمس اللي قاعد يكتب فيه الآن
+      if (document.activeElement === inp) return; // لا نكتب فوق خانة المستخدم يكتب فيها
       const v = lp[inp.dataset.level];
+      inp.value = v != null ? v : '';
+    });
+    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => {
+      if (document.activeElement === inp) return;
+      const v = la[inp.dataset.amt];
       inp.value = v != null ? v : '';
     });
   }
@@ -2897,6 +2933,8 @@
     prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) p[id] = el.value.trim(); });
     p.levelPct = {};
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => { if (inp.value.trim() !== '') p.levelPct[inp.dataset.level] = inp.value.trim(); });
+    p.levelAmt = {};
+    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => { if (inp.value.trim() !== '') p.levelAmt[inp.dataset.amt] = inp.value.trim(); });
     return p;
   }
   function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(collectPrefs())); } catch (e) {} }
@@ -2909,9 +2947,11 @@
     if (!p) return;
     prefInputIds.forEach(id => { const el = document.getElementById(id); if (el && !el.value && p[id] && document.activeElement !== el) el.value = p[id]; });
     levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => { if (!inp.value && p.levelPct && p.levelPct[inp.dataset.level]) inp.value = p.levelPct[inp.dataset.level]; });
+    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => { if (!inp.value && p.levelAmt && p.levelAmt[inp.dataset.amt]) inp.value = p.levelAmt[inp.dataset.amt]; });
   }
   prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', savePrefs); });
   levelPctRowsEl.querySelectorAll('input[data-level]').forEach(inp => inp.addEventListener('change', savePrefs));
+  levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => inp.addEventListener('change', savePrefs));
   let lastStopLossSig = null;
   function syncStopLossInputs(a) {
     const sl = a && a.stopLoss, rs = a && a.softReset;
@@ -3052,10 +3092,15 @@
       const v = inp.value.trim();
       if (v !== '') levelPct[inp.dataset.level] = v;
     });
+    const levelAmt = {};
+    levelPctRowsEl.querySelectorAll('input[data-amt]').forEach(inp => {
+      const v = inp.value.trim();
+      if (v !== '') levelAmt[inp.dataset.amt] = v;
+    });
     savePrefs();
     const stopLoss = { pct: slInputs.stopPct.value.trim(), minutes: slInputs.stopMin.value.trim() };
     const softReset = { pct: slInputs.resetPct.value.trim(), minutes: slInputs.resetMin.value.trim() };
-    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, stopLoss, softReset, anchorTol: slInputs.anchorTol.value.trim(), symbol: currentSymbol }));
+    ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, levelAmt, stopLoss, softReset, anchorTol: slInputs.anchorTol.value.trim(), symbol: currentSymbol }));
   });
 
   // ═══════════════════ التحكم بالفريمات والعملة ═══════════════════
