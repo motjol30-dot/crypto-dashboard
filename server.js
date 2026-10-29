@@ -554,7 +554,7 @@ wss.on('connection', (ws, req) => {
           levelPct[lvl] = vv;
         }
       }
-      // 🛑 وقف الخسارة (مربع واحد): { pct, minutes } — النسبة = النزول تحت متوسط الشراء، الدقائق = مدة مراقبة الارتداد قبل البيع.
+      // 🛑 وقف الخسارة (المربع الأزرق): { pct } — النسبة = النزول تحت سعر الشراء (متوسط المراحل المشتراة)؛ عند الوصول يُباع كامل الكمية فورًا.
       // 🔄 إعادة الضبط بدون بيع (مربع ثاني): { pct, minutes } — أي واحد منهما كافٍ (النسبة أو الوقت، أيهما أولًا).
       // الخانتين فاضيتين = الميزة معطّلة. لو الواجهة ما أرسلت الحقل أصلًا (صفحة قديمة بالكاش) نترك المحفوظ كما هو.
       const isEmptyV = (x) => x === null || x === undefined || x === '';
@@ -568,13 +568,13 @@ wss.on('connection', (ws, req) => {
       const stopLossProvided = hasShape(msg.stopLoss);
       const softResetProvided = hasShape(msg.softReset);
       let stopLoss = null, softReset = null;
-      if (stopLossProvided && !(isEmptyV(msg.stopLoss.pct) && isEmptyV(msg.stopLoss.minutes))) {
-        const sp = parseFloat(msg.stopLoss.pct), sm = parseInt(msg.stopLoss.minutes, 10);
-        if (!(sp >= 0.1 && sp <= 90) || !(sm >= 1 && sm <= 720)) {
-          ws.send(JSON.stringify({ type: 'error', message: 'وقف الخسارة: النسبة بين 0.1 و 90، والدقائق بين 1 و 720 — وعبّئ الخانتين معًا' }));
+      if (stopLossProvided && !isEmptyV(msg.stopLoss.pct)) {
+        const sp = parseFloat(msg.stopLoss.pct);
+        if (!(sp >= 0.1 && sp <= 90)) {
+          ws.send(JSON.stringify({ type: 'error', message: 'وقف الخسارة: النسبة لازم تكون بين 0.1 و 90' }));
           return;
         }
-        stopLoss = { pct: sp, minutes: sm };
+        stopLoss = { pct: sp };
       }
       if (softResetProvided && !(isEmptyV(msg.softReset.pct) && isEmptyV(msg.softReset.minutes))) {
         let rp = null, rm = null;
@@ -596,7 +596,7 @@ wss.on('connection', (ws, req) => {
         autoTradeByAccount[accountKey] = {
           pct, symbol, amountUsdt: botState.tradeSizeUsdt, levels, levelPct, sellPct: sellPctOverride, state: 'waiting_buy',
           peak: price, anchor: price, armed: false, legs: [], lastBuyPrice: null,
-          stopLoss: stopLossProvided ? stopLoss : null, softReset: softResetProvided ? softReset : null, stopLossWatch: null,
+          stopLoss: stopLossProvided ? stopLoss : null, softReset: softResetProvided ? softReset : null,
           resetBase: null, resetCount: 0, holdSince: null, anchorTol: anchorTolProvided ? anchorTol : 0, overshot: false, buyRetryAt: 0,
           fails: 0, failsBuy: 0, failsSell: 0, pausedUntil: 0, sellRetryAt: 0, busy: false, sellBusy: false, orderBusy: false,
         };
@@ -2233,7 +2233,7 @@ function botStatusPayload(ws) {
         pct: a.state === 'holding' ? sellPct : a.pct, mainPct: a.pct, sellPct: a.sellPct, symbol: a.symbol, state: a.state, peak: a.peak, anchor: a.anchor, armed: a.armed,
         amountUsdt: a.amountUsdt, levels: a.levels || 1, levelPct: a.levelPct || {}, legsDone: legs.length,
         avgBuyPrice, lastBuyPrice: a.lastBuyPrice,
-        stopLoss: a.stopLoss || null, softReset: a.softReset || null, stopLossWatch: a.stopLossWatch || null,
+        stopLoss: a.stopLoss || null, softReset: a.softReset || null,
         totalCost: a.state === 'holding' ? legsTotalCost(a) : 0, resetCount: a.resetCount || 0, buysCount: (a.legs || []).length,
         anchorTol: a.anchorTol || 0, anchorLimit: a.anchor > 0 ? a.anchor * (1 + (a.anchorTol > 0 ? a.anchorTol : 0) / 100) : null,
         problem: a.problem || null, // مشكلة حالية (إن وجدت) — تبقى هنا لحد ما تُحل، حتى لو المستخدم كان بعيد عن الصفحة وقت حدوثها
@@ -2547,14 +2547,14 @@ function loadAutoTrade() {
       const ks = Object.keys(a.stopLoss);
       a.stopLoss = ks.length ? (a.stopLoss[a.levels] || a.stopLoss[ks[0]] || null) : null;
     }
-    if (!a.stopLoss || !(a.stopLoss.pct > 0)) a.stopLoss = null;
+    if (!a.stopLoss || !(a.stopLoss.pct > 0)) a.stopLoss = null; else a.stopLoss = { pct: a.stopLoss.pct }; // وقف الخسارة الجديد نسبة فقط (بدون دقائق)
     if (!a.softReset || typeof a.softReset !== 'object') a.softReset = null;
     if (a.resetCount === undefined) a.resetCount = 0;
     if (a.holdSince === undefined) a.holdSince = null;
     if (!(a.anchorTol > 0)) a.anchorTol = 0;
     a.overshot = !!a.overshot; a.buyRetryAt = 0;
     if (a.resetBase === undefined) a.resetBase = null;
-    if (a.stopLossWatch === undefined) a.stopLossWatch = null;
+    delete a.stopLossWatch; // مراقبة وقف الخسارة القديمة (بالدقائق) أُلغيت
     if (!(a.anchor > 0)) { a.anchor = a.peak; a.armed = true; } else if (a.armed === undefined) a.armed = true;
     // توافق الصفقات القديمة (قبل مرحلة الشراء المتدرّج): كانت تخزّن position مفردة بدل legs — نحوّلها
     if (a.position && !a.legs) { a.legs = [a.position]; a.lastBuyPrice = a.position.buyPrice; delete a.position; }
@@ -2567,7 +2567,7 @@ function loadAutoTrade() {
           trades.unshift({ id: leg.id, symbol: a.symbol, qty: leg.qty, buyPrice: leg.price, buyOrderId: leg.orderId || null, sellOrderId: null, sellPrice: null, status: 'open', time: leg.time, auto: true, cost: leg.cost });
         }
       }
-    } else { a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null; a.stopLossWatch = null; a.resetBase = null; a.resetCount = 0; a.holdSince = null; }
+    } else { a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null; a.resetBase = null; a.resetCount = 0; a.holdSince = null; }
   }
 }
 function notifyAccount(accountKey, payload) {
@@ -2738,7 +2738,7 @@ async function runAutoTradeCycle() {
       }
       if (!a.legs.length) { // كل المراحل اتباعت يدويًا → نرجع ننتظر النزول من جديد
         a.state = 'waiting_buy'; a.lastBuyPrice = null; a.peak = price; a.anchor = price; a.armed = false;
-        a.resetBase = null; a.resetCount = 0; a.holdSince = null; a.stopLossWatch = null;
+        a.resetBase = null; a.resetCount = 0; a.holdSince = null;
         saveAutoTrade(); broadcastBotStatus(); continue;
       }
       // المراحل "الفعلية" للحساب: بعد إعادة ضبط بدون بيع تُطوى المراحل القديمة بمرحلة واحدة بسعر إعادة الضبط
@@ -2761,35 +2761,35 @@ async function runAutoTradeCycle() {
         nextLevel, nextPct: vLegs.length < (a.levels || 1) ? nextPct : null, buyMove,
         levelPrices: a.legs.map(l => l.price),
       });
-      // 🛑 وقف الخسارة و🔄 إعادة الضبط يعملان فقط على الصفقة المكتملة (كل مراحل الشراء المطلوبة تمت).
+      // 🛑 وقف الخسارة (المربع الأزرق): نسبة واحدة تُحسب من سعر الشراء — متوسط كل المراحل المشتراة (مرحلة واحدة = سعرها نفسه).
+      // عند نزول السعر إلى هذا الحد يُباع كامل الكمية فورًا بأمر سوق، ويعمل من أول شراء (لا ينتظر اكتمال المراحل).
+      // 🔄 إعادة الضبط بدون بيع تعمل فقط على الصفقة المكتملة (كل مراحل الشراء المطلوبة تمت).
       const full = vLegs.length >= (a.levels || 1);
-      const slRow = (full && a.stopLoss && a.stopLoss.pct > 0) ? a.stopLoss : null;
+      const slRow = (a.stopLoss && a.stopLoss.pct > 0) ? a.stopLoss : null;
       const rsRow = (full && a.softReset && (a.softReset.pct > 0 || a.softReset.minutes > 0)) ? a.softReset : null;
-      if (a.stopLossWatch && !slRow) { // ألغيت المراقبة (حذف الإعداد أو تغيّرت المراحل) — نوقفها
-        a.stopLossWatch = null; saveAutoTrade();
-        notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false });
-      }
-      // 🔴 بيع الربح (وصول النسبة فوق متوسط كل المراحل) صار بعدّاد مستقل تمامًا: runAutoSellCounter — لا يتأثر بفشل/انتظار الشراء
-      if (a.stopLossWatch) {
-        // مراقبة وقف الخسارة شغّالة: نتتبع القاع والارتداد، ونبيع قرب أفضل ارتداد بدل أسوأ سعر
-        const w = a.stopLossWatch;
-        if (price < w.low) { w.low = price; w.peak = price; } else if (price > w.peak) w.peak = price; // قاع جديد = نبدأ تتبع الارتداد من جديد
-        const rebounded = w.peak >= w.low * 1.003;               // حصل ارتداد فعلي (0.3% فوق القاع على الأقل)
-        const pulledBack = rebounded && price <= w.peak * (1 - 0.003); // ثم تراجع 0.3% عن قمة الارتداد = وقت الخروج
-        const timeUp = Date.now() >= w.endsAt;                    // انتهت مدة المراقبة
-        if ((timeUp || pulledBack) && Date.now() >= (a.sellRetryAt || 0) && !a.orderBusy) {
+      // 🔴 بيع الربح (وصول النسبة فوق متوسط كل المراحل) بعدّاد مستقل تمامًا: runAutoSellCounter — لا يتأثر بفشل/انتظار الشراء
+      const stopPrice = slRow ? avgBuyPrice * (1 - slRow.pct / 100) : null;
+      const stopHit = !!slRow && price <= stopPrice;
+      const resetByPct = !!(rsRow && rsRow.pct > 0) && price <= avgBuyPrice * (1 - rsRow.pct / 100);
+      // الوقت يُحسب من آخر شراء/إعادة ضبط، ولا يُفعَّل إلا والسعر تحت متوسط الشراء (حتى لا نرفع نقطة البيع وإحنا برابحين)
+      const resetByTime = !!(rsRow && rsRow.minutes > 0) && price < avgBuyPrice && a.holdSince > 0 && (Date.now() - a.holdSince) >= rsRow.minutes * 60000;
+      const resetHit = resetByPct || resetByTime;
+      // لو الاثنين انكسرا بنفس الدورة: وقف الخسارة (بيع) يغلب، إلا لو نسبة إعادة الضبط أصغر من نسبة وقف الخسارة (يعني كانت تسبقه)
+      const stopWins = stopHit && !(resetByPct && slRow && rsRow.pct < slRow.pct);
+      if (stopWins) {
+        // السعر وصل حد وقف الخسارة: نبيع كامل الكمية فورًا. لو فشل البيع نعيد المحاولة بفاصل قصير، وما نشتري مراحل جديدة أثناء ذلك.
+        if (Date.now() >= (a.sellRetryAt || 0) && !a.orderBusy) {
           a.orderBusy = true;
           try {
             if (a.state !== 'holding' || !a.legs.length) continue;
-            const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true, '🛑 وقف خسارة تلقائي (بعد مراقبة الارتداد)');
+            const sold = await executeManualSellAll(a.symbol, accountKey, creds, a.legs.map(l => l.id), true, '🛑 وقف خسارة — بيع الكمية كاملة');
             const sellPrice = sold.sellPrice || price;
             const lossPct = (sellPrice - avgBuyPrice) / avgBuyPrice * 100;
             a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null;
-            a.peak = sellPrice; a.anchor = a.peak; a.armed = false; a.stopLossWatch = null;
+            a.peak = sellPrice; a.anchor = a.peak; a.armed = false;
             a.resetBase = null; a.resetCount = 0; a.holdSince = null;
             clearAutoTradeProblem(a, accountKey);
             saveAutoTrade();
-            notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false, sold: true, sellPrice, avgBuyPrice, lossPct, reason: pulledBack ? 'rebound' : 'time' });
             notifyAccount(accountKey, { type: 'trade_result', side: 'SELL', symbol: a.symbol, stopLoss: true, lossPct });
             broadcastBotStatus();
           } catch (err) {
@@ -2797,30 +2797,14 @@ async function runAutoTradeCycle() {
             broadcastBotStatus();
           } finally { a.orderBusy = false; }
         }
-      } else if (slRow || rsRow) {
-        const stopPrice = slRow ? avgBuyPrice * (1 - slRow.pct / 100) : null;
-        const stopHit = !!slRow && price <= stopPrice;
-        const resetByPct = !!(rsRow && rsRow.pct > 0) && price <= avgBuyPrice * (1 - rsRow.pct / 100);
-        // الوقت يُحسب من آخر شراء/إعادة ضبط، ولا يُفعَّل إلا والسعر تحت متوسط الشراء (حتى لا نرفع نقطة البيع وإحنا برابحين)
-        const resetByTime = !!(rsRow && rsRow.minutes > 0) && price < avgBuyPrice && a.holdSince > 0 && (Date.now() - a.holdSince) >= rsRow.minutes * 60000;
-        const resetHit = resetByPct || resetByTime;
-        // لو الاثنين انكسرا بنفس الدورة: وقف الخسارة (بيع) يغلب، إلا لو نسبة إعادة الضبط أصغر من نسبة وقف الخسارة (يعني كانت تسبقه)
-        const stopWins = stopHit && !(resetByPct && slRow && rsRow.pct < slRow.pct);
-        if (stopWins) {
-          // السعر كسر وقف الخسارة: ما نبيع فورًا بأسوأ سعر — نبدأ مراقبة لمدة محدّدة بانتظار أفضل ارتداد
-          a.stopLossWatch = { pct: slRow.pct, minutes: slRow.minutes, stopPrice, startedAt: Date.now(), endsAt: Date.now() + slRow.minutes * 60000, low: price, peak: price };
-          saveAutoTrade();
-          notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: true, price, ...a.stopLossWatch });
-          broadcastBotStatus();
-        } else if (resetHit) {
-          // 🔄 إعادة ضبط بدون بيع: ما يصير أي أمر على Binance. نطوي كل المراحل الحالية بمرحلة واحدة بالسعر الحالي،
-          // فيرجع البوت يشتغل كأنه اشترى للتو بهذا السعر: نسبة البيع الأولى من السعر الحالي، والمراحل تبدأ من 2 من جديد.
-          a.resetBase = { price, ids: a.legs.map(l => l.id), time: Date.now() };
-          a.lastBuyPrice = price; a.holdSince = Date.now(); a.resetCount = (a.resetCount || 0) + 1;
-          saveAutoTrade();
-          notifyAccount(accountKey, { type: 'soft_reset', symbol: a.symbol, price, oldAvg: avgBuyPrice, reason: resetByPct ? 'pct' : 'time', resetCount: a.resetCount, totalCost: legsTotalCost(a) });
-          broadcastBotStatus();
-        }
+      } else if (resetHit) {
+        // 🔄 إعادة ضبط بدون بيع: ما يصير أي أمر على Binance. نطوي كل المراحل الحالية بمرحلة واحدة بالسعر الحالي،
+        // فيرجع البوت يشتغل كأنه اشترى للتو بهذا السعر: نسبة البيع الأولى من السعر الحالي، والمراحل تبدأ من 2 من جديد.
+        a.resetBase = { price, ids: a.legs.map(l => l.id), time: Date.now() };
+        a.lastBuyPrice = price; a.holdSince = Date.now(); a.resetCount = (a.resetCount || 0) + 1;
+        saveAutoTrade();
+        notifyAccount(accountKey, { type: 'soft_reset', symbol: a.symbol, price, oldAvg: avgBuyPrice, reason: resetByPct ? 'pct' : 'time', resetCount: a.resetCount, totalCost: legsTotalCost(a) });
+        broadcastBotStatus();
       } else if (vLegs.length < (a.levels || 1) && Date.now() >= (a.buyRetryAt || 0)) {
         // ما وصلنا عدد مرات الشراء المطلوب بعد → ننتظر نزول نسبة *هذي المرحلة تحديدًا* (مخصّصة لها أو الرئيسية تلقائيًا)
         // من آخر سعر اشترينا فيه عشان نشتري مرحلة جديدة
@@ -2910,6 +2894,7 @@ async function runAutoSellCounter() {
         avgBuyPrice, legsDone: vLegs.length, levels: a.levels || 1,
         totalCost: legsTotalCost(a), resetCount: a.resetCount || 0, buysCount: a.legs.length,
         levelPrices: a.legs.map(l => l.price),
+        stopPct: (a.stopLoss && a.stopLoss.pct > 0) ? a.stopLoss.pct : null, stopPrice: (a.stopLoss && a.stopLoss.pct > 0) ? avgBuyPrice * (1 - a.stopLoss.pct / 100) : null,
       });
       if (price >= avgBuyPrice * (1 + sellPct / 100) && Date.now() >= (a.sellRetryAt || 0) && !a.orderBusy) {
         a.orderBusy = true;
@@ -2920,7 +2905,6 @@ async function runAutoSellCounter() {
           a.state = 'waiting_buy'; a.legs = []; a.lastBuyPrice = null;
           a.peak = sold.sellPrice || price; a.anchor = a.peak; a.armed = false;
           a.resetBase = null; a.resetCount = 0; a.holdSince = null;
-          if (a.stopLossWatch) { a.stopLossWatch = null; notifyAccount(accountKey, { type: 'stop_loss_watch', symbol: a.symbol, active: false }); }
           clearAutoTradeProblem(a, accountKey);
           saveAutoTrade();
           notifyAccount(accountKey, { type: 'trade_result', side: 'SELL', symbol: a.symbol });

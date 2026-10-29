@@ -255,16 +255,22 @@
   }
   html[dir="ltr"] #auto-cost-chip { order: -1; margin-left: 0 !important; margin-right: auto !important; }
   /* 🛑 زر وقف الخسارة + لوحته (مربعين) */
+  #auto-stop-input {
+    width: 60px; border-radius: 7px; padding: 3px 6px; font-size: 16px; text-align: center; outline: none;
+    background: rgba(88,166,255,0.10); border: 1px solid rgba(88,166,255,0.5); color: #58a6ff;
+  }
+  #auto-stop-input::placeholder { color: rgba(88,166,255,0.75); font-weight: 800; font-size: 0.68rem; }
+  #auto-stop-input.active { background: rgba(88,166,255,0.25); box-shadow: 0 0 8px rgba(88,166,255,0.55); }
   #auto-stoploss-btn {
-    width: 30px; height: 30px; border-radius: 7px; background: rgba(248,81,73,0.10); border: 1px solid rgba(248,81,73,0.5);
+    width: 30px; height: 30px; border-radius: 7px; background: rgba(88,166,255,0.10); border: 1px solid rgba(88,166,255,0.5);
     font-size: 14px; line-height: 1; cursor: pointer;
   }
-  #auto-stoploss-btn.active { background: rgba(248,81,73,0.28); box-shadow: 0 0 8px rgba(248,81,73,0.55); }
+  #auto-stoploss-btn.active { background: rgba(88,166,255,0.28); box-shadow: 0 0 8px rgba(88,166,255,0.55); }
   #auto-stoploss-btn:active { transform: scale(0.94); }
   #auto-stoploss-panel {
     position: fixed; left: 8px; right: 8px; bottom: 70px; z-index: 400; max-height: 55vh; overflow-y: auto; box-sizing: border-box;
     width: auto; max-width: calc(100vw - 16px);
-    background: #141414; border: 1px solid rgba(248,81,73,0.5); border-radius: 12px; padding: 8px;
+    background: #141414; border: 1px solid rgba(88,166,255,0.5); border-radius: 12px; padding: 8px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.55);
   }
   .sl-box { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 7px 8px; margin-bottom: 7px; }
@@ -702,8 +708,9 @@
     <input type="number" id="auto-pct-input" min="0.1" max="50" step="0.1" placeholder="% تلقائي" title="نسبة التداول التلقائي: فاضي = يدوي. مثال 0.5 = يشتري عند نزول 0.5% ويبيع عند ارتفاع 0.5% ثم يعيد">
     <input type="number" id="auto-levels-input" min="1" max="10" step="1" placeholder="عدد" title="عدد مرات الشراء المتدرّج: فاضي أو 1 = شراء مرة وحدة. مثال 3 = يشتري 3 مرات، كل مرة عند نزول النسبة من آخر شراء، ثم يبيع الكل مرة وحدة عند ارتفاع النسبة فوق متوسط سعر الشراء">
     <button type="button" id="auto-levelpct-gear" title="تخصيص نسبة كل مرحلة شراء على حدة">⚙</button>
-    <button type="button" id="auto-stoploss-btn" title="وقف الخسارة وإعادة الضبط بدون بيع">🛑</button>
+    <button type="button" id="auto-stoploss-btn" title="إعادة الضبط بدون بيع + سماحية المرساة">🔄</button>
     <input type="number" id="auto-sellpct-input" min="0.1" max="50" step="0.1" placeholder="% بيع" title="نسبة البيع الثابتة فوق متوسط سعر الشراء — فاضي = تلقائي (يستخدم نسبة آخر مرحلة شراء)">
+    <input type="number" id="auto-stop-input" min="0.1" max="90" step="0.1" placeholder="🛑 %" title="وقف الخسارة: إذا نزل السعر هذه النسبة تحت سعر الشراء يبيع كامل الكمية فورًا. يُحسب من سعر الشراء (متوسط المراحل). فاضي = بدون وقف خسارة">
   </div>
   <button type="button" class="chart-tool-btn" id="chart-amount-save-btn">💾 حفظ</button>
   <div id="auto-levelpct-panel" style="display:none;">
@@ -712,14 +719,6 @@
     <button type="button" id="auto-levelpct-close">تم ✓</button>
   </div>
   <div id="auto-stoploss-panel" style="display:none;">
-    <div class="sl-box stop">
-      <div class="sl-box-title">🛑 وقف الخسارة (يبيع)</div>
-      <div class="sl-box-desc">ينزل تحت المتوسط بهذه النسبة ← يراقب المدة ويبيع قرب أفضل ارتداد. الخانتين معًا.</div>
-      <div class="sl-box-row">
-        <label>النسبة %<input type="number" id="sl-stop-pct" min="0.1" max="90" step="0.1" placeholder="مثال 10"></label>
-        <label>الوقت (دقيقة)<input type="number" id="sl-stop-min" min="1" max="720" step="1" placeholder="مثال 30"></label>
-      </div>
-    </div>
     <div class="sl-box reset">
       <div class="sl-box-title">🔄 إعادة ضبط (بدون بيع)</div>
       <div class="sl-box-desc">عند النسبة أو الوقت (أيهما أولًا) بدون بيع: يعتبرها اشتريت الآن بالسعر الحالي ويبدأ من النسبة الأولى. تكفي خانة.</div>
@@ -1185,6 +1184,7 @@
   }
 
   // ═══════════════════ الوقت المتبقي لإغلاق الشمعة الحالية + تحديث سريع لمربعي صعود/هبوط ═══════════════════
+  let lastCandleTime = null; // وقت آخر شمعة (كان غير معرّف فيسبب خطأ ReferenceError في العدّاد قبل وصول أول شموع)
   const INTERVAL_SECONDS = { '1s': 1, '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '2h': 7200, '4h': 14400 };
   function updateCandleCountdown() {
     const el = document.getElementById('candle-countdown');
@@ -1558,7 +1558,6 @@
       else if (msg.type === 'auto_progress') renderAutoProgress(msg);
       else if (msg.type === 'soft_reset') handleSoftReset(msg);
       else if (msg.type === 'auto_audit_result') handleAuditResult(msg);
-      else if (msg.type === 'stop_loss_watch') handleStopLossWatch(msg);
       else if (msg.type === 'account_status') handleAccountStatus(msg);
     };
     ws.onclose = (ev) => {
@@ -2809,7 +2808,7 @@
       document.getElementById('auto-ledger-text').textContent = '⚠ ' + (prob.side === 'sell' ? 'بيع: ' : 'شراء: ') + String(prob.detail).slice(0, 60);
       led.classList.add('warn'); led.style.visibility = 'visible';
     } else if (holding && Array.isArray(m.levelPrices) && m.levelPrices.length) {
-      document.getElementById('auto-ledger-text').textContent = '🧾 ' + m.levelPrices.map((p, i) => (i + 1) + ') ' + fmt(p)).join('  ');
+      document.getElementById('auto-ledger-text').textContent = '🧾 ' + m.levelPrices.map((p, i) => (i + 1) + ') ' + fmt(p)).join('  ') + (m.stopPrice > 0 ? '  🛑 ' + fmt(m.stopPrice) : '');
       led.title = document.getElementById('auto-ledger-text').textContent;
       led.classList.remove('warn'); led.style.visibility = 'visible';
     } else { led.style.visibility = 'hidden'; }
@@ -2876,10 +2875,10 @@
     chip.style.display = '';
   }
 
-  // 🛑 زر وقف الخسارة: مربعين (وقف خسارة يبيع / إعادة ضبط بدون بيع) — تُحفظ مع زر 💾 حفظ
+  // 🔄 زر إعادة الضبط + سماحية المرساة (لوحة صغيرة) — وقف الخسارة صار مربعه الأزرق الخاص بجانب % بيع؛ الكل يُحفظ مع زر 💾 حفظ
   const slPanel = document.getElementById('auto-stoploss-panel');
   const slInputs = {
-    stopPct: document.getElementById('sl-stop-pct'), stopMin: document.getElementById('sl-stop-min'),
+    stopPct: document.getElementById('auto-stop-input'),
     resetPct: document.getElementById('sl-reset-pct'), resetMin: document.getElementById('sl-reset-min'),
     anchorTol: document.getElementById('sl-anchor-tol'),
   };
@@ -2891,7 +2890,7 @@
   // لو السيرفر ما عنده تداول تلقائي شغّال (أول فتح/بعد تحديث الملفات) تُعبَّأ الخانات الفاضية منها — لا تتشغّل وحدها، تضغط 💾 حفظ.
   const PREFS_KEY = 'botInputPrefs';
   const prefInputIds = ['chart-amount-buy-input', 'chart-amount-sell-input', 'auto-pct-input', 'auto-levels-input', 'auto-sellpct-input',
-    'sl-stop-pct', 'sl-stop-min', 'sl-reset-pct', 'sl-reset-min', 'sl-anchor-tol'];
+    'auto-stop-input', 'sl-reset-pct', 'sl-reset-min', 'sl-anchor-tol'];
   function collectPrefs() {
     const p = {};
     prefInputIds.forEach(id => { const el = document.getElementById(id); if (el) p[id] = el.value.trim(); });
@@ -2915,12 +2914,13 @@
   let lastStopLossSig = null;
   function syncStopLossInputs(a) {
     const sl = a && a.stopLoss, rs = a && a.softReset;
-    document.getElementById('auto-stoploss-btn').classList.toggle('active', !!(sl || rs || (a && a.anchorTol > 0)));
+    document.getElementById('auto-stoploss-btn').classList.toggle('active', !!(rs || (a && a.anchorTol > 0)));
+    slInputs.stopPct.classList.toggle('active', !!sl);
     const sig = JSON.stringify([sl || null, rs || null, a ? a.symbol : null, a ? a.anchorTol : 0]);
     if (sig === lastStopLossSig) return;
     lastStopLossSig = sig;
     const put = (el, v) => { if (document.activeElement !== el) el.value = v != null ? v : ''; };
-    put(slInputs.stopPct, sl && sl.pct); put(slInputs.stopMin, sl && sl.minutes);
+    put(slInputs.stopPct, sl && sl.pct);
     put(slInputs.resetPct, rs && rs.pct); put(slInputs.resetMin, rs && rs.minutes);
     put(slInputs.anchorTol, a && a.anchorTol > 0 ? a.anchorTol : '');
   }
@@ -2953,7 +2953,6 @@
     // 🔕 تنبيه إعادة الضبط ملغى — نحدّث الشريحة فقط
     renderCostChip({ state: 'holding', totalCost: m.totalCost, legsDone: 1, resetCount: m.resetCount, buysCount: m.buysCount });
   }
-  function handleStopLossWatch(m) { /* 🔕 تنبيهات مراقبة وقف الخسارة ملغاة */ }
 
   // ═══════════════════ 🔔 لوحة تنبيهات التداول التلقائي (بدل alert() اللي يحجب الصفحة ويحتاج ضغط OK) ═══════════════════
   // كل مشاكل الشراء/البيع التلقائي (رصيد، مفتاح API، اتصال، إلخ) تظهر هنا كصف دائم بدل نافذة منبثقة
@@ -3053,7 +3052,7 @@
       if (v !== '') levelPct[inp.dataset.level] = v;
     });
     savePrefs();
-    const stopLoss = { pct: slInputs.stopPct.value.trim(), minutes: slInputs.stopMin.value.trim() };
+    const stopLoss = { pct: slInputs.stopPct.value.trim() };
     const softReset = { pct: slInputs.resetPct.value.trim(), minutes: slInputs.resetMin.value.trim() };
     ws.send(JSON.stringify({ type: 'auto_trade_set', pct: pctRaw === '' ? null : pctRaw, levels: levelsRaw === '' ? null : levelsRaw, sellPct: sellPctRaw === '' ? null : sellPctRaw, levelPct, stopLoss, softReset, anchorTol: slInputs.anchorTol.value.trim(), symbol: currentSymbol }));
   });
