@@ -412,12 +412,12 @@ wss.on('connection', (ws, req) => {
     else if (msg.type === 'bot_set_trade_size') {
       // بوت الشبكة: هذه القيمة = مبلغ الصفقة بالـ USDT لكل مستوى في الشبكة
       const v = parseFloat(msg.tradeSizeUsdt);
-      if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; broadcastBotStatus(); }
+      if (v > 0 && v <= 100000) { botState.tradeSizeUsdt = v; saveBotSettings(); broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_sell_amount') {
       // مبلغ البيع (USDT) — محفوظ حاليًا للعرض فقط؛ زر "بيع الآن" لسه يبيع كامل كمية الصفقة المفتوحة
       const v = parseFloat(msg.sellAmountUsdt);
-      if (v > 0 && v <= 100000) { botState.sellAmountUsdt = v; broadcastBotStatus(); }
+      if (v > 0 && v <= 100000) { botState.sellAmountUsdt = v; saveBotSettings(); broadcastBotStatus(); }
     }
     else if (msg.type === 'bot_set_take_profit') {
       // بوت الشبكة: هذه القيمة = نسبة المسافة بين كل مستوى شراء/بيع والمستوى الذي يليه (GRID_STEP_PERCENT)
@@ -2079,6 +2079,23 @@ let botState = {
   pendingSellOrders: {},    // غير مستخدم في بوت الشبكة (توافقًا مع الواجهة القديمة)
   tradeLog: [],
 };
+
+// 💾 مبلغ الشراء ومبلغ البيع يُحفظان في ملف دائم (بجانب بقية بيانات البوت): قبل كان في الذاكرة فقط، فيرجع 50 مع كل إعادة تشغيل للسيرفر.
+const BOT_SETTINGS_FILE = path.join(DATA_DIR, 'bot-settings.json');
+function saveBotSettings() {
+  try {
+    fs.writeFileSync(BOT_SETTINGS_FILE, JSON.stringify({ tradeSizeUsdt: botState.tradeSizeUsdt, sellAmountUsdt: botState.sellAmountUsdt }, null, 2), { mode: 0o600 });
+    mirrorCopy(BOT_SETTINGS_FILE);
+  } catch (err) { console.error('تعذّر حفظ مبالغ البوت:', err.message); }
+}
+(function loadBotSettings() {
+  mirrorRestore(BOT_SETTINGS_FILE);
+  try {
+    const o = JSON.parse(fs.readFileSync(BOT_SETTINGS_FILE, 'utf8'));
+    if (o.tradeSizeUsdt > 0 && o.tradeSizeUsdt <= 100000) botState.tradeSizeUsdt = o.tradeSizeUsdt;
+    if (o.sellAmountUsdt > 0 && o.sellAmountUsdt <= 100000) botState.sellAmountUsdt = o.sellAmountUsdt;
+  } catch (err) { /* أول تشغيل: نبقى على الافتراضي */ }
+})();
 
 const SCAN_BATCH_SIZE = 15; // كم عملة نفحص بالتوازي بكل دفعة أثناء فحص أقوى 3 عملات (REST خفيف) — يُستخدم في runExplosionScan فوق
 

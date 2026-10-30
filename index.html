@@ -2652,10 +2652,13 @@
   }
 
   // ═══════════════════ حالة البوتين (مبسّطة — العنصر الوحيد المتبقي بالواجهة هو مبلغ الصفقة) ═══════════════════
+  let amountsDirty = false; // true = كتبت مبلغًا ولم تضغط 💾 بعد
   function handleBotStatus(msg) {
     lastBotStatus = msg;
-    document.getElementById('chart-amount-buy-input').value = msg.tradeSizeUsdt;
-    document.getElementById('chart-amount-sell-input').value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
+    // لا نكتب فوق رقم تكتبه أنت (قبل ما تضغط 💾): أي تحديث من السيرفر كان يرجّع الخانة للقيمة القديمة (مثل 50) وأنت تكتب
+    const buyEl = document.getElementById('chart-amount-buy-input'), sellEl = document.getElementById('chart-amount-sell-input');
+    if (!amountsDirty && document.activeElement !== buyEl) buyEl.value = msg.tradeSizeUsdt;
+    if (!amountsDirty && document.activeElement !== sellEl) sellEl.value = msg.sellAmountUsdt != null ? msg.sellAmountUsdt : msg.tradeSizeUsdt;
     syncAutoPctInput(msg.autoTrade);
     syncStopLossInputs(msg.autoTrade);
     restorePrefsOnce(msg.autoTrade);
@@ -3036,10 +3039,12 @@
     if (e && e.active && !e.info) clearAlertsOnServer([e.symbol]);
   });
 
+  ['chart-amount-buy-input', 'chart-amount-sell-input'].forEach(id => document.getElementById(id).addEventListener('input', () => { amountsDirty = true; }));
   document.getElementById('chart-amount-save-btn').addEventListener('click', () => {
     const buyV = parseFloat(document.getElementById('chart-amount-buy-input').value);
     const sellV = parseFloat(document.getElementById('chart-amount-sell-input').value);
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    amountsDirty = false;
     if (buyV > 0) ws.send(JSON.stringify({ type: 'bot_set_trade_size', tradeSizeUsdt: buyV }));
     if (sellV > 0) ws.send(JSON.stringify({ type: 'bot_set_sell_amount', sellAmountUsdt: sellV }));
     // النسبة: فاضية = يدوي (يوقف التلقائي)، موجودة = تشغيل التلقائي على العملة المعروضة حاليًا
